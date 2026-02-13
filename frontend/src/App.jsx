@@ -277,9 +277,9 @@ export default function VulnDashboard() {
     setTimeout(() => setSmtpMsg(null), 3000);
   };
 
-  const todayT = (dash.today || []).reduce((s, c) => s + c._count, 0);
+  const todayT = (dash?.today?.CRITICAL ?? 0) + (dash?.today?.HIGH ?? 0) + (dash?.today?.MEDIUM ?? 0) + (dash?.today?.LOW ?? 0);
   const weekT = (dash.week || []).reduce((s, c) => s + c._count, 0);
-  const gc = (arr, sev) => (arr || []).find(c => c.cvssV31Severity === sev)?._count || 0;
+  const gc = (obj, key) => obj?.[key] ?? 0;
   const nextRun = () => { if (!dash.lastRun?.finishedAt) return "-"; return Math.max(0, Math.floor((new Date(dash.lastRun.finishedAt).getTime() + 1800000 - now) / 60000)) + "m"; };
 
   // Search logic (searches loaded vulns)
@@ -508,7 +508,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
               </Card>
               <Card title="Estado Collector" icon="server">
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
-                  {[["CVEs", dash.lastRun.cvesFetched], ["Nuevos", dash.lastRun.cvesNew], ["Duración", fmtMs(dash.lastRun.durationMs)]].map(([l, v]) => (
+                  {[["CVEs", dash?.lastRun?.cvesFetched ?? 0], ["Nuevos", dash?.lastRun?.cvesNew ?? 0], ["Duración", fmtMs(dash?.lastRun?.durationMs ?? 0)]].map(([l, v]) => (
                     <div key={l} style={{ background: C.gray50, borderRadius: 6, padding: "8px 10px", textAlign: "center" }}>
                       <div style={{ fontSize: 9, color: C.gray500, fontWeight: 600, textTransform: "uppercase" }}>{l}</div>
                       <div style={{ fontSize: 20, fontWeight: 800, color: C.text, fontFamily: "monospace" }}>{v}</div>
@@ -528,7 +528,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                     <th key={h} style={{ padding: "9px 14px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.8px", borderBottom: `1px solid ${C.gray200}` }}>{h}</th>
                   ))}
                 </tr></thead>
-                <tbody>{(dash.topExploited || []).map(v => {
+                <tbody>{(dash?.topExploited || []).map(v => {
                   const aff = getAffectedContacts(v);
                   return (
                     <tr key={v.cveId} className="rh" style={{ cursor: "pointer" }} onClick={() => { setSelectedVuln(vulns.find(x => x.cveId === v.cveId) || v); setView("vulns"); }}>
