@@ -277,10 +277,10 @@ export default function VulnDashboard() {
     setTimeout(() => setSmtpMsg(null), 3000);
   };
 
-  const todayT = (dash?.today?.CRITICAL ?? 0) + (dash?.today?.HIGH ?? 0) + (dash?.today?.MEDIUM ?? 0) + (dash?.today?.LOW ?? 0);
-  const weekT = (dash.week || []).reduce((s, c) => s + c._count, 0);
-  const gc = (obj, key) => obj?.[key] ?? 0;
-  const nextRun = () => { if (!dash.lastRun?.finishedAt) return "-"; return Math.max(0, Math.floor((new Date(dash.lastRun.finishedAt).getTime() + 1800000 - now) / 60000)) + "m"; };
+  const todayT = (dash?.today || []).reduce((s, c) => s + (c?._count || 0), 0);
+  const weekT = (dash?.week || []).reduce((s, c) => s + (c?._count || 0), 0);
+  const gc = (arr, sev) => (arr || []).find(c => c?.cvssV31Severity === sev)?._count || 0;
+  const nextRun = () => { if (!dash?.lastRun?.finishedAt) return "-"; return Math.max(0, Math.floor((new Date(dash?.lastRun?.finishedAt).getTime() + 1800000 - now) / 60000)) + "m"; };
 
   // Search logic (searches loaded vulns)
   const searchResults = searchQ.trim().length >= 2 ? vulns.filter(v => {
@@ -490,21 +490,21 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
           {/* ═══ OVERVIEW ═══ */}
           {view === "overview" && <>
             <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Panel de Vulnerabilidades</h1>
-            <p style={{ color: C.gray500, fontSize: 12, marginBottom: 20 }}>Última actualización: {fmtDate(dash.lastRun?.finishedAt)}</p>
+            <p style={{ color: C.gray500, fontSize: 12, marginBottom: 20 }}>Última actualización: {fmtDate(dash?.lastRun?.finishedAt)}</p>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
-              <Metric icon="bug" label="Total CVEs" value={dash.totalAll} sub="En base de datos" color={C.navy} />
-              <Metric icon="alert" label="Últimas 24h" value={todayT} sub={`${gc(dash.today, "CRITICAL")} críticas`} color={C.critical} />
-              <Metric icon="zap" label="Explotación activa" value={dash.topExploited.length} sub="CISA KEV confirmadas" color="#B91C1C" />
-              <Metric icon="activity" label="Semana" value={weekT} sub={`${gc(dash.week, "HIGH")} altas`} color={C.high} />
+              <Metric icon="bug" label="Total CVEs" value={dash?.totalAll ?? 0} sub="En base de datos" color={C.navy} />
+              <Metric icon="alert" label="Últimas 24h" value={todayT} sub={`${gc(dash?.today, "CRITICAL")} críticas`} color={C.critical} />
+              <Metric icon="zap" label="Explotación activa" value={(dash?.topExploited || []).length} sub="CISA KEV confirmadas" color="#B91C1C" />
+              <Metric icon="activity" label="Semana" value={weekT} sub={`${gc(dash?.week, "HIGH")} altas`} color={C.high} />
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               <Card title="Severidad (24h)" icon="shield">
-                <Bar label="Critical" count={gc(dash.today, "CRITICAL")} total={todayT} color={C.critical} />
-                <Bar label="High" count={gc(dash.today, "HIGH")} total={todayT} color={C.high} />
-                <Bar label="Medium" count={gc(dash.today, "MEDIUM")} total={todayT} color={C.medium} />
-                <Bar label="Low" count={gc(dash.today, "LOW")} total={todayT} color={C.low} />
+                <Bar label="Critical" count={gc(dash?.today, "CRITICAL")} total={todayT} color={C.critical} />
+                <Bar label="High" count={gc(dash?.today, "HIGH")} total={todayT} color={C.high} />
+                <Bar label="Medium" count={gc(dash?.today, "MEDIUM")} total={todayT} color={C.medium} />
+                <Bar label="Low" count={gc(dash?.today, "LOW")} total={todayT} color={C.low} />
               </Card>
               <Card title="Estado Collector" icon="server">
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
