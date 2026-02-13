@@ -184,6 +184,7 @@ model ItContact {
   name            String
   email           String
   contactPerson   String?  @map("contact_person")
+  department      String?
   phone           String?
   products        String   @default("[]")
   notes           String?
@@ -192,4 +193,34 @@ model ItContact {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   @@map("it_contacts")
+}
+
+// ══════════════════════════════════════════════════════════════
+// HISTORIAL DE NOTIFICACIONES
+// ══════════════════════════════════════════════════════════════
+
+model NotificationLog {
+  id             Int      @id @default(autoincrement())
+  recipientEmail String   @map("recipient_email")
+  recipientName  String?  @map("recipient_name")
+  subject        String
+  htmlContent    String   @db.Text @map("html_content")
+  cveIds         String   @default("[]") @map("cve_ids")
+  status         String   @default("sent")
+  sentAt         DateTime @default(now()) @map("sent_at")
+
+  @@index([sentAt(sort: Desc)])
+  @@map("notification_logs")
+}
+
+// ══════════════════════════════════════════════════════════════
+// TAGS DE VULNERABILIDADES
+// ══════════════════════════════════════════════════════════════
+
+model VulnerabilityTag {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+  color String @default("#3B6CB5")
+
+  @@map("vulnerability_tags")
 }

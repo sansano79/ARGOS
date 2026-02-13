@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resumen Semanal de Vulnerabilidades</title>
+</head>
+
+<body style="margin: 0; padding: 0; background: #F3F4F6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+    <div style="max-width: 640px; margin: 0 auto; padding: 20px;">
+        <!-- Header -->
+        <div
+            style="background: linear-gradient(135deg, #1B2A4A 0%, #2A3F6A 50%, #3B6CB5 100%); color: #fff; padding: 28px 32px; border-radius: 12px 12px 0 0;">
+            <h1 style="margin: 0; font-size: 22px; font-weight: 800;">📋 Resumen Semanal</h1>
+            <p style="margin: 6px 0 0; opacity: 0.75; font-size: 12px;">Servicios OCC — Oficina de Ciberseguridad
+                Corporativa</p>
+            <p style="margin: 10px 0 0; font-size: 14px; font-weight: 600;">Semana del {{ weekStart }} al {{ weekEnd }}
+            </p>
+        </div>
+
+        <!-- Body -->
+        <div style="background: #fff; padding: 32px; border: 1px solid #E5E7EB; border-top: none;">
+            <!-- Weekly Stats -->
+            <h2
+                style="font-size: 14px; color: #1B2A4A; margin: 0 0 16px; text-transform: uppercase; letter-spacing: 0.5px;">
+                Estadísticas de la Semana</h2>
+            <div style="display: flex; gap: 12px; margin-bottom: 28px;">
+                <div style="flex: 1; background: #EFF6FF; padding: 16px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 10px; color: #3B6CB5; font-weight: 700; text-transform: uppercase;">Nuevas
+                        CVEs</div>
+                    <div style="font-size: 36px; font-weight: 800; font-family: monospace; color: #1B2A4A;">{{ newCves
+                        }}</div>
+                </div>
+                <div style="flex: 1; background: #FEF2F2; padding: 16px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 10px; color: #DC2626; font-weight: 700; text-transform: uppercase;">
+                        Explotadas</div>
+                    <div style="font-size: 36px; font-weight: 800; font-family: monospace; color: #DC2626;">{{
+                        exploitedCount }}</div>
+                </div>
+                <div style="flex: 1; background: #F0FDF4; padding: 16px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 10px; color: #16A34A; font-weight: 700; text-transform: uppercase;">
+                        Parcheadas</div>
+                    <div style="font-size: 36px; font-weight: 800; font-family: monospace; color: #16A34A;">{{
+                        patchedCount }}</div>
+                </div>
+            </div>
+
+            <!-- Top Priorities -->
+            <h2
+                style="font-size: 14px; color: #1B2A4A; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+                Prioridades de la Semana</h2>
+            {{ prioritiesHtml }}
+
+            <!-- Affected Teams -->
+            <h2
+                style="font-size: 14px; color: #1B2A4A; margin: 24px 0 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+                Equipos Afectados</h2>
+            {{ teamsHtml }}
+
+            <!-- Collector Stats -->
+            <h2
+                style="font-size: 14px; color: #1B2A4A; margin: 24px 0 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+                Actividad del Collector</h2>
+            <div
+                style="background: #F8FAFB; padding: 14px 18px; border-radius: 8px; font-size: 13px; color: #4A5568; line-height: 1.7;">
+                <div>🔄 <strong>{{ collectorRuns }}</strong> ejecuciones completadas</div>
+                <div>📥 <strong>{{ totalFetched }}</strong> CVEs procesados</div>
+                <div>🆕 <strong>{{ totalNew }}</strong> CVEs nuevos almacenados</div>
+            </div>
+
+            <!-- CTA -->
+            <div style="text-align: center; padding: 24px 0 8px;">
+                <a href="{{ dashboardUrl }}"
+                    style="display: inline-block; background: #1B2A4A; color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 14px;">Ver
+                    Panel OCC →</a>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div
+            style="background: #F8FAFB; padding: 20px 32px; border: 1px solid #E5E7EB; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+            <p style="margin: 0; font-size: 11px; color: #6B7688;">Servicios OCC — Oficina de Ciberseguridad Corporativa
+            </p>
+            <p style="margin: 4px 0 0; font-size: 10px; color: #A0AEC0;">Generado automáticamente · {{ sentDate }}</p>
+        </div>
+    </div>
+</body>
+
+</html>

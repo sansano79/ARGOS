@@ -41,7 +41,7 @@ export class NotificationService {
                     host: settings.host,
                     port: parseInt(settings.port, 10),
                     user: settings.user,
-                    pass: config.apiKeyEncrypted || '', // We use this field for password
+                    pass: config.apiKeyEncrypted || '',
                     secure: settings.secure === true || settings.secure === 'true',
                     from: settings.from,
                 };
@@ -87,7 +87,7 @@ export class NotificationService {
                 where: { id: existingConfig.id },
                 data: {
                     settings,
-                    apiKeyEncrypted: config.pass, // Storing password here for simplicity as encrypted field
+                    apiKeyEncrypted: config.pass,
                     isActive: true,
                     name: 'SMTP Configuration',
                 },
@@ -123,7 +123,6 @@ export class NotificationService {
             user: settings.user,
             secure: settings.secure,
             from: settings.from,
-            // Do not return password
         };
     }
 
@@ -136,13 +135,31 @@ export class NotificationService {
         }
 
         try {
+            const html = '<div style="font-family: Inter, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">' +
+                '<div style="background: linear-gradient(135deg, #1B2A4A 0%, #3B6CB5 100%); color: #fff; padding: 24px; border-radius: 8px 8px 0 0;">' +
+                '<h1 style="margin: 0; font-size: 20px;">🛡️ Servicios OCC</h1>' +
+                '<p style="margin: 4px 0 0; opacity: 0.8; font-size: 12px;">Oficina de Ciberseguridad Corporativa</p>' +
+                '</div>' +
+                '<div style="background: #fff; padding: 24px; border: 1px solid #E5E7EB; border-top: none; border-radius: 0 0 8px 8px;">' +
+                '<h2 style="color: #1B2A4A; font-size: 16px;">✅ Email de prueba</h2>' +
+                '<p style="color: #4A5568; font-size: 14px; line-height: 1.6;">Este es un email de prueba para verificar que la configuración SMTP funciona correctamente.</p>' +
+                '<div style="background: #F0FDF4; border-left: 4px solid #16A34A; padding: 12px 16px; border-radius: 4px; margin-top: 16px;">' +
+                '<strong style="color: #16A34A;">Configuración verificada</strong>' +
+                '<p style="color: #4A5568; font-size: 12px; margin: 4px 0 0;">Las notificaciones por correo están listas para enviarse.</p>' +
+                '</div>' +
+                '</div>' +
+                '</div>';
+
             const info = await this.transporter.sendMail({
                 from: this.smtpConfig?.from || 'noreply@occ.local',
                 to,
-                subject: 'Test Email from OCC Vulnerability Collector',
-                text: 'This is a test email to verify your SMTP settings.',
-                html: '<b>This is a test email</b> to verify your SMTP settings.',
+                subject: '✅ Test Email — Servicios OCC',
+                html,
             });
+
+            // Log the test email
+            await this.logNotification(to, 'Test', '✅ Test Email — Servicios OCC', html);
+
             this.logger.log(`Test email sent: ${info.messageId}`);
             return { success: true, messageId: info.messageId };
         } catch (error) {
@@ -153,7 +170,6 @@ export class NotificationService {
 
     async sendEmail(to: string, subject: string, templateName: string, context: any) {
         if (!this.transporter) {
-            // Try to reload config just in case
             await this.loadConfig();
             if (!this.transporter) {
                 this.logger.warn('Email sending skipped: SMTP not configured');
@@ -169,6 +185,16 @@ export class NotificationService {
                 subject,
                 html,
             });
+
+            // Log notification
+            await this.logNotification(
+                to,
+                context.recipientName || to,
+                subject,
+                html,
+                context.cveIds || [],
+            );
+
             this.logger.log(`Email sent to ${to}: ${info.messageId}`);
             return true;
         } catch (error) {
@@ -177,27 +203,122 @@ export class NotificationService {
         }
     }
 
+    private async logNotification(
+        recipientEmail: string,
+        recipientName: string,
+        subject: string,
+        htmlContent: string,
+        cveIds: string[] = [],
+    ) {
+        try {
+            await this.prisma.notificationLog.create({
+                data: {
+                    recipientEmail,
+                    recipientName,
+                    subject,
+                    htmlContent,
+                    cveIds: JSON.stringify(cveIds),
+                },
+            });
+        } catch (error) {
+            this.logger.error('Failed to log notification', error);
+        }
+    }
+
+    async getHistory(page: number = 1, limit: number = 20) {
+        const take = Math.min(limit, 100);
+        const skip = (page - 1) * take;
+
+        const [data, total] = await Promise.all([
+            this.prisma.notificationLog.findMany({
+                orderBy: { sentAt: 'desc' },
+                take,
+                skip,
+                select: {
+                    id: true,
+                    recipientEmail: true,
+                    recipientName: true,
+                    subject: true,
+                    cveIds: true,
+                    status: true,
+                    sentAt: true,
+                },
+            }),
+            this.prisma.notificationLog.count(),
+        ]);
+
+        return {
+            data: data.map(d => ({
+                ...d,
+                cveIds: this.parseJson(d.cveIds),
+            })),
+            total,
+            page,
+            limit: take,
+        };
+    }
+
+    async getNotificationById(id: number) {
+        const notification = await this.prisma.notificationLog.findUnique({
+            where: { id },
+        });
+        if (!notification) throw new NotFoundException('Notification not found');
+        return {
+            ...notification,
+            cveIds: this.parseJson(notification.cveIds),
+        };
+    }
+
+    async getAvailableTemplates() {
+        const templatesDir = this.getTemplatesDir();
+        try {
+            const files = fs.readdirSync(templatesDir)
+                .filter(f => f.endsWith('.html'))
+                .map(f => ({
+                    name: f.replace('.html', ''),
+                    filename: f,
+                }));
+            return files;
+        } catch {
+            return [];
+        }
+    }
+
+    private getTemplatesDir(): string {
+        // In production (dist/), templates are copied to dist/src/templates
+        const distPath = path.join(process.cwd(), 'dist', 'src', 'templates');
+        if (fs.existsSync(distPath)) return distPath;
+        // In development, use src/templates
+        return path.join(process.cwd(), 'src', 'templates');
+    }
+
     private async loadTemplate(templateName: string, context: any): Promise<string> {
-        const templatePath = path.join(process.cwd(), 'src', 'templates', `${templateName}.html`);
+        const templatePath = path.join(this.getTemplatesDir(), `${templateName}.html`);
 
         try {
             let content = fs.readFileSync(templatePath, 'utf-8');
-            // Simple template engine: replace {{ key }} with value
             for (const key in context) {
                 const regex = new RegExp(`{{ ${key} }}`, 'g');
-                content = content.replace(regex, context[key]);
-                // Also try without spaces
+                content = content.replace(regex, String(context[key]));
                 const regexNoSpace = new RegExp(`{{${key}}}`, 'g');
-                content = content.replace(regexNoSpace, context[key]);
+                content = content.replace(regexNoSpace, String(context[key]));
             }
             return content;
         } catch (error) {
             this.logger.error(`Template not found or error reading: ${templateName}`, error);
-            // Fallback to basic HTML if template fails
             return `
-            <h1>${context.title || 'Notification'}</h1>
-            <p>${JSON.stringify(context)}</p>
+            <div style="font-family: Inter, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h1>${context.title || 'Notification'}</h1>
+              <p>${context.body || JSON.stringify(context)}</p>
+            </div>
           `;
         }
+    }
+
+    private parseJson(value: any): any {
+        if (typeof value === 'string') {
+            try { return JSON.parse(value); } catch { return value; }
+        }
+        return value;
     }
 }

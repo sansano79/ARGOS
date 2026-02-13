@@ -4,92 +4,34 @@ import { useState, useEffect, useCallback, useRef } from "react";
 const API_BASE = "/api";
 const OLLAMA_BASE = "http://localhost:11434";
 
-// ─── SEIDOR Brand Colors (from corporate slide) ─────────────────────────────
+// ─── Auth helpers ────────────────────────────────────────────────────────────
+const getToken = () => localStorage.getItem("occ_token");
+const setToken = (t) => localStorage.setItem("occ_token", t);
+const clearToken = () => { localStorage.removeItem("occ_token"); localStorage.removeItem("occ_user"); };
+const getUser = () => { try { return JSON.parse(localStorage.getItem("occ_user")); } catch { return null; } };
+const setUser = (u) => localStorage.setItem("occ_user", JSON.stringify(u));
+
+const apiFetch = async (url, opts = {}) => {
+  const token = getToken();
+  const headers = { ...opts.headers };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (opts.body && typeof opts.body === "string") headers["Content-Type"] = "application/json";
+  const res = await fetch(`${API_BASE}${url}`, { ...opts, headers });
+  if (res.status === 401) { clearToken(); window.location.reload(); throw new Error("Unauthorized"); }
+  return res;
+};
+
+// ─── SEIDOR Brand Colors ─────────────────────────────────────────────────────
 const C = {
-  navy: "#1B2A4A",
-  navyDark: "#0F1B33",
-  navyDeep: "#0A1628",
-  navyLight: "#2A3F6A",
-  blue: "#3B6CB5",
-  blueLight: "#5A8FD4",
-  bluePale: "#E8EFF8",
-  accent: "#4ECDC4",
-  white: "#FFFFFF",
-  gray50: "#F8FAFB",
-  gray100: "#EFF2F5",
-  gray200: "#DDE2E8",
-  gray300: "#C4CCD6",
-  gray400: "#8E99A8",
-  gray500: "#6B7688",
-  gray600: "#4A5568",
-  gray700: "#2D3748",
-  text: "#1A202C",
-  critical: "#DC2626",
-  criticalBg: "#FEF2F2",
-  high: "#EA580C",
-  highBg: "#FFF7ED",
-  medium: "#CA8A04",
-  mediumBg: "#FEFCE8",
-  low: "#16A34A",
-  lowBg: "#F0FDF4",
-  info: "#2563EB",
-  infoBg: "#EFF6FF",
+  navy: "#1B2A4A", navyDark: "#0F1B33", navyDeep: "#0A1628", navyLight: "#2A3F6A",
+  blue: "#3B6CB5", blueLight: "#5A8FD4", bluePale: "#E8EFF8", accent: "#4ECDC4",
+  white: "#FFFFFF", gray50: "#F8FAFB", gray100: "#EFF2F5", gray200: "#DDE2E8",
+  gray300: "#C4CCD6", gray400: "#8E99A8", gray500: "#6B7688", gray600: "#4A5568",
+  gray700: "#2D3748", text: "#1A202C",
+  critical: "#DC2626", criticalBg: "#FEF2F2", high: "#EA580C", highBg: "#FFF7ED",
+  medium: "#CA8A04", mediumBg: "#FEFCE8", low: "#16A34A", lowBg: "#F0FDF4",
+  info: "#2563EB", infoBg: "#EFF6FF",
 };
-
-// ─── Mock Data ───────────────────────────────────────────────────────────────
-const MOCK_DASHBOARD = {
-  totalAll: 1247,
-  today: [
-    { cvssV31Severity: "CRITICAL", _count: 3 },
-    { cvssV31Severity: "HIGH", _count: 12 },
-    { cvssV31Severity: "MEDIUM", _count: 28 },
-    { cvssV31Severity: "LOW", _count: 8 },
-  ],
-  week: [
-    { cvssV31Severity: "CRITICAL", _count: 14 },
-    { cvssV31Severity: "HIGH", _count: 67 },
-    { cvssV31Severity: "MEDIUM", _count: 189 },
-    { cvssV31Severity: "LOW", _count: 45 },
-  ],
-  topExploited: [
-    { cveId: "CVE-2025-21298", cvssV31Score: 9.8, cvssV31Severity: "CRITICAL", epssScore: 0.943, affectedProducts: [{ vendor: "microsoft", product: "windows_11" }], firstSeenAt: "2025-01-14T10:00:00Z" },
-    { cveId: "CVE-2025-0282", cvssV31Score: 9.0, cvssV31Severity: "CRITICAL", epssScore: 0.891, affectedProducts: [{ vendor: "ivanti", product: "connect_secure" }], firstSeenAt: "2025-01-08T15:00:00Z" },
-    { cveId: "CVE-2024-55591", cvssV31Score: 9.8, cvssV31Severity: "CRITICAL", epssScore: 0.876, affectedProducts: [{ vendor: "fortinet", product: "fortios" }], firstSeenAt: "2025-01-14T08:00:00Z" },
-    { cveId: "CVE-2025-24085", cvssV31Score: 7.8, cvssV31Severity: "HIGH", epssScore: 0.812, affectedProducts: [{ vendor: "apple", product: "macos" }], firstSeenAt: "2025-01-27T12:00:00Z" },
-    { cveId: "CVE-2024-12356", cvssV31Score: 9.8, cvssV31Severity: "CRITICAL", epssScore: 0.789, affectedProducts: [{ vendor: "beyondtrust", product: "remote_support" }], firstSeenAt: "2024-12-17T10:00:00Z" },
-  ],
-  lastRun: { startedAt: new Date(Date.now() - 18 * 60000).toISOString(), finishedAt: new Date(Date.now() - 16 * 60000).toISOString(), status: "success", cvesFetched: 23, cvesNew: 5, cvesUpdated: 18, durationMs: 127400 },
-};
-
-const MOCK_VULNS = [
-  { id: 1, cveId: "CVE-2025-21298", description: "Windows OLE Remote Code Execution vulnerability allows remote attackers to execute arbitrary code via crafted documents.", cvssV31Score: 9.8, cvssV31Severity: "CRITICAL", epssScore: 0.943, epssPercentile: 0.992, isKnownExploited: true, hasPublicExploit: true, affectedProducts: [{ vendor: "microsoft", product: "windows_11", versionRange: ">=22H2 <24H2" }, { vendor: "microsoft", product: "windows_server_2022" }], remediationInfo: { patchAvailable: true, vendorAdvisories: ["https://msrc.microsoft.com/update-guide/vulnerability/CVE-2025-21298"] }, publishedAt: "2025-01-14T10:00:00Z" },
-  { id: 2, cveId: "CVE-2025-0282", description: "Ivanti Connect Secure stack-based buffer overflow allows unauthenticated remote code execution in VPN appliances.", cvssV31Score: 9.0, cvssV31Severity: "CRITICAL", epssScore: 0.891, epssPercentile: 0.988, isKnownExploited: true, hasPublicExploit: true, affectedProducts: [{ vendor: "ivanti", product: "connect_secure", versionRange: "<22.7R2.5" }, { vendor: "ivanti", product: "policy_secure" }], remediationInfo: { patchAvailable: true, vendorAdvisories: ["https://forums.ivanti.com/s/article/Security-Advisory"] }, publishedAt: "2025-01-08T15:00:00Z" },
-  { id: 3, cveId: "CVE-2024-55591", description: "FortiOS and FortiProxy authentication bypass allows unauthenticated attackers to gain super-admin privileges via crafted CSF proxy requests.", cvssV31Score: 9.8, cvssV31Severity: "CRITICAL", epssScore: 0.876, epssPercentile: 0.985, isKnownExploited: true, hasPublicExploit: false, affectedProducts: [{ vendor: "fortinet", product: "fortios", versionRange: ">=7.0.0 <7.0.17" }, { vendor: "fortinet", product: "fortiproxy" }], remediationInfo: { patchAvailable: true, vendorAdvisories: ["https://fortiguard.fortinet.com/psirt/FG-IR-24-535"] }, publishedAt: "2025-01-14T08:00:00Z" },
-  { id: 4, cveId: "CVE-2025-24085", description: "Apple CoreMedia use-after-free vulnerability allows malicious application to elevate privileges on macOS.", cvssV31Score: 7.8, cvssV31Severity: "HIGH", epssScore: 0.812, epssPercentile: 0.978, isKnownExploited: true, hasPublicExploit: false, affectedProducts: [{ vendor: "apple", product: "macos", versionRange: "<15.3" }, { vendor: "apple", product: "ios" }], remediationInfo: { patchAvailable: true, vendorAdvisories: ["https://support.apple.com/en-us/122067"] }, publishedAt: "2025-01-27T12:00:00Z" },
-  { id: 5, cveId: "CVE-2024-50603", description: "Aviatrix Controller OS command injection allows unauthenticated attackers to execute arbitrary commands via API.", cvssV31Score: 10.0, cvssV31Severity: "CRITICAL", epssScore: 0.756, epssPercentile: 0.969, isKnownExploited: false, hasPublicExploit: true, affectedProducts: [{ vendor: "aviatrix", product: "controller", versionRange: "<7.2.4996" }], remediationInfo: { patchAvailable: true, vendorAdvisories: [] }, publishedAt: "2025-01-08T18:00:00Z" },
-  { id: 6, cveId: "CVE-2025-23006", description: "SonicWall SMA 1000 pre-authentication deserialization allows remote unauthenticated OS command execution.", cvssV31Score: 9.8, cvssV31Severity: "CRITICAL", epssScore: 0.698, epssPercentile: 0.951, isKnownExploited: true, hasPublicExploit: false, affectedProducts: [{ vendor: "sonicwall", product: "sma_1000", versionRange: "<12.4.3-02854" }], remediationInfo: { patchAvailable: true, vendorAdvisories: ["https://psirt.global.sonicwall.com/vuln-detail/SNWLID-2025-0002"] }, publishedAt: "2025-01-23T10:00:00Z" },
-  { id: 7, cveId: "CVE-2025-0411", description: "7-Zip Mark-of-the-Web bypass allows execution of arbitrary code via crafted archives without security warnings.", cvssV31Score: 7.0, cvssV31Severity: "HIGH", epssScore: 0.634, epssPercentile: 0.938, isKnownExploited: false, hasPublicExploit: true, affectedProducts: [{ vendor: "7-zip", product: "7-zip", versionRange: "<24.09" }], remediationInfo: { patchAvailable: true, vendorAdvisories: [] }, publishedAt: "2025-01-25T14:00:00Z" },
-  { id: 8, cveId: "CVE-2025-21307", description: "Windows RMTP remote code execution allows network-adjacent attackers to execute code without authentication.", cvssV31Score: 9.8, cvssV31Severity: "CRITICAL", epssScore: 0.421, epssPercentile: 0.897, isKnownExploited: false, hasPublicExploit: false, affectedProducts: [{ vendor: "microsoft", product: "windows_server_2025" }, { vendor: "microsoft", product: "windows_server_2022" }], remediationInfo: { patchAvailable: true, vendorAdvisories: ["https://msrc.microsoft.com/update-guide/vulnerability/CVE-2025-21307"] }, publishedAt: "2025-01-14T10:00:00Z" },
-  { id: 9, cveId: "CVE-2024-8963", description: "Ivanti CSA path traversal allows unauthenticated access to restricted functionality.", cvssV31Score: 9.4, cvssV31Severity: "CRITICAL", epssScore: 0.385, epssPercentile: 0.882, isKnownExploited: true, hasPublicExploit: true, affectedProducts: [{ vendor: "ivanti", product: "cloud_services_appliance", versionRange: "<4.6.2" }], remediationInfo: { patchAvailable: true, vendorAdvisories: [] }, publishedAt: "2024-09-19T10:00:00Z" },
-  { id: 10, cveId: "CVE-2025-20156", description: "Cisco Meeting Management privilege escalation allows authenticated remote attackers to gain administrator privileges.", cvssV31Score: 6.5, cvssV31Severity: "MEDIUM", epssScore: 0.124, epssPercentile: 0.712, isKnownExploited: false, hasPublicExploit: false, affectedProducts: [{ vendor: "cisco", product: "meeting_management", versionRange: "<3.9.1" }], remediationInfo: { patchAvailable: true, vendorAdvisories: ["https://sec.cloudapps.cisco.com/security/center/content/CiscoSecurityAdvisory"] }, publishedAt: "2025-01-22T16:00:00Z" },
-  { id: 11, cveId: "CVE-2025-21311", description: "Windows NTLM V1 elevation of privilege allows authenticated attacker to access credentials.", cvssV31Score: 6.5, cvssV31Severity: "MEDIUM", epssScore: 0.089, epssPercentile: 0.645, isKnownExploited: false, hasPublicExploit: false, affectedProducts: [{ vendor: "microsoft", product: "windows_11" }, { vendor: "microsoft", product: "windows_10" }], remediationInfo: { patchAvailable: true, vendorAdvisories: [] }, publishedAt: "2025-01-14T10:00:00Z" },
-  { id: 12, cveId: "CVE-2025-0107", description: "Palo Alto Expedition OS command injection allows authenticated attacker to run arbitrary commands as www-data.", cvssV31Score: 6.3, cvssV31Severity: "MEDIUM", epssScore: 0.067, epssPercentile: 0.589, isKnownExploited: false, hasPublicExploit: false, affectedProducts: [{ vendor: "paloaltonetworks", product: "expedition", versionRange: "<1.2.101" }], remediationInfo: { patchAvailable: true, vendorAdvisories: [] }, publishedAt: "2025-01-11T10:00:00Z" },
-];
-
-const MOCK_CONTACTS = [
-  { id: 1, name: "Equipo Infraestructura Windows", email: "infra-windows@corp.local", products: ["microsoft/windows_11", "microsoft/windows_server_2022", "microsoft/windows_server_2025", "microsoft/windows_10"], notes: "Ventana de parcheo: domingos 02:00-06:00. Contactar a Pedro Gómez para urgencias fuera de horario.", contactPerson: "Pedro Gómez", phone: "+34 612 345 678" },
-  { id: 2, name: "Equipo Redes y Firewalls", email: "redes-fw@corp.local", products: ["fortinet/fortios", "fortinet/fortiproxy", "sonicwall/sma_1000", "paloaltonetworks/expedition"], notes: "Cambios en firewalls requieren CAB approval excepto P1. FortiOS en HA activo-pasivo.", contactPerson: "Laura Martín", phone: "+34 623 456 789" },
-  { id: 3, name: "Equipo VPN y Acceso Remoto", email: "vpn-team@corp.local", products: ["ivanti/connect_secure", "ivanti/policy_secure", "ivanti/cloud_services_appliance"], notes: "Ivanti CS: actualizar fuera de horario laboral. 2 appliances en producción (Madrid y Barcelona).", contactPerson: "Carlos Ruiz", phone: "+34 634 567 890" },
-  { id: 4, name: "Equipo Endpoint / Escritorio", email: "endpoint@corp.local", products: ["apple/macos", "apple/ios", "7-zip/7-zip"], notes: "Fleet de 450 MacBooks gestionados con Jamf. 7-Zip desplegado via SCCM en Windows.", contactPerson: "Ana López", phone: "+34 645 678 901" },
-  { id: 5, name: "Equipo Cloud y DevOps", email: "cloud-devops@corp.local", products: ["aviatrix/controller", "cisco/meeting_management"], notes: "Aviatrix controller en AWS eu-west-1. Cisco Meeting en SaaS — verificar versión con el vendor.", contactPerson: "Miguel Torres", phone: "+34 656 789 012" },
-];
-
-const MOCK_RUNS = [
-  { id: 50, startedAt: new Date(Date.now() - 18 * 60000).toISOString(), finishedAt: new Date(Date.now() - 16 * 60000).toISOString(), source: "scheduled", status: "success", cvesFetched: 23, cvesNew: 5, cvesUpdated: 18, durationMs: 127400 },
-  { id: 49, startedAt: new Date(Date.now() - 48 * 60000).toISOString(), finishedAt: new Date(Date.now() - 46 * 60000).toISOString(), source: "scheduled", status: "success", cvesFetched: 11, cvesNew: 2, cvesUpdated: 9, durationMs: 89200 },
-  { id: 48, startedAt: new Date(Date.now() - 78 * 60000).toISOString(), finishedAt: new Date(Date.now() - 77 * 60000).toISOString(), source: "scheduled", status: "success", cvesFetched: 0, cvesNew: 0, cvesUpdated: 0, durationMs: 12100 },
-  { id: 47, startedAt: new Date(Date.now() - 108 * 60000).toISOString(), finishedAt: new Date(Date.now() - 106 * 60000).toISOString(), source: "scheduled", status: "success", cvesFetched: 34, cvesNew: 8, cvesUpdated: 26, durationMs: 156800 },
-];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const sevColor = (s) => ({ CRITICAL: C.critical, HIGH: C.high, MEDIUM: C.medium, LOW: C.low }[s] || C.gray500);
@@ -200,23 +142,61 @@ const Card = ({ title, icon, action, children, noPad, style: s = {} }) => (
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 export default function VulnDashboard() {
+  // Auth state
+  const [isLoggedIn, setIsLoggedIn] = useState(!!getToken());
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPass, setLoginPass] = useState("");
+  const [loginErr, setLoginErr] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  // Navigation
   const [view, setView] = useState("overview");
   const [collapsed, setCollapsed] = useState(false);
+
+  // Data from API
+  const [dash, setDash] = useState({ totalAll: 0, today: [], week: [], topExploited: [], lastRun: null });
+  const [vulns, setVulns] = useState([]);
+  const [vulnsTotal, setVulnsTotal] = useState(0);
+  const [runs, setRuns] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [notifHistory, setNotifHistory] = useState([]);
+  const [notifDetail, setNotifDetail] = useState(null);
+
+  // Filters & search
   const [searchQ, setSearchQ] = useState("");
   const [searchType, setSearchType] = useState("all");
   const [sevFilter, setSevFilter] = useState("");
   const [selectedVuln, setSelectedVuln] = useState(null);
-  const [contacts, setContacts] = useState(MOCK_CONTACTS);
+
+  // Contacts CRUD
   const [editContact, setEditContact] = useState(null);
   const [showContactForm, setShowContactForm] = useState(false);
+
+  // Users CRUD
+  const [editUser, setEditUser] = useState(null);
+  const [showUserForm, setShowUserForm] = useState(false);
+
+  // Tags CRUD
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagColor, setNewTagColor] = useState("#3B6CB5");
+
+  // Collector & Reports
   const [collecting, setCollecting] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [reportResult, setReportResult] = useState(null);
   const [reportHours, setReportHours] = useState("24");
   const [reportSev, setReportSev] = useState("MEDIUM");
+
+  // AI
   const [aiQuery, setAiQuery] = useState("");
   const [aiMessages, setAiMessages] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
+
+  // Settings
+  const [settingsTab, setSettingsTab] = useState("smtp");
   const [now, setNow] = useState(Date.now());
   const [smtpConfig, setSmtpConfig] = useState({ host: "", port: "", user: "", pass: "", secure: false, from: "" });
   const [smtpLoading, setSmtpLoading] = useState(false);
@@ -229,28 +209,52 @@ export default function VulnDashboard() {
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
   useEffect(() => { aiEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [aiMessages]);
 
-  useEffect(() => {
-    if (view === "settings") {
-      setSmtpLoading(true);
-      fetch(`${API_BASE}/notifications/config`)
-        .then(res => res.json())
-        .then(data => {
-          if (data) setSmtpConfig({ ...data, pass: "" }); // Don't show password
-          setSmtpLoading(false);
-        })
-        .catch(() => setSmtpLoading(false));
-    }
-  }, [view]);
+  // Login handler
+  const handleLogin = async (e) => {
+    e.preventDefault(); setLoginErr(""); setLoginLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: loginEmail, password: loginPass }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.message || "Login failed"); }
+      const data = await res.json();
+      setToken(data.access_token); setUser(data.user); setIsLoggedIn(true);
+    } catch (e) { setLoginErr(e.message || "Error de autenticación"); }
+    setLoginLoading(false);
+  };
+  const handleLogout = () => { clearToken(); setIsLoggedIn(false); };
+
+  // Load data when view changes
+  const loadData = useCallback(async (v) => {
+    try {
+      if (v === "overview") {
+        const r = await apiFetch("/vulnerabilities/dashboard"); setDash(await r.json());
+      } else if (v === "vulns" || v === "exploited") {
+        const q = v === "exploited" ? "?exploited=true&limit=100" : `?limit=100${sevFilter ? `&severity=${sevFilter}` : ''}`;
+        const r = await apiFetch(`/vulnerabilities${q}`); const d = await r.json(); setVulns(d.data || []); setVulnsTotal(d.total || 0);
+      } else if (v === "contacts") {
+        const r = await apiFetch("/contacts"); setContacts(await r.json());
+      } else if (v === "reports") {
+        const r = await apiFetch("/vulnerabilities/reports"); const d = await r.json(); setReports(d.data || []);
+      } else if (v === "collector") {
+        const r = await apiFetch("/vulnerabilities/runs?limit=30"); setRuns(await r.json());
+      } else if (v === "settings") {
+        setSmtpLoading(true);
+        const [smtpR, usersR, tagsR] = await Promise.all([apiFetch("/notifications/config"), apiFetch("/users"), apiFetch("/tags")]);
+        const smtpD = await smtpR.json(); if (smtpD) setSmtpConfig({ ...smtpD, pass: "" });
+        setUsers(await usersR.json()); setTags(await tagsR.json());
+        setSmtpLoading(false);
+      } else if (v === "notifications") {
+        const r = await apiFetch("/notifications/history"); const d = await r.json(); setNotifHistory(d.data || []);
+      }
+    } catch (e) { console.error("Load error:", e.message); }
+  }, [sevFilter]);
+
+  useEffect(() => { if (isLoggedIn) loadData(view); }, [view, isLoggedIn, loadData]);
 
   const handleCreateTest = async () => {
     if (!testEmail) return;
     setTestSending(true);
     try {
-      const res = await fetch(`${API_BASE}/notifications/test`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: testEmail }),
-      });
+      const res = await apiFetch("/notifications/test", { method: "POST", body: JSON.stringify({ email: testEmail }) });
       if (res.ok) setSmtpMsg({ type: "success", text: "Email de prueba enviado correctamente" });
       else throw new Error("Error enviando email");
     } catch (e) {
@@ -263,11 +267,7 @@ export default function VulnDashboard() {
   const handleSaveSmtp = async () => {
     setSmtpSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/notifications/config`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(smtpConfig),
-      });
+      const res = await apiFetch("/notifications/config", { method: "POST", body: JSON.stringify(smtpConfig) });
       if (res.ok) setSmtpMsg({ type: "success", text: "Configuración guardada correctamente" });
       else throw new Error("Error guardando configuración");
     } catch (e) {
@@ -277,18 +277,17 @@ export default function VulnDashboard() {
     setTimeout(() => setSmtpMsg(null), 3000);
   };
 
-  const dash = MOCK_DASHBOARD;
-  const todayT = dash.today.reduce((s, c) => s + c._count, 0);
-  const weekT = dash.week.reduce((s, c) => s + c._count, 0);
-  const gc = (arr, sev) => arr.find(c => c.cvssV31Severity === sev)?._count || 0;
+  const todayT = (dash.today || []).reduce((s, c) => s + c._count, 0);
+  const weekT = (dash.week || []).reduce((s, c) => s + c._count, 0);
+  const gc = (arr, sev) => (arr || []).find(c => c.cvssV31Severity === sev)?._count || 0;
   const nextRun = () => { if (!dash.lastRun?.finishedAt) return "-"; return Math.max(0, Math.floor((new Date(dash.lastRun.finishedAt).getTime() + 1800000 - now) / 60000)) + "m"; };
 
-  // Search logic
-  const searchResults = searchQ.trim().length >= 2 ? MOCK_VULNS.filter(v => {
+  // Search logic (searches loaded vulns)
+  const searchResults = searchQ.trim().length >= 2 ? vulns.filter(v => {
     const q = searchQ.toLowerCase();
     if (searchType === "cve") return v.cveId.toLowerCase().includes(q);
-    if (searchType === "product") return (v.affectedProducts || []).some(p => `${p.vendor}/${p.product}`.toLowerCase().includes(q) || p.vendor.toLowerCase().includes(q) || p.product.toLowerCase().includes(q));
-    return v.cveId.toLowerCase().includes(q) || v.description.toLowerCase().includes(q) || (v.affectedProducts || []).some(p => `${p.vendor} ${p.product}`.toLowerCase().includes(q));
+    if (searchType === "product") return (v.affectedProducts || []).some(p => `${p.vendor}/${p.product}`.toLowerCase().includes(q) || p.vendor?.toLowerCase().includes(q) || p.product?.toLowerCase().includes(q));
+    return v.cveId.toLowerCase().includes(q) || (v.description || "").toLowerCase().includes(q) || (v.affectedProducts || []).some(p => `${p.vendor} ${p.product}`.toLowerCase().includes(q));
   }) : [];
 
   // Find contacts affected by a CVE
@@ -308,8 +307,8 @@ export default function VulnDashboard() {
 
     const context = `Eres el asistente de IA de la Oficina de Ciberseguridad Corporativa (OCC) de SEIDOR. Tu rol es analizar vulnerabilidades (CVEs), evaluar impacto en la infraestructura corporativa, y recomendar acciones de remediación.
 
-Base de datos actual: ${MOCK_VULNS.length} CVEs indexados.
-Top CVEs con explotación activa: ${MOCK_VULNS.filter(v => v.isKnownExploited).map(v => v.cveId).join(", ")}.
+Base de datos actual: ${dash.totalAll || vulns.length} CVEs indexados.
+Top CVEs con explotación activa: ${(dash.topExploited || []).map(v => v.cveId).join(", ")}.
 Equipos IT registrados: ${contacts.map(c => `${c.name} (${c.products.join(", ")})`).join("; ")}.
 
 Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos cuando sea relevante. Si te preguntan sobre impacto, correlaciona con los productos y equipos IT registrados.`;
@@ -340,27 +339,91 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
     if (ql.includes("fortinet") || ql.includes("fortigate") || ql.includes("fortios")) return `**Análisis FortiOS — CVE-2024-55591**\n\n**Severidad:** CRITICAL (CVSS 9.8) | Authentication Bypass\n**Estado:** Explotación activa confirmada\n\n**Detalle técnico:**\nBypass de autenticación via Node.js websocket en FortiOS permite a un atacante no autenticado obtener privilegios de super-admin mediante requests CSF proxy manipulados.\n\n**Impacto en OCC:**\n- **Equipo afectado:** Redes y Firewalls (redes-fw@corp.local)\n- FortiOS configurado en HA activo-pasivo según notas del equipo\n- Requiere CAB approval excepto P1 — esta vulnerabilidad califica como P1\n\n**Remediación:**\n1. Actualizar a FortiOS ≥7.0.17 inmediatamente\n2. Verificar logs de admin para accesos no autorizados\n3. Revisar reglas CSF proxy y deshabilitar si no se usa\n4. Contactar a Laura Martín para coordinar`;
     if (ql.includes("resumen") || ql.includes("estado") || ql.includes("informe")) return `**Resumen ejecutivo — Estado de vulnerabilidades**\n\n📊 **Últimas 24h:** ${todayT} CVEs procesados\n- 🔴 Critical: ${gc(dash.today, "CRITICAL")} | 🟠 High: ${gc(dash.today, "HIGH")} | 🟡 Medium: ${gc(dash.today, "MEDIUM")}\n\n⚡ **Explotación activa:** ${dash.topExploited.length} CVEs confirmados en CISA KEV\n\n**Top prioridades:**\n1. **CVE-2025-21298** (Windows OLE) — CVSS 9.8, EPSS 94.3% → Equipo Infra Windows\n2. **CVE-2024-55591** (FortiOS) — CVSS 9.8, EPSS 87.6% → Equipo Redes\n3. **CVE-2025-0282** (Ivanti CS) — CVSS 9.0, EPSS 89.1% → Equipo VPN\n\n**Recomendación:** Convocar reunión de emergencia con los 3 equipos afectados para coordinar parcheo prioritario de las 3 CVEs con explotación activa y CVSS ≥9.0.`;
     if (ql.includes("ivanti")) return `**Análisis Ivanti — Múltiples CVEs activas**\n\n**CVE-2025-0282** (Connect Secure) — CVSS 9.0\nBuffer overflow en stack permite RCE sin autenticación. Exploit público disponible.\n\n**CVE-2024-8963** (CSA) — CVSS 9.4\nPath traversal permite acceso no autenticado a funcionalidad restringida.\n\n**Impacto OCC:**\n- **Equipo VPN y Acceso Remoto** (vpn-team@corp.local)\n- 2 appliances en producción (Madrid y Barcelona)\n- Contacto: Carlos Ruiz\n\n**Acciones:**\n1. Verificar versión actual de Connect Secure (vulnerable si <22.7R2.5)\n2. Aplicar parche fuera de horario laboral según protocolo del equipo\n3. Ejecutar Integrity Checker Tool de Ivanti post-parcheo\n4. Revisar logs de acceso VPN de las últimas 2 semanas`;
-    return `Procesando consulta: "${q}"\n\n**Análisis basado en la base de datos OCC:**\n\nActualmente hay ${MOCK_VULNS.length} CVEs indexados, de los cuales ${MOCK_VULNS.filter(v => v.isKnownExploited).length} tienen explotación activa confirmada.\n\nLos equipos IT con mayor exposición son:\n${contacts.map(c => `- **${c.name}**: ${c.products.length} productos monitorizados`).join("\n")}\n\n¿Necesitas un análisis más específico? Puedo detallar:\n- Impacto de un CVE concreto en la infraestructura\n- Vulnerabilidades que afectan a un producto/vendor\n- Priorización de parcheo recomendada\n- Draft de comunicación a un equipo IT`;
+    return `Procesando consulta: "${q}"\n\n**Análisis basado en la base de datos OCC:**\n\nActualmente hay ${dash.totalAll || vulns.length} CVEs indexados.\n\nLos equipos IT con mayor exposición son:\n${contacts.map(c => `- **${c.name}**: ${(c.products || []).length} productos monitorizados`).join("\n")}\n\n¿Necesitas un análisis más específico? Puedo detallar:\n- Impacto de un CVE concreto en la infraestructura\n- Vulnerabilidades que afectan a un producto/vendor\n- Priorización de parcheo recomendada\n- Draft de comunicación a un equipo IT`;
   };
 
-  const handleCollect = async () => { setCollecting(true); await new Promise(r => setTimeout(r, 2000)); setCollecting(false); };
-  const handleReport = async () => { setGenerating(true); setReportResult(null); await new Promise(r => setTimeout(r, 2500)); setReportResult({ message: "Informe generado", summary: { total: todayT, critical: gc(dash.today, "CRITICAL"), exploited: dash.topExploited.length } }); setGenerating(false); };
+  const handleCollect = async () => {
+    setCollecting(true);
+    try { await apiFetch("/vulnerabilities/collect", { method: "POST" }); await loadData("overview"); } catch (e) { console.error(e); }
+    setCollecting(false);
+  };
+  const handleReport = async () => {
+    setGenerating(true); setReportResult(null);
+    try {
+      const r = await apiFetch(`/vulnerabilities/report?hours=${reportHours}&minSeverity=${reportSev}`, { method: "POST" });
+      const d = await r.json(); setReportResult(d); await loadData("reports");
+    } catch (e) { console.error(e); } setGenerating(false);
+  };
 
-  const saveContact = (c) => {
-    if (c.id) { setContacts(prev => prev.map(x => x.id === c.id ? c : x)); }
-    else { setContacts(prev => [...prev, { ...c, id: Date.now() }]); }
-    setEditContact(null);
-    setShowContactForm(false);
+  const saveContact = async (c) => {
+    try {
+      if (c.id) { await apiFetch(`/contacts/${c.id}`, { method: "PUT", body: JSON.stringify(c) }); }
+      else { await apiFetch("/contacts", { method: "POST", body: JSON.stringify(c) }); }
+      await loadData("contacts");
+    } catch (e) { console.error(e); }
+    setEditContact(null); setShowContactForm(false);
+  };
+  const deleteContact = async (id) => { try { await apiFetch(`/contacts/${id}`, { method: "DELETE" }); await loadData("contacts"); } catch (e) { console.error(e); } };
+
+  // Users CRUD
+  const saveUser = async (u) => {
+    try {
+      if (u.id) { await apiFetch(`/users/${u.id}`, { method: "PUT", body: JSON.stringify(u) }); }
+      else { await apiFetch("/users", { method: "POST", body: JSON.stringify(u) }); }
+      await loadData("settings");
+    } catch (e) { console.error(e); }
+    setEditUser(null); setShowUserForm(false);
+  };
+  const deleteUser = async (id) => { try { await apiFetch(`/users/${id}`, { method: "DELETE" }); await loadData("settings"); } catch (e) { console.error(e); } };
+
+  // Tags CRUD
+  const addTag = async () => {
+    if (!newTagName.trim()) return;
+    try { await apiFetch("/tags", { method: "POST", body: JSON.stringify({ name: newTagName, color: newTagColor }) }); setNewTagName(""); await loadData("settings"); } catch (e) { console.error(e); }
+  };
+  const deleteTag = async (id) => { try { await apiFetch(`/tags/${id}`, { method: "DELETE" }); await loadData("settings"); } catch (e) { console.error(e); } };
+
+  // Notification detail
+  const viewNotification = async (id) => {
+    try { const r = await apiFetch(`/notifications/history/${id}`); setNotifDetail(await r.json()); } catch (e) { console.error(e); }
   };
 
   const sw = collapsed ? 58 : 230;
 
+  // Login screen
+  if (!isLoggedIn) return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${C.navyDeep} 0%, ${C.navy} 50%, ${C.blue} 100%)`, fontFamily: "'Inter', sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');`}</style>
+      <div style={{ background: "#fff", borderRadius: 16, padding: "40px 36px", width: 380, boxShadow: "0 25px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ width: 56, height: 56, background: C.navy, borderRadius: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 900, fontSize: 16, fontFamily: "'JetBrains Mono', monospace", marginBottom: 12 }}>OCC</div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Servicios OCC</h1>
+          <p style={{ fontSize: 11, color: C.gray500, margin: 0, letterSpacing: 1, textTransform: "uppercase" }}>Oficina de Ciberseguridad Corporativa</p>
+        </div>
+        <form onSubmit={handleLogin}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email</label>
+            <input value={loginEmail} onChange={e => setLoginEmail(e.target.value)} type="email" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
+          </div>
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contraseña</label>
+            <input value={loginPass} onChange={e => setLoginPass(e.target.value)} type="password" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
+          </div>
+          {loginErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{loginErr}</div>}
+          <button type="submit" disabled={loginLoading} style={{ width: "100%", padding: "12px", fontSize: 14, fontWeight: 700, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>{loginLoading ? "Accediendo..." : "Iniciar Sesión"}</button>
+        </form>
+      </div>
+    </div>
+  );
+
+  const currentUser = getUser();
   const nav = [
     { id: "overview", label: "Visión General", icon: "shield" },
     { id: "vulns", label: "Vulnerabilidades", icon: "bug" },
     { id: "search", label: "Búsqueda", icon: "search" },
     { id: "exploited", label: "Explotación Activa", icon: "zap" },
-    { id: "contacts", label: "Servicios IT", icon: "users" },
+    { id: "contacts", label: "Contactos", icon: "users" },
+    { id: "notifications", label: "Comunicaciones", icon: "mail" },
     { id: "reports", label: "Informes", icon: "file" },
     { id: "ai", label: "Asistente IA", icon: "brain" },
     { id: "collector", label: "Collector", icon: "server" },
@@ -417,7 +480,8 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
             <span style={{ fontSize: 10, color: C.gray400, fontFamily: "monospace" }}>
               Próx. scan: {nextRun()}
             </span>
-            <div style={{ width: 30, height: 30, borderRadius: "50%", background: C.navy, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 11, cursor: "pointer" }} title="Cerrar Sesión" onClick={() => window.location.reload()}>A</div>
+            {currentUser && <span style={{ fontSize: 11, color: C.gray600 }}>{currentUser.name || currentUser.email}</span>}
+            <div style={{ width: 30, height: 30, borderRadius: "50%", background: C.navy, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 11, cursor: "pointer" }} title="Cerrar Sesión" onClick={handleLogout}>{(currentUser?.name || "A")[0].toUpperCase()}</div>
           </div>
         </header>
 
@@ -467,7 +531,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                 <tbody>{(dash.topExploited || []).map(v => {
                   const aff = getAffectedContacts(v);
                   return (
-                    <tr key={v.cveId} className="rh" style={{ cursor: "pointer" }} onClick={() => { setSelectedVuln(MOCK_VULNS.find(x => x.cveId === v.cveId)); setView("vulns"); }}>
+                    <tr key={v.cveId} className="rh" style={{ cursor: "pointer" }} onClick={() => { setSelectedVuln(vulns.find(x => x.cveId === v.cveId) || v); setView("vulns"); }}>
                       <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 12, fontFamily: "monospace", color: C.critical }}>{v.cveId}</td>
                       <td style={{ padding: "10px 14px" }}><SevBadge s={v.cvssV31Severity} small /> <span style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 700, marginLeft: 4 }}>{fmtScore(v.cvssV31Score)}</span></td>
                       <td style={{ padding: "10px 14px", fontFamily: "monospace", fontSize: 12, fontWeight: 600 }}>{fmtEpss(v.epssScore)}</td>
@@ -499,7 +563,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                     <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", borderBottom: `2px solid ${C.gray200}`, whiteSpace: "nowrap" }}>{h}</th>
                   ))}
                 </tr></thead>
-                <tbody>{MOCK_VULNS.filter(v => !sevFilter || v.cvssV31Severity === sevFilter).map(v => (
+                <tbody>{vulns.filter(v => !sevFilter || v.cvssV31Severity === sevFilter).map(v => (
                   <tr key={v.cveId} className="rh" onClick={() => setSelectedVuln(selectedVuln?.cveId === v.cveId ? null : v)} style={{ cursor: "pointer", background: v.isKnownExploited ? C.criticalBg : selectedVuln?.cveId === v.cveId ? C.bluePale : "#fff", borderLeft: v.isKnownExploited ? `3px solid ${C.critical}` : "3px solid transparent", transition: "background 0.1s" }}>
                     <td style={{ padding: "10px 12px", fontWeight: 700, fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>{v.cveId}</td>
                     <td style={{ padding: "10px 12px" }}><SevBadge s={v.cvssV31Severity} small /></td>
@@ -632,9 +696,9 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
             <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 14px" }}>Explotación Activa</h1>
             <div style={{ background: C.critical, color: "#fff", borderRadius: 8, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
               <I name="alert" size={20} color="#fff" />
-              <div><div style={{ fontWeight: 700, fontSize: 13 }}>{MOCK_VULNS.filter(v => v.isKnownExploited).length} vulnerabilidades con explotación activa</div><div style={{ fontSize: 11, opacity: 0.85 }}>Parcheo prioritario según CISA BOD 22-01</div></div>
+              <div><div style={{ fontWeight: 700, fontSize: 13 }}>{vulns.filter(v => v.isKnownExploited).length} vulnerabilidades con explotación activa</div><div style={{ fontSize: 11, opacity: 0.85 }}>Parcheo prioritario según CISA BOD 22-01</div></div>
             </div>
-            {MOCK_VULNS.filter(v => v.isKnownExploited).map(v => {
+            {vulns.filter(v => v.isKnownExploited).map(v => {
               const aff = getAffectedContacts(v);
               return (
                 <Card key={v.cveId} style={{ marginBottom: 10, borderLeft: `4px solid ${C.critical}` }}>
@@ -714,7 +778,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
             )}
 
             {contacts.map(c => {
-              const affectedVulns = MOCK_VULNS.filter(v => (v.affectedProducts || []).some(p => c.products.includes(`${p.vendor}/${p.product}`)));
+              const affectedVulns = vulns.filter(v => (v.affectedProducts || []).some(p => (c.products || []).includes(`${p.vendor}/${p.product}`)));
               const critCount = affectedVulns.filter(v => v.cvssV31Severity === "CRITICAL").length;
               const exploitedCount = affectedVulns.filter(v => v.isKnownExploited).length;
               return (
@@ -755,6 +819,48 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                 </Card>
               );
             })}
+          </>}
+
+          {/* ═══ NOTIFICATIONS HISTORY ═══ */}
+          {view === "notifications" && <>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Comunicaciones</h1>
+            <Card title="Historial de Notificaciones" icon="mail" noPad>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr style={{ background: C.gray50 }}>
+                  {["Fecha", "Destinatario", "Asunto", "Template", "Estado"].map(h => (
+                    <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", borderBottom: `2px solid ${C.gray200}` }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>{notifHistory.length === 0 ? (
+                  <tr><td colSpan={5} style={{ padding: 30, textAlign: "center", color: C.gray400, fontSize: 12 }}>No hay notificaciones enviadas aún</td></tr>
+                ) : notifHistory.map(n => (
+                  <tr key={n.id} className="rh" style={{ cursor: "pointer" }} onClick={() => viewNotification(n.id)}>
+                    <td style={{ padding: "8px 12px", fontSize: 10, fontFamily: "monospace" }}>{fmtDate(n.sentAt)}</td>
+                    <td style={{ padding: "8px 12px", fontSize: 11 }}>{n.to}</td>
+                    <td style={{ padding: "8px 12px", fontSize: 11, fontWeight: 500 }}>{n.subject}</td>
+                    <td style={{ padding: "8px 12px" }}><span style={{ padding: "2px 8px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: C.bluePale, color: C.blue }}>{n.template || "custom"}</span></td>
+                    <td style={{ padding: "8px 12px" }}><span style={{ color: n.status === "sent" ? C.low : C.critical, fontWeight: 600, fontSize: 10 }}>{n.status === "sent" ? "✓ Enviado" : "✗ Error"}</span></td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </Card>
+            {notifDetail && (
+              <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setNotifDetail(null)}>
+                <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 560, maxHeight: "80vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                    <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Detalle de Notificación</h3>
+                    <span style={{ cursor: "pointer" }} onClick={() => setNotifDetail(null)}><I name="x" size={18} /></span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                    <div><span style={{ fontSize: 10, fontWeight: 600, color: C.gray500 }}>DESTINATARIO</span><div style={{ fontSize: 12 }}>{notifDetail.to}</div></div>
+                    <div><span style={{ fontSize: 10, fontWeight: 600, color: C.gray500 }}>FECHA</span><div style={{ fontSize: 12 }}>{fmtDate(notifDetail.sentAt)}</div></div>
+                    <div><span style={{ fontSize: 10, fontWeight: 600, color: C.gray500 }}>ASUNTO</span><div style={{ fontSize: 12 }}>{notifDetail.subject}</div></div>
+                    <div><span style={{ fontSize: 10, fontWeight: 600, color: C.gray500 }}>ESTADO</span><div style={{ fontSize: 12, color: notifDetail.status === "sent" ? C.low : C.critical, fontWeight: 600 }}>{notifDetail.status}</div></div>
+                  </div>
+                  {notifDetail.error && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 12 }}>Error: {notifDetail.error}</div>}
+                </div>
+              </div>
+            )}
           </>}
 
           {/* ═══ REPORTS ═══ */}
@@ -855,8 +961,15 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
 
           {/* ═══ SETTINGS ═══ */}
           {view === "settings" && <>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Configuración de Notificaciones</h1>
-            <Card title="Configuración SMTP" icon="settings">
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Configuración</h1>
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              {[{ id: "smtp", label: "SMTP" }, { id: "users", label: "Usuarios" }, { id: "tags", label: "Etiquetas" }].map(t => (
+                <div key={t.id} onClick={() => setSettingsTab(t.id)} style={{ padding: "8px 18px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: settingsTab === t.id ? C.navy : C.gray100, color: settingsTab === t.id ? "#fff" : C.gray600, transition: "all 0.15s" }}>{t.label}</div>
+              ))}
+            </div>
+
+            {/* SMTP Tab */}
+            {settingsTab === "smtp" && <Card title="Configuración SMTP" icon="settings">
               {smtpLoading ? (
                 <div style={{ padding: 20, textAlign: "center", color: C.gray500 }}>Cargando configuración...</div>
               ) : (
@@ -878,7 +991,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                     </div>
                     <div>
                       <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contraseña</label>
-                      <Input value={smtpConfig.pass} onChange={v => setSmtpConfig({ ...smtpConfig, pass: v })} placeholder="••••••••" type="password" />
+                      <Input value={smtpConfig.pass} onChange={v => setSmtpConfig({ ...smtpConfig, pass: v })} placeholder="••••••••" />
                     </div>
                   </div>
                   <div style={{ marginBottom: 16 }}>
@@ -889,7 +1002,6 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                     <input type="checkbox" checked={smtpConfig.secure} onChange={e => setSmtpConfig({ ...smtpConfig, secure: e.target.checked })} id="secureCheck" />
                     <label htmlFor="secureCheck" style={{ fontSize: 12, color: C.text }}>Usar conexión segura (SSL/TLS)</label>
                   </div>
-
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: `1px solid ${C.gray100}`, paddingTop: 16 }}>
                     <div style={{ display: "flex", gap: 8 }}>
                       <Input value={testEmail} onChange={setTestEmail} placeholder="Email de prueba" style={{ width: 250 }} />
@@ -897,7 +1009,6 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                     </div>
                     <Btn primary onClick={handleSaveSmtp} disabled={smtpSaving}>{smtpSaving ? "Guardando..." : "Guardar Configuración"}</Btn>
                   </div>
-
                   {smtpMsg && (
                     <div className="fade" style={{ marginTop: 12, padding: "10px 12px", borderRadius: 4, fontSize: 12, fontWeight: 600, background: smtpMsg.type === "success" ? C.lowBg : C.criticalBg, color: smtpMsg.type === "success" ? C.low : C.critical, borderLeft: `3px solid ${smtpMsg.type === "success" ? C.low : C.critical}` }}>
                       {smtpMsg.text}
@@ -905,7 +1016,76 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                   )}
                 </>
               )}
-            </Card>
+            </Card>}
+
+            {/* Users Tab */}
+            {settingsTab === "users" && <>
+              <Card title="Gestión de Usuarios" icon="users" action={<Btn small primary onClick={() => { setEditUser({}); setShowUserForm(true); }}><I name="plus" size={14} /> Nuevo</Btn>}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr style={{ background: C.gray50 }}>
+                    {["Nombre", "Email", "Rol", "Estado", "Último acceso", "Acciones"].map(h => (
+                      <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", borderBottom: `2px solid ${C.gray200}` }}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>{users.map(u => (
+                    <tr key={u.id} className="rh">
+                      <td style={{ padding: "8px 12px", fontWeight: 600, fontSize: 12 }}>{u.name}</td>
+                      <td style={{ padding: "8px 12px", fontSize: 11, fontFamily: "monospace" }}>{u.email}</td>
+                      <td style={{ padding: "8px 12px" }}><span style={{ padding: "2px 8px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: u.role === "ADMIN" ? C.bluePale : C.gray100, color: u.role === "ADMIN" ? C.blue : C.gray600 }}>{u.role}</span></td>
+                      <td style={{ padding: "8px 12px" }}><span style={{ color: u.isActive ? C.low : C.critical, fontWeight: 600, fontSize: 10 }}>{u.isActive ? "● Activo" : "○ Inactivo"}</span></td>
+                      <td style={{ padding: "8px 12px", fontSize: 10, color: C.gray400 }}>{fmtDate(u.lastLoginAt)}</td>
+                      <td style={{ padding: "8px 12px" }}>
+                        <span style={{ cursor: "pointer", marginRight: 8 }} onClick={() => { setEditUser(u); setShowUserForm(true); }}><I name="edit" size={14} color={C.blue} /></span>
+                        <span style={{ cursor: "pointer" }} onClick={() => deleteUser(u.id)}><I name="trash" size={14} color={C.critical} /></span>
+                      </td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </Card>
+              {showUserForm && (
+                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowUserForm(false)}>
+                  <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 420, maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+                    <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 16px" }}>{editUser?.id ? "Editar Usuario" : "Nuevo Usuario"}</h3>
+                    {[{ k: "name", l: "Nombre" }, { k: "email", l: "Email", t: "email" }, { k: "password", l: "Contraseña", t: "password" }].map(f => (
+                      <div key={f.k} style={{ marginBottom: 12 }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>{f.l}</label>
+                        <Input value={editUser[f.k] || ""} onChange={v => setEditUser({ ...editUser, [f.k]: v })} placeholder={f.l} />
+                      </div>
+                    ))}
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Rol</label>
+                      <select value={editUser.role || "USER"} onChange={e => setEditUser({ ...editUser, role: e.target.value })} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
+                        <option value="USER">Usuario</option>
+                        <option value="ADMIN">Administrador</option>
+                      </select>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                      <Btn onClick={() => setShowUserForm(false)}>Cancelar</Btn>
+                      <Btn primary onClick={() => saveUser(editUser)}>Guardar</Btn>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>}
+
+            {/* Tags Tab */}
+            {settingsTab === "tags" && <Card title="Etiquetas de Vulnerabilidades" icon="edit">
+              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                <Input value={newTagName} onChange={setNewTagName} placeholder="Nombre de etiqueta" style={{ flex: 1 }} />
+                <input type="color" value={newTagColor} onChange={e => setNewTagColor(e.target.value)} style={{ width: 40, height: 38, border: `1px solid ${C.gray200}`, borderRadius: 6, cursor: "pointer" }} />
+                <Btn primary onClick={addTag}><I name="plus" size={14} /> Añadir</Btn>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {tags.map(t => (
+                  <div key={t.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 16, background: `${t.color}18`, border: `1px solid ${t.color}40`, fontSize: 12, fontWeight: 600, color: t.color }}>
+                    <span style={{ width: 10, height: 10, borderRadius: "50%", background: t.color }} />
+                    {t.name}
+                    <span style={{ cursor: "pointer", marginLeft: 4, opacity: 0.6 }} onClick={() => deleteTag(t.id)}>×</span>
+                  </div>
+                ))}
+                {tags.length === 0 && <div style={{ color: C.gray400, fontSize: 12, padding: 8 }}>No hay etiquetas. Añade una para empezar.</div>}
+              </div>
+            </Card>}
           </>}
 
           {/* ═══ COLLECTOR ═══ */}
@@ -925,7 +1105,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                   { label: "CISA KEV", desc: "Explotación activa", color: C.critical, icon: "zap" },
                   { label: "EPSS", desc: "Prob. explotación", color: C.high, icon: "activity" },
                   { label: "GitHub PoC", desc: "Exploits públicos", color: C.navy, icon: "bug" },
-                  { label: "PostgreSQL", desc: "Persistencia", color: C.low, icon: "server" },
+                  { label: "MySQL", desc: "Persistencia", color: C.low, icon: "server" },
                 ].map((s, i, a) => (
                   <div key={s.label} style={{ display: "flex", alignItems: "center", flex: 1 }}>
                     <div style={{ flex: 1, padding: "12px 10px", background: `${s.color}10`, border: `1px solid ${s.color}25`, borderRadius: 6, textAlign: "center" }}>
@@ -946,7 +1126,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                     <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", borderBottom: `2px solid ${C.gray200}` }}>{h}</th>
                   ))}
                 </tr></thead>
-                <tbody>{MOCK_RUNS.map(r => (
+                <tbody>{runs.map(r => (
                   <tr key={r.id} className="rh">
                     <td style={{ padding: "8px 12px", fontFamily: "monospace", fontSize: 11, color: C.gray400 }}>#{r.id}</td>
                     <td style={{ padding: "8px 12px", fontSize: 10, fontFamily: "monospace" }}>{fmtDate(r.startedAt)}</td>

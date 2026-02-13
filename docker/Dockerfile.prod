@@ -24,13 +24,13 @@ RUN ls dist/src/main.js
 FROM node:20-slim
 
 RUN apt-get update && apt-get install -y \
-    chromium \
-    fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf \
-    libxss1 \
-    openssl \
-    dumb-init \
-    --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
+  chromium \
+  fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf \
+  libxss1 \
+  openssl \
+  dumb-init \
+  --no-install-recommends \
+  && rm -rf /var/lib/apt/lists/*
 
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
@@ -48,11 +48,14 @@ COPY --from=builder /app/package.json ./
 # Copy HBS templates for PDF reports (runtime reference uses __dirname)
 COPY --from=builder /app/src/modules/vulnerability-collector/report/templates ./dist/src/modules/vulnerability-collector/report/templates
 
+# Copy email notification templates
+COPY --from=builder /app/src/templates ./dist/src/templates
+
 COPY docker/entrypoint.sh ./entrypoint.sh
 
 RUN mkdir -p storage/reports storage/logs storage/cache data \
-    && chown -R occ:occ /app \
-    && chmod +x entrypoint.sh
+  && chown -R occ:occ /app \
+  && chmod +x entrypoint.sh
 
 USER occ
 

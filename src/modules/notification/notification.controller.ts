@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards, Param } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { NotificationService } from './notification.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -25,5 +25,26 @@ export class NotificationController {
     @Roles('ADMIN')
     async sendTestEmail(@Body('email') email: string) {
         return await this.notificationService.sendTestEmail(email);
+    }
+
+    @Get('history')
+    async getHistory(
+        @Query('page') page?: string,
+        @Query('limit') limit?: string,
+    ) {
+        return await this.notificationService.getHistory(
+            parseInt(page || '1'),
+            parseInt(limit || '20'),
+        );
+    }
+
+    @Get('history/:id')
+    async getNotificationDetail(@Param('id', ParseIntPipe) id: number) {
+        return await this.notificationService.getNotificationById(id);
+    }
+
+    @Get('templates')
+    async getTemplates() {
+        return await this.notificationService.getAvailableTemplates();
     }
 }

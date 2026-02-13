@@ -7,6 +7,9 @@ import { VulnerabilityCollectorModule } from './modules/vulnerability-collector/
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { AiModule } from './modules/ai/ai.module';
+import { ContactsModule } from './modules/contacts/contacts.module';
+import { UsersModule } from './modules/users/users.module';
+import { TagsModule } from './modules/tags/tags.module';
 
 @Module({
   imports: [
@@ -21,6 +24,9 @@ import { AiModule } from './modules/ai/ai.module';
     DashboardModule,
     NotificationModule,
     AiModule,
+    ContactsModule,
+    UsersModule,
+    TagsModule,
   ],
 })
 export class AppModule { }
