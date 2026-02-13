@@ -44,22 +44,12 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.prod
-    container_name: occ-api
     restart: always
-    environment:
-      NODE_ENV: production
-      DATABASE_URL: mysql://${MYSQL_USER:-occ_admin}:${MYSQL_PASSWORD:-OCC_S3cur3_P4ss!}@mysql:3306/${MYSQL_DATABASE:-occ_vulns}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-OCC_R3d1s_P4ss!}@redis:6379
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRATION: ${JWT_EXPIRATION:-24h}
-      NVD_API_KEY: ${NVD_API_KEY:-}
-      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
     env_file:
       - .env.prod
-      # SMTP configs are now in DB, but we can keep env vars for potential seed/fallback if needed
+    environment:
+      NODE_ENV: production
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
       # SMTP_HOST: ${SMTP_HOST:-}
       # ...
     volumes:
