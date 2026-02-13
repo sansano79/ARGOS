@@ -3,17 +3,18 @@ set -e
 
 echo "🚀 Servicios OCC — Starting..."
 
-# Use the project's prisma, not npx (which may download a different version)
+# Use the project's prisma
 PRISMA="./node_modules/.bin/prisma"
 
-if [ ! -f /app/data/occ.db ]; then
-    echo "📦 First run: Creating SQLite database..."
-    $PRISMA db push
-    echo "✅ Database initialized"
-else
-    echo "✅ Database exists, checking schema..."
-    $PRISMA db push --accept-data-loss 2>/dev/null || echo "⚠️  Schema already up to date"
-fi
+# Wait for DB (though depends_on healthy should handle it, double check)
+# In production with MySQL, we use 'migrate deploy' instead of 'db push'
+echo "📦 Running database migrations..."
+$PRISMA migrate deploy
+
+# Seed if needed (optional, distinct step usually, but for convenience on first run)
+# Ideally check if users table is empty
+# echo "🌱 Seeding database..."
+# $PRISMA db seed
 
 echo "🚀 Starting NestJS..."
 exec node dist/src/main.js

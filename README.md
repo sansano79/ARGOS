@@ -7,10 +7,12 @@ Sistema automatizado de recolección, análisis y reporte de vulnerabilidades pa
 | Componente | Tecnología |
 |-----------|------------|
 | Backend | NestJS + TypeScript |
-| Base de datos | PostgreSQL 16 |
+| Base de datos | **MySQL 8.0** |
 | ORM | Prisma |
 | Cache | Redis 7 |
 | PDF | Puppeteer + Handlebars |
+| Notificaciones | Nodemailer (SMTP) |
+| IA | OpenAI / Ollama |
 | Contenedores | Docker Compose |
 | Scheduler | @nestjs/schedule (Cron) |
 
@@ -21,105 +23,70 @@ Sistema automatizado de recolección, análisis y reporte de vulnerabilidades pa
 - **FIRST EPSS**: Probabilidad de explotación en 30 días
 - **GitHub / nomi-sec**: Exploits públicos (PoC)
 
-## Inicio Rápido
+## Inicio Rápido (Desarrollo)
 
 ```bash
-# 1. Levantar infraestructura
-docker compose up -d postgres redis
+# 1. Configurar entorno
+cp .env.example .env
+# Editar .env con tus claves
 
-# 2. Instalar dependencias
+# 2. Levantar servicios básicos (MySQL + Redis)
+docker compose up -d mysql redis
+
+# 3. Instalar y migrar
 npm install
-
-# 3. Generar cliente Prisma + migrar BD
-npx prisma generate
 npx prisma migrate dev --name init
-
-# 4. Seed (usuarios y config iniciales)
 npx prisma db seed
 
-# 5. Arrancar API
+# 4. Arrancar API
 npm run start:dev
 ```
 
-O con Docker completo:
-```bash
-docker compose up -d
-```
+## Despliegue en Producción
+
+Para desplegar la aplicación completa (API + Frontend + Nginx + SSL + MySQL + Redis):
+
+1. **Configurar entorno de producción**:
+   ```bash
+   cp .env.prod.example .env.prod
+   nano .env.prod
+   # Ajustar contraseñas, claves API y dominios
+   ```
+
+2. **Generar certificados SSL (si usas HTTPS autofirmado)**:
+   ```bash
+   ./scripts/generate-ssl.sh
+   ```
+
+3. **Arrancar Stack de Producción**:
+   ```bash
+   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+   ```
+
+Esto levantará:
+- **Nginx** en puertos 80/443 (Reverse Proxy & SSL offloading)
+- **API NestJS** (Optimizada para producción)
+- **Frontend React** (Build estático servido por Nginx interno)
+- **MySQL 8.0** (Database)
+- **Redis 7** (Cache)
 
 ## Configuración
 
-Copiar `.env.example` → `.env` y configurar:
+Variables clave en `.env` (dev) o `.env.prod` (prod):
 
-- `NVD_API_KEY`: Obtener en https://nvd.nist.gov/developers/request-an-api-key
-- `GITHUB_TOKEN`: Token personal de GitHub (mejora rate limit)
-- `JWT_SECRET`: Cambiar obligatoriamente en producción
-- `POSTGRES_PASSWORD`: Cambiar en producción
+- `DATABASE_URL`: Connection string MySQL
+- `NVD_API_KEY`: Key de NVD (Vital para performance)
+- `GITHUB_TOKEN`: Token de GitHub (Para búsqueda de exploits)
+- `JWT_SECRET`: Secreto para tokens de sesión
+- `OLLAMA_BASE_URL`: URL de IA local (opcional)
 
-## API Endpoints
+## Nuevas Funcionalidades
 
-| Método | Endpoint | Descripción |
-|--------|---------|-------------|
-| POST | `/api/auth/login` | Login (email + password) |
-| GET | `/api/auth/profile` | Perfil usuario autenticado |
-| GET | `/api/vulnerabilities` | Listar vulnerabilidades (filtros: severity, exploited, hours) |
-| POST | `/api/vulnerabilities/collect` | Disparo manual de recolección (admin) |
-| POST | `/api/vulnerabilities/report` | Generar informe PDF |
-| GET | `/api/vulnerabilities/dashboard` | Datos para dashboard |
-| GET | `/api/vulnerabilities/reports` | Historial de informes |
-| GET | `/api/vulnerabilities/runs` | Historial de ejecuciones del collector |
-| GET | `/api/docs` | Swagger UI |
+### 📧 Sistema de Notificaciones
+- Configuración dinámica de SMTP desde la UI / API.
+- Soporte para plantillas HTML (`src/templates`).
 
-## Usuarios por Defecto
-
-| Email | Password | Rol |
-|-------|----------|-----|
-| admin@servicios-occ.local | Admin.OCC.2026! | ADMIN |
-| viewer@servicios-occ.local | Viewer.OCC.2026! | VIEWER |
-
-⚠️ **Cambiar passwords en producción**
-
-## Funcionamiento del Collector
-
-Cada 30 minutos (configurable):
-
-1. **NVD API** → Descarga CVEs publicados en la última hora
-2. **Parse CPE** → Extrae vendor, producto, versiones afectadas
-3. **CISA KEV** → Flag si la vulnerabilidad tiene explotación activa
-4. **EPSS** → Probabilidad de explotación en 30 días
-5. **Exploit Check** → Busca PoCs en GitHub (solo HIGH/CRITICAL)
-6. **Persist** → Upsert en PostgreSQL con todos los datos enriquecidos
-
-## Generación de Informes
-
-```bash
-# Via API
-curl -X POST "http://localhost:3000/api/vulnerabilities/report?hours=24&minSeverity=HIGH" \
-  -H "Authorization: Bearer <token>"
-
-# Via CLI
-npx ts-node scripts/manual-collect.ts
-```
-
-El PDF incluye:
-- Portada con branding SEIDOR/OCC
-- Resumen ejecutivo con métricas
-- Sección de acción inmediata (CVEs con explotación activa)
-- Tabla completa con CVSS, EPSS, exploit status, productos y remediación
-- Clasificación CONFIDENCIAL
-
-## Estructura del Proyecto
-
-```
-src/
-├── auth/                          # Autenticación JWT
-├── prisma/                        # Prisma service
-├── modules/
-│   ├── vulnerability-collector/
-│   │   ├── collectors/            # NVD, CISA KEV, EPSS, Exploit Check
-│   │   ├── report/                # Generador PDF + plantilla Handlebars
-│   │   ├── vulnerability-collector.service.ts   # Orquestador + Cron
-│   │   └── vulnerability-collector.controller.ts # API REST
-│   └── dashboard/                 # Health check
-├── app.module.ts
-└── main.ts
-```
+### 🤖 Integración IA
+- Módulo agnóstico (**OpenAI** o **Ollama**).
+- Endpoint `POST /api/ai/chat` para consultas.
+- Configurable desde la base de datos.

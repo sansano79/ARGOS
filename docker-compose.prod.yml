@@ -1,13 +1,43 @@
-# ═══════════════════════════════════════════════════════════════
-# Servicios OCC — Docker Compose PRODUCCIÓN (SQLite + HTTPS)
-# ═══════════════════════════════════════════════════════════════
-# Uso:
-#   ./scripts/generate-ssl.sh            # Generar cert autofirmado
-#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
-# ═══════════════════════════════════════════════════════════════
+version: '3.8'
 
 services:
-  # ── API NestJS + SQLite ────────────────────────────────────
+  # ── MySQL ───────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: occ-mysql
+    restart: always
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-occ_vulns}
+      MYSQL_USER: ${MYSQL_USER:-occ_admin}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-OCC_S3cur3_P4ss!}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-OCC_R00t_P4ss!}
+    volumes:
+      - mysql_info:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - occ_net
+
+  # ── Redis ───────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: occ-redis
+    restart: always
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-OCC_R3d1s_P4ss!}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-OCC_R3d1s_P4ss!}", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - occ_net
+
+  # ── API NestJS ──────────────────────────────────────────────
   api:
     build:
       context: .
@@ -16,39 +46,31 @@ services:
     restart: always
     environment:
       NODE_ENV: production
-      DATABASE_URL: file:/app/data/occ.db
-      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.prod}
+      DATABASE_URL: mysql://${MYSQL_USER:-occ_admin}:${MYSQL_PASSWORD:-OCC_S3cur3_P4ss!}@mysql:3306/${MYSQL_DATABASE:-occ_vulns}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-OCC_R3d1s_P4ss!}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-24h}
       NVD_API_KEY: ${NVD_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
-      VULN_COLLECTOR_INTERVAL_MINUTES: ${VULN_COLLECTOR_INTERVAL_MINUTES:-30}
-      VULN_COLLECTOR_LOOKBACK_HOURS: ${VULN_COLLECTOR_LOOKBACK_HOURS:-1}
-      VULN_COLLECTOR_EXPLOIT_CHECK_ENABLED: ${VULN_COLLECTOR_EXPLOIT_CHECK_ENABLED:-true}
-      VULN_COLLECTOR_MIN_SEVERITY_FOR_EXPLOIT_CHECK: ${VULN_COLLECTOR_MIN_SEVERITY_FOR_EXPLOIT_CHECK:-HIGH}
-      VULN_REPORT_OUTPUT_DIR: /app/storage/reports
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
-      SMTP_FROM: ${SMTP_FROM:-occ@servicios-occ.local}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+      # SMTP configs are now in DB, but we can keep env vars for potential seed/fallback if needed
+      # SMTP_HOST: ${SMTP_HOST:-}
+      # ...
     volumes:
-      - occ_data:/app/data
-      - occ_storage:/app/storage
-    healthcheck:
-      test: [ "CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/api', (r) => { process.exit(r.statusCode < 500 ? 0 : 1) }).on('error', () => process.exit(1))\"" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
+      - ./storage:/app/storage
+      # Mount entrypoint if we want to change it without rebuild, but better to burn it in
+      # - ./docker/entrypoint.sh:/app/entrypoint.sh
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - occ_net
 
-  # ── Frontend React (build estático + Nginx interno) ────────
+  # ── Frontend React (servido por Nginx interno en puerto 80) ─
   frontend:
     build:
       context: ./frontend
@@ -60,10 +82,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-    deploy:
-      resources:
-        limits:
-          memory: 128M
     networks:
       - occ_net
 
@@ -80,26 +98,15 @@ services:
       - ./docker/ssl:/etc/nginx/ssl:ro
       - nginx_logs:/var/log/nginx
     depends_on:
-      api:
-        condition: service_healthy
-      frontend:
-        condition: service_healthy
-    healthcheck:
-      test: [ "CMD-SHELL", "wget --no-check-certificate -qO- https://localhost:443/health || exit 1" ]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          memory: 128M
+      - api
+      - frontend
     networks:
       - occ_net
 
 volumes:
-  occ_data:
+  mysql_info:
     driver: local
-  occ_storage:
+  redis_data:
     driver: local
   nginx_logs:
     driver: local
