@@ -68,7 +68,7 @@ model Vulnerability {
   id                 Int      @id @default(autoincrement())
   cveId              String   @unique @map("cve_id")
 
-  description        String?
+  description        String?  @db.MediumText
   publishedAt        DateTime @map("published_at")
   lastModifiedAt     DateTime? @map("last_modified_at")
 
@@ -82,13 +82,15 @@ model Vulnerability {
   kevDateAdded       DateTime? @map("kev_date_added")
   kevDueDate         DateTime? @map("kev_due_date")
   hasPublicExploit   Boolean  @default(false) @map("has_public_exploit")
-  exploitReferences  String   @default("[]") @map("exploit_references")
+  exploitReferences  String   @default("[]") @map("exploit_references") @db.Text
 
-  affectedProducts   String   @default("[]") @map("affected_products")
-  remediationInfo    String   @default("{}") @map("remediation_info")
+
+  affectedProducts   String   @default("[]") @map("affected_products") @db.Text
+  remediationInfo    String   @default("{}") @map("remediation_info")  @db.Text
 
   source             String   @default("nvd")
-  rawData            String?  @map("raw_data")
+  rawData            String?  @map("raw_data") @db.LongText
+
   processingStatus   String   @default("new") @map("processing_status")
   firstSeenAt        DateTime @default(now()) @map("first_seen_at")
   enrichedAt         DateTime? @map("enriched_at")
