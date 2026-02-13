@@ -417,7 +417,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
             <span style={{ fontSize: 10, color: C.gray400, fontFamily: "monospace" }}>
               Próx. scan: {nextRun()}
             </span>
-            <div style={{ width: 30, height: 30, borderRadius: "50%", background: C.navy, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 11 }}>A</div>
+            <div style={{ width: 30, height: 30, borderRadius: "50%", background: C.navy, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 11, cursor: "pointer" }} title="Cerrar Sesión" onClick={() => window.location.reload()}>A</div>
           </div>
         </header>
 
