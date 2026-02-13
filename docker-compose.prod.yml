@@ -1,0 +1,109 @@
+# ═══════════════════════════════════════════════════════════════
+# Servicios OCC — Docker Compose PRODUCCIÓN (SQLite + HTTPS)
+# ═══════════════════════════════════════════════════════════════
+# Uso:
+#   ./scripts/generate-ssl.sh            # Generar cert autofirmado
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+# ═══════════════════════════════════════════════════════════════
+
+services:
+  # ── API NestJS + SQLite ────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.prod
+    container_name: occ-api
+    restart: always
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: file:/app/data/occ.db
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.prod}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-24h}
+      NVD_API_KEY: ${NVD_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
+      VULN_COLLECTOR_INTERVAL_MINUTES: ${VULN_COLLECTOR_INTERVAL_MINUTES:-30}
+      VULN_COLLECTOR_LOOKBACK_HOURS: ${VULN_COLLECTOR_LOOKBACK_HOURS:-1}
+      VULN_COLLECTOR_EXPLOIT_CHECK_ENABLED: ${VULN_COLLECTOR_EXPLOIT_CHECK_ENABLED:-true}
+      VULN_COLLECTOR_MIN_SEVERITY_FOR_EXPLOIT_CHECK: ${VULN_COLLECTOR_MIN_SEVERITY_FOR_EXPLOIT_CHECK:-HIGH}
+      VULN_REPORT_OUTPUT_DIR: /app/storage/reports
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-occ@servicios-occ.local}
+    volumes:
+      - occ_data:/app/data
+      - occ_storage:/app/storage
+    healthcheck:
+      test: [ "CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/api', (r) => { process.exit(r.statusCode < 500 ? 0 : 1) }).on('error', () => process.exit(1))\"" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    networks:
+      - occ_net
+
+  # ── Frontend React (build estático + Nginx interno) ────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: occ-frontend
+    restart: always
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --spider -q http://127.0.0.1:80/ || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    networks:
+      - occ_net
+
+  # ── Nginx Reverse Proxy + SSL ──────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: occ-nginx
+    restart: always
+    ports:
+      - "${OCC_HTTP_PORT:-80}:80"
+      - "${OCC_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./docker/nginx/occ.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docker/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      api:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-check-certificate -qO- https://localhost:443/health || exit 1" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    networks:
+      - occ_net
+
+volumes:
+  occ_data:
+    driver: local
+  occ_storage:
+    driver: local
+  nginx_logs:
+    driver: local
+
+networks:
+  occ_net:
+    driver: bridge

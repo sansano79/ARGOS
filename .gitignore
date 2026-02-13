@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+dist/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Storage
+storage/reports/*.pdf
+storage/logs/*.log
+storage/cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+
+# Docker
+postgres_data/
+redis_data/

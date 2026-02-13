@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  # ── MySQL ───────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: occ-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-occ_vulns}
+      MYSQL_USER: ${MYSQL_USER:-occ_admin}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-OCC_S3cur3_P4ss!}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-OCC_R00t_P4ss!}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis (cache y colas) ───────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: occ-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-OCC_R3d1s_P4ss!}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-OCC_R3d1s_P4ss!}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── API NestJS (desarrollo) ─────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: occ-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: mysql://${MYSQL_USER:-occ_admin}:${MYSQL_PASSWORD:-OCC_S3cur3_P4ss!}@mysql:3306/${MYSQL_DATABASE:-occ_vulns}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-OCC_R3d1s_P4ss!}@redis:6379
+      JWT_SECRET: ${JWT_SECRET:-OCC_Jwt_S3cr3t_K3y_Ch4ng3_1n_Pr0d!}
+      NVD_API_KEY: ${NVD_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    ports:
+      - "${API_PORT:-3000}:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - ./storage:/app/storage
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: npm run start:dev
+
+  # ── Frontend React (Vite) ───────────────────────────────────
+  frontend:
+    image: node:20-alpine
+    container_name: occ-frontend
+    restart: unless-stopped
+    working_dir: /app
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - api
+
+  # ── PHPMyAdmin (opcional, para gestión BD) ──────────────────
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: occ-phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+    ports:
+      - "${PHPMYADMIN_PORT:-8081}:80"
+    depends_on:
+      - mysql
+    profiles:
+      - tools
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local

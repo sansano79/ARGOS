@@ -1,0 +1,194 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ══════════════════════════════════════════════════════════════
+// USUARIOS Y AUTENTICACIÓN
+// ══════════════════════════════════════════════════════════════
+
+model User {
+  id              Int       @id @default(autoincrement())
+  email           String    @unique
+  passwordHash    String    @map("password_hash")
+  name            String
+  role            String    @default("USER")
+  isActive        Boolean   @default(true) @map("is_active")
+  lastLoginAt     DateTime? @map("last_login_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  sessions        UserSession[]
+  reports         VulnerabilityReport[]
+  apiConfigs      ApiConfiguration[]
+  collectorRuns   CollectorRun[]
+
+  @@map("users")
+}
+
+model UserSession {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  tokenHash String   @map("token_hash")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
+model LoginAttempt {
+  id          Int      @id @default(autoincrement())
+  email       String
+  ipAddress   String   @map("ip_address")
+  attemptedAt DateTime @default(now()) @map("attempted_at")
+  success     Boolean  @default(false)
+
+  @@index([email, attemptedAt])
+  @@index([ipAddress, attemptedAt])
+  @@map("login_attempts")
+}
+
+// ══════════════════════════════════════════════════════════════
+// VULNERABILIDADES
+// ══════════════════════════════════════════════════════════════
+
+model Vulnerability {
+  id                 Int      @id @default(autoincrement())
+  cveId              String   @unique @map("cve_id")
+
+  description        String?
+  publishedAt        DateTime @map("published_at")
+  lastModifiedAt     DateTime? @map("last_modified_at")
+
+  cvssV31Score       Float?   @map("cvss_v31_score")
+  cvssV31Vector      String?  @map("cvss_v31_vector")
+  cvssV31Severity    String?  @map("cvss_v31_severity")
+  epssScore          Float?   @map("epss_score")
+  epssPercentile     Float?   @map("epss_percentile")
+
+  isKnownExploited   Boolean  @default(false) @map("is_known_exploited")
+  kevDateAdded       DateTime? @map("kev_date_added")
+  kevDueDate         DateTime? @map("kev_due_date")
+  hasPublicExploit   Boolean  @default(false) @map("has_public_exploit")
+  exploitReferences  String   @default("[]") @map("exploit_references")
+
+  affectedProducts   String   @default("[]") @map("affected_products")
+  remediationInfo    String   @default("{}") @map("remediation_info")
+
+  source             String   @default("nvd")
+  rawData            String?  @map("raw_data")
+  processingStatus   String   @default("new") @map("processing_status")
+  firstSeenAt        DateTime @default(now()) @map("first_seen_at")
+  enrichedAt         DateTime? @map("enriched_at")
+
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([cveId])
+  @@index([cvssV31Severity])
+  @@index([publishedAt(sort: Desc)])
+  @@index([isKnownExploited])
+  @@index([processingStatus])
+  @@index([epssScore(sort: Desc)])
+  @@index([firstSeenAt(sort: Desc)])
+  @@map("vulnerabilities")
+}
+
+// ══════════════════════════════════════════════════════════════
+// INFORMES
+// ══════════════════════════════════════════════════════════════
+
+model VulnerabilityReport {
+  id             Int      @id @default(autoincrement())
+  reportDate     DateTime @map("report_date")
+  periodStart    DateTime @map("period_start")
+  periodEnd      DateTime @map("period_end")
+  totalCves      Int      @map("total_cves")
+  criticalCount  Int      @default(0) @map("critical_count")
+  highCount      Int      @default(0) @map("high_count")
+  exploitedCount Int      @default(0) @map("exploited_count")
+  filePath       String?  @map("file_path")
+  generatedBy    Int?     @map("generated_by")
+
+  user           User?    @relation(fields: [generatedBy], references: [id])
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("vulnerability_reports")
+}
+
+// ══════════════════════════════════════════════════════════════
+// COLLECTOR RUNS
+// ══════════════════════════════════════════════════════════════
+
+model CollectorRun {
+  id           Int       @id @default(autoincrement())
+  startedAt    DateTime  @default(now()) @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+  source       String
+  cvesFetched  Int       @default(0) @map("cves_fetched")
+  cvesNew      Int       @default(0) @map("cves_new")
+  cvesUpdated  Int       @default(0) @map("cves_updated")
+  status       String
+  errorMessage String?   @map("error_message")
+  durationMs   Int?      @map("duration_ms")
+  triggeredBy  Int?      @map("triggered_by")
+
+  user         User?     @relation(fields: [triggeredBy], references: [id])
+
+  @@index([startedAt(sort: Desc)])
+  @@map("collector_runs")
+}
+
+// ══════════════════════════════════════════════════════════════
+// CONFIGURACIÓN APIs EXTERNAS
+// ══════════════════════════════════════════════════════════════
+
+model ApiConfiguration {
+  id                Int       @id @default(autoincrement())
+  name              String
+  slug              String    @unique
+  provider          String
+  apiKeyEncrypted   String?   @map("api_key_encrypted")
+  endpointUrl       String?   @map("endpoint_url")
+  settings          String    @default("{}")
+  isActive          Boolean   @default(true) @map("is_active")
+  lastUsedAt        DateTime? @map("last_used_at")
+  createdBy         Int?      @map("created_by")
+
+  user              User?     @relation(fields: [createdBy], references: [id])
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([provider])
+  @@map("api_configurations")
+}
+
+// ══════════════════════════════════════════════════════════════
+// CONTACTOS IT
+// ══════════════════════════════════════════════════════════════
+
+model ItContact {
+  id              Int      @id @default(autoincrement())
+  name            String
+  email           String
+  contactPerson   String?  @map("contact_person")
+  phone           String?
+  products        String   @default("[]")
+  notes           String?
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("it_contacts")
+}
