@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ── MySQL ───────────────────────────────────────────────────
   mysql:
@@ -18,6 +16,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
     networks:
       - occ_net
 
