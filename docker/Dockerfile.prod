@@ -44,6 +44,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./
+COPY prisma/seed.js ./prisma/seed.js
 
 # Copy HBS templates for PDF reports (runtime reference uses __dirname)
 COPY --from=builder /app/src/modules/vulnerability-collector/report/templates ./dist/src/modules/vulnerability-collector/report/templates
