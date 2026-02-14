@@ -179,9 +179,7 @@ export default function VulnDashboard() {
   const [editUser, setEditUser] = useState(null);
   const [showUserForm, setShowUserForm] = useState(false);
 
-  // Tags CRUD
-  const [newTagName, setNewTagName] = useState("");
-  const [newTagColor, setNewTagColor] = useState("#3B6CB5");
+  // Tags CRUD (moved below)
 
   // Collector & Reports
   const [collecting, setCollecting] = useState(false);
@@ -377,6 +375,60 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
   const deleteUser = async (id) => { try { await apiFetch(`/users/${id}`, { method: "DELETE" }); await loadData("settings"); } catch (e) { console.error(e); } };
 
   // Tags CRUD
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagColor, setNewTagColor] = useState("#3B6CB5");
+
+  // Vulnerability Detail & Actions
+  const [vulnDetail, setVulnDetail] = useState(null);
+  const [vulnLoading, setVulnLoading] = useState(false);
+  const [notifSending, setNotifSending] = useState(false);
+  const [showNotifModal, setShowNotifModal] = useState(false);
+
+  // Load full detail
+  const loadVulnDetail = async (id) => {
+    setVulnLoading(true);
+    try {
+      const r = await apiFetch(`/vulnerabilities/${id}`);
+      setVulnDetail(await r.json());
+    } catch (e) { console.error(e); }
+    setVulnLoading(false);
+  };
+
+  // Send notification
+  const handleNotifyContact = async (contactId) => {
+    if (!vulnDetail) return;
+    setNotifSending(true);
+    try {
+      const res = await apiFetch(`/vulnerabilities/${vulnDetail.id}/notify`, {
+        method: "POST",
+        body: JSON.stringify({ contactId })
+      });
+      if (res.ok) {
+        await loadVulnDetail(vulnDetail.id); // Reload to see history
+        setShowNotifModal(false);
+        alert("Notificación enviada correctamente");
+      } else {
+        throw new Error("Error enviando notificación");
+      }
+    } catch (e) { alert(e.message); }
+    setNotifSending(false);
+  };
+
+  // Manage tags on vuln
+  const handleVulnTags = async (newTags) => {
+    if (!vulnDetail) return;
+    try {
+      const tagIds = newTags.map(t => t.id);
+      await apiFetch(`/vulnerabilities/${vulnDetail.id}/tags`, {
+        method: "POST",
+        body: JSON.stringify({ tagIds })
+      });
+      setVulnDetail({ ...vulnDetail, tags: newTags });
+      // Update list view too if possible
+      setVulns(vulns.map(v => v.id === vulnDetail.id ? { ...v, tags: newTags } : v));
+    } catch (e) { console.error(e); }
+  };
+
   const addTag = async () => {
     if (!newTagName.trim()) return;
     try { await apiFetch("/tags", { method: "POST", body: JSON.stringify({ name: newTagName, color: newTagColor }) }); setNewTagName(""); await loadData("settings"); } catch (e) { console.error(e); }
@@ -545,86 +597,178 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
             </Card>
           </>}
 
-          {/* ═══ VULNERABILITIES ═══ */}
-          {view === "vulns" && <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: 0 }}>Vulnerabilidades</h1>
-              <div style={{ display: "flex", gap: 6 }}>
+{/* ═══ VULNERABILITIES ═══ */ }
+{
+    view === "vulns" && <>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: 0 }}>Vulnerabilidades</h1>
+            <div style={{ display: "flex", gap: 6 }}>
                 {["", "CRITICAL", "HIGH", "MEDIUM", "LOW"].map(s => (
-                  <button key={s} onClick={() => setSevFilter(s)} className="bh" style={{ padding: "5px 12px", borderRadius: 5, fontSize: 10, fontWeight: 600, border: sevFilter === s ? "none" : `1px solid ${C.gray200}`, background: sevFilter === s ? (s ? sevColor(s) : C.navy) : "#fff", color: sevFilter === s ? "#fff" : C.gray600, cursor: "pointer", transition: "all 0.12s" }}>{s || "Todas"}</button>
+                    <button key={s} onClick={() => setSevFilter(s)} className="bh" style={{ padding: "5px 12px", borderRadius: 5, fontSize: 10, fontWeight: 600, border: sevFilter === s ? "none" : `1px solid ${C.gray200}`, background: sevFilter === s ? (s ? sevColor(s) : C.navy) : "#fff", color: sevFilter === s ? "#fff" : C.gray600, cursor: "pointer", transition: "all 0.12s" }}>{s || "Todas"}</button>
                 ))}
-              </div>
             </div>
+        </div>
 
-            <Card noPad>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <Card noPad>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr style={{ background: C.gray50 }}>
-                  {["CVE", "Sev", "CVSS", "EPSS", "KEV", "Exploit", "Productos", "Parche", "Publicada"].map(h => (
-                    <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", borderBottom: `2px solid ${C.gray200}`, whiteSpace: "nowrap" }}>{h}</th>
-                  ))}
+                    {["CVE", "Sev", "CVSS", "EPSS", "KEV", "Exploit", "Productos", "Tags", "Publicada"].map(h => (
+                        <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", borderBottom: `2px solid ${C.gray200}`, whiteSpace: "nowrap" }}>{h}</th>
+                    ))}
                 </tr></thead>
                 <tbody>{vulns.filter(v => !sevFilter || v.cvssV31Severity === sevFilter).map(v => (
-                  <tr key={v.cveId} className="rh" onClick={() => setSelectedVuln(selectedVuln?.cveId === v.cveId ? null : v)} style={{ cursor: "pointer", background: v.isKnownExploited ? C.criticalBg : selectedVuln?.cveId === v.cveId ? C.bluePale : "#fff", borderLeft: v.isKnownExploited ? `3px solid ${C.critical}` : "3px solid transparent", transition: "background 0.1s" }}>
-                    <td style={{ padding: "10px 12px", fontWeight: 700, fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>{v.cveId}</td>
-                    <td style={{ padding: "10px 12px" }}><SevBadge s={v.cvssV31Severity} small /></td>
-                    <td style={{ padding: "10px 12px", fontFamily: "monospace", fontWeight: 700, fontSize: 12 }}>{fmtScore(v.cvssV31Score)}</td>
-                    <td style={{ padding: "10px 12px", fontFamily: "monospace", fontSize: 11 }}>{fmtEpss(v.epssScore)}</td>
-                    <td style={{ padding: "10px 12px" }}>{v.isKnownExploited ? <span style={{ color: C.critical, fontWeight: 800, fontSize: 11 }}>● SÍ</span> : <span style={{ color: C.gray300 }}>—</span>}</td>
-                    <td style={{ padding: "10px 12px" }}>{v.hasPublicExploit ? <span style={{ color: C.high, fontWeight: 700, fontSize: 10 }}>⚡ SÍ</span> : <span style={{ color: C.gray300 }}>—</span>}</td>
-                    <td style={{ padding: "10px 12px" }}>{(v.affectedProducts || []).slice(0, 2).map((p, i) => <span key={i} style={{ display: "inline-block", background: C.bluePale, color: C.navy, padding: "1px 5px", borderRadius: 2, fontSize: 8, fontWeight: 600, marginRight: 2 }}>{p.vendor}/{p.product}</span>)}{(v.affectedProducts || []).length > 2 && <span style={{ fontSize: 8, color: C.gray400 }}>+{v.affectedProducts.length - 2}</span>}</td>
-                    <td style={{ padding: "10px 12px" }}>{v.remediationInfo?.patchAvailable ? "✅" : "❌"}</td>
-                    <td style={{ padding: "10px 12px", fontSize: 10, color: C.gray500, fontFamily: "monospace" }}>{fmtDate(v.publishedAt)}</td>
-                  </tr>
+                    <tr key={v.cveId} className="rh" onClick={() => loadVulnDetail(v.id)} style={{ cursor: "pointer", background: v.isKnownExploited ? C.criticalBg : "#fff", borderLeft: v.isKnownExploited ? `3px solid ${C.critical}` : "3px solid transparent", transition: "background 0.1s" }}>
+                        <td style={{ padding: "10px 12px", fontWeight: 700, fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>{v.cveId}</td>
+                        <td style={{ padding: "10px 12px" }}><SevBadge s={v.cvssV31Severity} small /></td>
+                        <td style={{ padding: "10px 12px", fontFamily: "monospace", fontSize: 11, fontWeight: 700 }}>{fmtScore(v.cvssV31Score)}</td>
+                        <td style={{ padding: "10px 12px", fontFamily: "monospace", fontSize: 11, color: (v.epssScore || 0) > 0.1 ? C.high : C.text }}>{fmtEpss(v.epssScore)}</td>
+                        <td style={{ padding: "10px 12px" }}>{v.isKnownExploited ? <span style={{ fontSize: 14 }}>⚡</span> : <span style={{ color: C.gray300 }}>-</span>}</td>
+                        <td style={{ padding: "10px 12px" }}>{v.hasPublicExploit ? <I name="bug" size={14} color={C.critical} /> : <span style={{ color: C.gray300 }}>-</span>}</td>
+                        <td style={{ padding: "10px 12px" }}>{(v.affectedProducts || []).slice(0, 2).map((p, i) => <span key={i} style={{ display: "inline-block", background: C.bluePale, color: C.navy, padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 600, marginRight: 3, marginBottom: 2 }}>{p.vendor}/{p.product}</span>)} {(v.affectedProducts || []).length > 2 && <span style={{ fontSize: 9, color: C.gray500 }}>+{v.affectedProducts.length - 2}</span>}</td>
+                        <td style={{ padding: "10px 12px" }}>{(v.tags || []).map(t => <span key={t.id} style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: t.color, marginRight: 2 }} title={t.name} />)}</td>
+                        <td style={{ padding: "10px 12px", fontSize: 10, color: C.gray500, fontFamily: "monospace" }}>{fmtDate(v.publishedAt).split(",")[0]}</td>
+                    </tr>
                 ))}</tbody>
-              </table>
-            </Card>
+            </table>
+            {vulns.length === 0 && <div style={{ padding: 40, textAlign: "center", color: C.gray400, fontSize: 13 }}>No hay vulnerabilidades que mostrar</div>}
+        </Card>
 
-            {selectedVuln && (
-              <div className="fade" style={{ marginTop: 14 }}>
-                <Card style={{ borderLeft: `4px solid ${sevColor(selectedVuln.cvssV31Severity)}` }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-                    <div>
-                      <h2 style={{ fontSize: 18, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", margin: "0 0 6px" }}>{selectedVuln.cveId}</h2>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        <SevBadge s={selectedVuln.cvssV31Severity} />
-                        {selectedVuln.isKnownExploited && <span style={{ background: C.critical, color: "#fff", padding: "2px 8px", borderRadius: 3, fontSize: 10, fontWeight: 700 }}>🔴 CISA KEV</span>}
-                        {selectedVuln.hasPublicExploit && <span style={{ background: C.high, color: "#fff", padding: "2px 8px", borderRadius: 3, fontSize: 10, fontWeight: 700 }}>⚡ EXPLOIT PÚBLICO</span>}
-                      </div>
-                    </div>
-                    <span onClick={() => setSelectedVuln(null)} style={{ cursor: "pointer", color: C.gray400 }}><I name="x" size={18} /></span>
-                  </div>
-                  <p style={{ color: C.gray600, fontSize: 12, lineHeight: 1.6, marginBottom: 14 }}>{selectedVuln.description}</p>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                    <div>
-                      <h4 style={{ fontSize: 11, fontWeight: 700, color: C.gray500, marginBottom: 6, textTransform: "uppercase" }}>Software afectado</h4>
-                      {(selectedVuln.affectedProducts || []).map((p, i) => <div key={i} style={{ display: "flex", gap: 6, padding: "5px 8px", background: C.bluePale, borderRadius: 4, marginBottom: 3, fontSize: 11 }}><strong style={{ color: C.navy }}>{p.vendor}</strong><span>{p.product}</span>{p.versionRange && <span style={{ fontFamily: "monospace", fontSize: 9, color: C.gray500 }}>{p.versionRange}</span>}</div>)}
-                      <h4 style={{ fontSize: 11, fontWeight: 700, color: C.gray500, margin: "12px 0 6px", textTransform: "uppercase" }}>Equipos IT afectados</h4>
-                      {getAffectedContacts(selectedVuln).map(c => (
-                        <div key={c.id} style={{ padding: "8px 10px", background: C.gray50, borderRadius: 4, marginBottom: 4, borderLeft: `3px solid ${C.blue}` }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{c.name}</div>
-                          <div style={{ fontSize: 11, color: C.blue, display: "flex", alignItems: "center", gap: 4 }}><I name="mail" size={12} color={C.blue} /> {c.email}</div>
-                          <div style={{ fontSize: 10, color: C.gray500, marginTop: 2 }}>{c.contactPerson} · {c.phone}</div>
+        {/* VULN DETAIL OVERLAY */}
+        {vulnDetail && (
+            <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 110, display: "flex", justifyContent: "flex-end" }} onClick={() => setVulnDetail(null)}>
+                <div style={{ width: 800, background: "#fff", height: "100%", overflowY: "auto", padding: 32, boxShadow: "-10px 0 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+                    {vulnLoading ? <div style={{ padding: 40, textAlign: "center" }}>Cargando...</div> : <>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+                            <div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                                    <h2 style={{ fontSize: 28, fontWeight: 800, margin: 0, fontFamily: "'JetBrains Mono', monospace", color: C.navy }}>{vulnDetail.cveId}</h2>
+                                    <SevBadge s={vulnDetail.cvssV31Severity} />
+                                    {vulnDetail.isKnownExploited && <span style={{ background: C.criticalBg, color: C.critical, padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, border: `1px solid ${C.critical}` }}>⚡ KEV: EXPLOTACIÓN ACTIVA</span>}
+                                </div>
+                                <div style={{ fontSize: 11, color: C.gray500, fontFamily: "monospace" }}>Publicado: {fmtDate(vulnDetail.publishedAt)} · Actualizado: {fmtDate(vulnDetail.lastModifiedAt)}</div>
+                            </div>
+                            <button onClick={() => setVulnDetail(null)} style={{ border: "none", background: "transparent", cursor: "pointer" }}><I name="x" size={24} color={C.gray400} /></button>
                         </div>
-                      ))}
-                    </div>
-                    <div>
-                      <h4 style={{ fontSize: 11, fontWeight: 700, color: C.gray500, marginBottom: 6, textTransform: "uppercase" }}>Remediación</h4>
-                      <div style={{ padding: "10px 12px", borderRadius: 6, background: selectedVuln.remediationInfo?.patchAvailable ? C.lowBg : C.highBg, borderLeft: `3px solid ${selectedVuln.remediationInfo?.patchAvailable ? C.low : C.high}` }}>
-                        <strong style={{ fontSize: 12, color: selectedVuln.remediationInfo?.patchAvailable ? C.low : C.high }}>{selectedVuln.remediationInfo?.patchAvailable ? "✅ Parche disponible" : "❌ Sin parche"}</strong>
-                        {(selectedVuln.remediationInfo?.vendorAdvisories || []).map((u, i) => <div key={i} style={{ marginTop: 4, fontSize: 10, display: "flex", alignItems: "center", gap: 4 }}><I name="link" size={11} color={C.blue} /><a href={u} target="_blank" rel="noreferrer" style={{ color: C.blue, textDecoration: "none", wordBreak: "break-all" }}>{u}</a></div>)}
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
-                        {[["CVSS", fmtScore(selectedVuln.cvssV31Score)], ["EPSS", fmtEpss(selectedVuln.epssScore)]].map(([l, v]) => <div key={l} style={{ background: C.gray50, borderRadius: 4, padding: "8px 10px" }}><div style={{ fontSize: 9, color: C.gray500, fontWeight: 600 }}>{l}</div><div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: C.text }}>{v}</div></div>)}
-                      </div>
-                      <Btn small style={{ marginTop: 12 }} onClick={() => { setAiQuery(`Analiza el impacto de ${selectedVuln.cveId} en nuestra infraestructura y recomienda acciones`); setView("ai"); }}>
-                        <I name="brain" size={14} /> Analizar con IA
-                      </Btn>
-                    </div>
-                  </div>
-                </Card>
-              </div>
-            )}
-          </>}
+
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 24 }}>
+                            <Metric icon="shield" label="CVSS Score" value={fmtScore(vulnDetail.cvssV31Score)} sub={vulnDetail.cvssV31Vector} color={sevColor(vulnDetail.cvssV31Severity)} />
+                            <Metric icon="activity" label="EPSS Prob." value={fmtEpss(vulnDetail.epssScore)} sub={`Percentile: ${((vulnDetail.epssPercentile || 0) * 100).toFixed(0)}%`} color={C.blue} />
+                            <Metric icon="bug" label="Exploit Público" value={vulnDetail.hasPublicExploit ? "SÍ" : "NO"} sub={vulnDetail.hasPublicExploit ? `${(vulnDetail.exploitReferences?.length || 0)} referencias` : "No detectado"} color={vulnDetail.hasPublicExploit ? C.critical : C.low} />
+                        </div>
+
+                        <div style={{ marginBottom: 24 }}>
+                            <h3 style={{ fontSize: 14, fontWeight: 700, color: C.gray700, marginBottom: 8, textTransform: "uppercase" }}>Descripción</h3>
+                            <p style={{ fontSize: 13, lineHeight: 1.6, color: C.gray700, background: C.gray50, padding: 16, borderRadius: 8, border: `1px solid ${C.gray200}` }}>
+                                {vulnDetail.description}
+                            </p>
+                        </div>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24 }}>
+                            <div>
+                                <h3 style={{ fontSize: 14, fontWeight: 700, color: C.gray700, marginBottom: 12, textTransform: "uppercase" }}>Etiquetas</h3>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                                    {vulnDetail.tags.map(t => (
+                                        <span key={t.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 12, background: `${t.color}15`, color: t.color, fontSize: 11, fontWeight: 600, border: `1px solid ${t.color}30` }}>
+                                            {t.name}
+                                            <span style={{ cursor: "pointer", opacity: 0.6 }} onClick={() => handleVulnTags(vulnDetail.tags.filter(x => x.id !== t.id))}>×</span>
+                                        </span>
+                                    ))}
+                                    <div style={{ position: "relative" }}>
+                                        <button onClick={() => document.getElementById("tag-dropdown").style.display = "block"} style={{ background: C.gray100, border: "none", borderRadius: 12, width: 24, height: 24, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><I name="plus" size={14} color={C.gray600} /></button>
+                                        <div id="tag-dropdown" style={{ display: "none", position: "absolute", top: 30, left: 0, background: "#fff", border: `1px solid ${C.gray200}`, boxShadow: "0 10px 20px rgba(0,0,0,0.1)", borderRadius: 8, padding: 8, width: 200, zIndex: 120 }}>
+                                            {tags.filter(t => !vulnDetail.tags.find(vt => vt.id === t.id)).map(t => (
+                                                <div key={t.id} onClick={() => { handleVulnTags([...vulnDetail.tags, t]); document.getElementById("tag-dropdown").style.display = "none"; }} style={{ padding: "6px 10px", fontSize: 12, cursor: "pointer", borderRadius: 4 }} className="rh">
+                                                    <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: t.color, marginRight: 8 }} />
+                                                    {t.name}
+                                                </div>
+                                            ))}
+                                            {tags.length === 0 && <div style={{ fontSize: 11, color: C.gray500, padding: 8 }}>No hay tags disponibles. Créalos en Configuración.</div>}
+                                            <div style={{ borderTop: `1px solid ${C.gray100}`, marginTop: 4, paddingTop: 4, textAlign: "center", fontSize: 10, color: C.blue, cursor: "pointer" }} onClick={() => document.getElementById("tag-dropdown").style.display = "none"}>Cerrar</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <h3 style={{ fontSize: 14, fontWeight: 700, color: C.gray700, marginBottom: 12, textTransform: "uppercase" }}>Software Afectado ({((vulnDetail.affectedProducts || []).length)})</h3>
+                                <div style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.gray200}`, borderRadius: 6 }}>
+                                    {(vulnDetail.affectedProducts || []).map((p, i) => (
+                                        <div key={i} style={{ padding: "6px 10px", borderBottom: `1px solid ${C.gray100}`, fontSize: 11 }}>
+                                            <span style={{ fontWeight: 700, color: C.navy }}>{p.vendor}</span> / {p.product} <span style={{ color: C.gray500 }}>{p.versionRange || ""}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: 24 }}>
+                            <h3 style={{ fontSize: 14, fontWeight: 700, color: C.gray700, marginBottom: 12, textTransform: "uppercase" }}>Referencias Oficiales & Parches</h3>
+                            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                                <a href={`https://nvd.nist.gov/vuln/detail/${vulnDetail.cveId}`} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#fff", border: `1px solid ${C.gray300}`, borderRadius: 6, textDecoration: "none", color: C.navy, fontSize: 12, fontWeight: 600 }}>
+                                    <img src="https://nvd.nist.gov/site-media/images/NIST_logo_bw_64.png" height="14" alt="" /> NVD NIST <I name="link" size={12} />
+                                </a>
+                                {vulnDetail.remediationInfo?.patchAvailable && (vulnDetail.remediationInfo.patchUrls || []).map((url, i) => (
+                                    <a key={i} href={url} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: C.lowBg, border: `1px solid ${C.low}`, borderRadius: 6, textDecoration: "none", color: C.low, fontSize: 12, fontWeight: 600 }}>
+                                        <I name="check" size={12} /> Patch / Advisor <I name="link" size={12} />
+                                    </a>
+                                ))}
+                                {(vulnDetail.references || []).slice(0, 3).map((ref, i) => (
+                                    <a key={i} href={ref.url} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: C.gray50, border: `1px solid ${C.gray200}`, borderRadius: 6, textDecoration: "none", color: C.gray600, fontSize: 12 }}>
+                                        Reference {i + 1} <I name="link" size={12} />
+                                    </a>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div style={{ background: C.gray50, borderRadius: 8, padding: 20, border: `1px solid ${C.gray200}` }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                                <h3 style={{ fontSize: 14, fontWeight: 700, color: C.navy, margin: 0, display: "flex", alignItems: "center", gap: 8 }}><I name="mail" size={16} /> Notificaciones y Alertas</h3>
+                                <Btn small primary onClick={() => setShowNotifModal(true)}><I name="send" size={12} /> Notificar a contacto</Btn>
+                            </div>
+
+                            {showNotifModal && (
+                                <div style={{ marginBottom: 16, background: "#fff", padding: 16, borderRadius: 6, border: `1px solid ${C.blue}`, animation: "fadeIn 0.2s" }}>
+                                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Selecciona un contacto para enviar alerta sobre {vulnDetail.cveId}:</div>
+                                    <div style={{ display: "flex", gap: 8 }}>
+                                        <select id="contact-select" style={{ flex: 1, padding: 8, borderRadius: 4, border: `1px solid ${C.gray300}` }}>
+                                            {contacts.map(c => <option key={c.id} value={c.id}>{c.name} ({c.email})</option>)}
+                                        </select>
+                                        <Btn small primary disabled={notifSending} onClick={() => handleNotifyContact(document.getElementById("contact-select").value)}>
+                                            {notifSending ? "Enviando..." : "Enviar Email"}
+                                        </Btn>
+                                        <Btn small onClick={() => setShowNotifModal(false)}>Cancelar</Btn>
+                                    </div>
+                                </div>
+                            )}
+
+                            <table style={{ width: "100%", borderCollapse: "collapse", background: "#fff", borderRadius: 6, overflow: "hidden" }}>
+                                <thead><tr style={{ background: C.gray100, borderBottom: `1px solid ${C.gray200}` }}>
+                                    {["Fecha", "Destinatario", "Estado"].map(h => <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, color: C.gray600 }}>{h}</th>)}
+                                </tr></thead>
+                                <tbody>
+                                    {(vulnDetail.notifications || []).length === 0 ? (
+                                        <tr><td colSpan={3} style={{ padding: 12, textAlign: "center", fontSize: 11, color: C.gray500 }}>Sin notificaciones enviadas</td></tr>
+                                    ) : vulnDetail.notifications.map(n => (
+                                        <tr key={n.id} style={{ borderBottom: `1px solid ${C.gray100}` }}>
+                                            <td style={{ padding: "8px 12px", fontSize: 11, fontFamily: "monospace" }}>{fmtDate(n.sentAt)}</td>
+                                            <td style={{ padding: "8px 12px", fontSize: 11 }}>{n.recipientName} ({n.recipientEmail})</td>
+                                            <td style={{ padding: "8px 12px", fontSize: 10, fontWeight: 700, color: n.status === "sent" ? C.low : C.critical }}>{n.status.toUpperCase()}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div style={{ marginTop: 24, textAlign: "right" }}>
+                            <Btn onClick={() => setAiQuery(`Analiza el impacto de ${vulnDetail.cveId} en nuestra infraestructura. Productos afectados: ${(vulnDetail.affectedProducts || []).map(p => p.product).join(", ")}`)} style={{ marginRight: 12 }}><I name="brain" size={14} /> Analizar con IA</Btn>
+                            <Btn onClick={() => setVulnDetail(null)}>Cerrar</Btn>
+                        </div>
+
+                    </>}
+                </div>
+            </div>
+        )}
+    </>
+}
 
           {/* ═══ SEARCH ═══ */}
           {view === "search" && <>
