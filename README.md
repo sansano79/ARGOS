@@ -44,31 +44,150 @@ npm run start:dev
 
 ## Despliegue en Producción
 
-Para desplegar la aplicación completa (API + Frontend + Nginx + SSL + MySQL + Redis):
+### 1) Requisitos recomendados
 
-1. **Configurar entorno de producción**:
-   ```bash
-   cp .env.prod.example .env.prod
-   nano .env.prod
-   # Ajustar contraseñas, claves API y dominios
-   ```
+- Ubuntu/Debian LTS
+- Docker + Docker Compose plugin
+- Dominio en Cloudflare (proxy naranja activo)
+- Puertos abiertos: `80/tcp`, `443/tcp`
 
-2. **Generar certificados SSL (si usas HTTPS autofirmado)**:
-   ```bash
-   ./scripts/generate-ssl.sh
-   ```
+### 2) Preparar variables de producción
 
-3. **Arrancar Stack de Producción**:
-   ```bash
-   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
-   ```
+```bash
+cp .env.prod.example .env.prod
+nano .env.prod
+```
 
-Esto levantará:
-- **Nginx** en puertos 80/443 (Reverse Proxy & SSL offloading)
-- **API NestJS** (Optimizada para producción)
-- **Frontend React** (Build estático servido por Nginx interno)
-- **MySQL 8.0** (Database)
-- **Redis 7** (Cache)
+Valores clave de seguridad:
+
+- `NODE_ENV=production`
+- `JWT_SECRET=<random-largo>`
+- `CORS_ORIGIN=https://app.tu-dominio.com`
+- `ENABLE_SWAGGER=false`
+- `TRUST_PROXY=1`
+- `PRISMA_DB_PUSH_ON_START=false` (recomendado en prod)
+- `OLLAMA_BASE_URL` y `OLLAMA_MODEL` según tu servidor IA
+
+### 3) Cloudflare (recomendado)
+
+En Cloudflare Dashboard:
+
+1. `DNS`:
+   - `A app.tu-dominio.com -> IP_ORIGEN` (Proxy: ON)
+2. `SSL/TLS`:
+   - Mode: **Full (strict)**
+3. `Edge Certificates`:
+   - Always Use HTTPS: **ON**
+   - TLS 1.3: **ON**
+4. `Firewall`:
+   - WAF Managed Rules: **ON**
+   - Bot Fight Mode/Super Bot Fight: **ON** (si aplica)
+
+### 4) Certificado en origen
+
+Opciones:
+
+- Certificado de Cloudflare Origin (recomendado para Full strict)
+- O certificado válido de Let’s Encrypt
+
+Coloca los ficheros en:
+
+- `docker/ssl/server.crt`
+- `docker/ssl/server.key`
+
+### 5) Primer despliegue
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+
+Verifica:
+
+```bash
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml logs -f nginx
+docker compose -f docker-compose.prod.yml logs -f api
+```
+
+### 6) Migraciones / esquema (modo seguro)
+
+Con `PRISMA_DB_PUSH_ON_START=false`, aplica cambios de esquema de forma controlada:
+
+```bash
+docker compose -f docker-compose.prod.yml exec api npx prisma db push
+docker compose -f docker-compose.prod.yml exec api npx prisma generate
+```
+
+Luego reinicia API:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build api
+```
+
+### 7) Publicación y validaciones
+
+1. Health:
+   - `https://app.tu-dominio.com/health`
+2. Login y navegación UI
+3. Envío SMTP de prueba
+4. Asistente IA (si Ollama está configurado)
+
+### 8) Endurecimiento adicional recomendado
+
+- Restringir en firewall del servidor el acceso directo al origen (permitir solo IPs de Cloudflare).
+- Rotar periódicamente:
+  - `JWT_SECRET`
+  - contraseñas DB/Redis
+  - API keys (NVD/GitHub/SMTP)
+- Backups automáticos de MySQL y pruebas de restore.
+- Monitorizar logs de `nginx` y `api` con alertas.
+
+## Migrar Estado Actual de la Base de Datos (recolecciones)
+
+Si quieres subir al servidor todo el estado actual (CVE recolectadas, tags, plantillas, etc.), usa dump + restore.
+
+Importante para despliegue vía GitHub:
+- Sube al repo solo código y scripts.
+- No subas `.env.prod`, claves SSL ni dumps `.sql/.sql.gz`.
+- El dump se transfiere fuera de GitHub (por `scp`/`rsync`) directo al servidor.
+
+### 1) Exportar en origen
+
+```bash
+./scripts/db-export-prod.sh
+```
+
+Genera un archivo `.sql.gz` en `storage/backups/`.
+
+### 2) Copiar dump al servidor
+
+```bash
+scp ./storage/backups/occ_vulns_YYYYMMDD_HHMMSS.sql.gz usuario@tu-servidor:/opt/occ-vuls-git/storage/backups/
+```
+
+### 3) Restaurar en servidor destino
+
+```bash
+cd /opt/occ-vuls-git
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d mysql
+./scripts/db-restore-prod.sh ./storage/backups/occ_vulns_YYYYMMDD_HHMMSS.sql.gz
+```
+
+Notas:
+- El script pide confirmación (`RESTORE`) para evitar borrados accidentales.
+- Puedes omitir confirmación solo si sabes lo que haces: `FORCE_RESTORE=true ./scripts/db-restore-prod.sh ...`
+
+### 4) Levantar aplicación y validar
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+docker compose -f docker-compose.prod.yml logs -f api
+```
+
+Validaciones mínimas:
+- Login correcto.
+- Conteo de CVE en panel.
+- Contactos, configuraciones y plantillas visibles.
 
 ## Configuración
 
@@ -79,6 +198,9 @@ Variables clave en `.env` (dev) o `.env.prod` (prod):
 - `GITHUB_TOKEN`: Token de GitHub (Para búsqueda de exploits)
 - `JWT_SECRET`: Secreto para tokens de sesión
 - `OLLAMA_BASE_URL`: URL de IA local (opcional)
+- `CORS_ORIGIN`: Origen permitido del frontend en producción
+- `ENABLE_SWAGGER`: `false` recomendado en producción
+- `TRUST_PROXY`: `1` detrás de proxy (Cloudflare/Nginx)
 
 ## Nuevas Funcionalidades
 

@@ -6,11 +6,16 @@ dist/
 .env
 .env.local
 .env.production
+.env.prod
+.env.prod.local
 
 # Storage
 storage/reports/*.pdf
 storage/logs/*.log
 storage/cache/
+storage/backups/
+*.sql
+*.sql.gz
 
 # IDE
 .idea/
@@ -28,3 +33,6 @@ coverage/
 # Docker
 postgres_data/
 redis_data/
+docker/ssl/*.key
+docker/ssl/*.pem
+docker/ssl/*.pfx

@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const API_BASE = "/api";
-const OLLAMA_BASE = "http://localhost:11434";
 
 // ─── Auth helpers ────────────────────────────────────────────────────────────
 const getToken = () => localStorage.getItem("occ_token");
@@ -235,6 +234,11 @@ export default function VulnDashboard() {
   const [smtpSaving, setSmtpSaving] = useState(false);
   const [testEmail, setTestEmail] = useState("");
   const [testSending, setTestSending] = useState(false);
+  const DEFAULT_AI_MODEL = "krith/qwen2.5-32b-instruct:IQ1_M";
+  const [aiConfig, setAiConfig] = useState({ provider: "ollama", baseUrl: "", model: DEFAULT_AI_MODEL, source: "env" });
+  const [aiModels, setAiModels] = useState([]);
+  const [aiConfigLoading, setAiConfigLoading] = useState(false);
+  const [aiConfigSaving, setAiConfigSaving] = useState(false);
   const [smtpMsg, setSmtpMsg] = useState(null);
   const aiEndRef = useRef(null);
 
@@ -321,6 +325,25 @@ export default function VulnDashboard() {
         if (catalogRes.status === "fulfilled") {
           setSubscriptionCatalog(Array.isArray(catalogRes.value) ? catalogRes.value : []);
         }
+
+        setAiConfigLoading(true);
+        const [aiConfigRes, aiModelsRes] = await Promise.allSettled([
+          apiFetch("/ai/config").then(r => r.json()),
+          apiFetch("/ai/models").then(r => r.json()),
+        ]);
+        if (aiConfigRes.status === "fulfilled" && aiConfigRes.value) {
+          setAiConfig({
+            provider: aiConfigRes.value.provider || "ollama",
+            baseUrl: aiConfigRes.value.baseUrl || "",
+            model: aiConfigRes.value.model || DEFAULT_AI_MODEL,
+            source: aiConfigRes.value.source || "env",
+          });
+        }
+        if (aiModelsRes.status === "fulfilled") {
+          const models = Array.isArray(aiModelsRes.value?.models) ? aiModelsRes.value.models : [];
+          setAiModels(models);
+        }
+        setAiConfigLoading(false);
       } else if (v === "notifications") {
         setTemplateLoading(true);
         const [historyRes, templateRes, templatesRes, vulnsRes] = await Promise.allSettled([
@@ -349,6 +372,7 @@ export default function VulnDashboard() {
       }
     } catch (e) {
       setSmtpLoading(false);
+      setAiConfigLoading(false);
       setTemplateLoading(false);
       setManufacturersLoading(false);
       console.error("Load error:", e.message);
@@ -369,6 +393,47 @@ export default function VulnDashboard() {
     }
     setTestSending(false);
     setTimeout(() => setSmtpMsg(null), 3000);
+  };
+
+  const saveAiConfig = async () => {
+    setAiConfigSaving(true);
+    try {
+      const res = await apiFetch("/ai/config", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: aiConfig.provider || "ollama",
+          baseUrl: aiConfig.baseUrl || "",
+          model: aiConfig.model || "",
+        }),
+      });
+      if (!res.ok) throw new Error("No se pudo guardar la configuración IA");
+      const data = await res.json();
+      setAiConfig({
+        provider: data.provider || "ollama",
+        baseUrl: data.baseUrl || "",
+        model: data.model || DEFAULT_AI_MODEL,
+        source: data.source || "db",
+      });
+      setSmtpMsg({ type: "success", text: "Configuración IA guardada correctamente" });
+      const modelsRes = await apiFetch("/ai/models");
+      const modelsData = await modelsRes.json();
+      setAiModels(Array.isArray(modelsData?.models) ? modelsData.models : []);
+    } catch (e) {
+      setSmtpMsg({ type: "error", text: e.message || "Error guardando configuración IA" });
+    } finally {
+      setAiConfigSaving(false);
+      setTimeout(() => setSmtpMsg(null), 3000);
+    }
+  };
+
+  const refreshAiModels = async () => {
+    try {
+      const modelsRes = await apiFetch("/ai/models");
+      const modelsData = await modelsRes.json();
+      setAiModels(Array.isArray(modelsData?.models) ? modelsData.models : []);
+    } catch {
+      setAiModels([]);
+    }
   };
 
   const handleSaveSmtp = async () => {
@@ -458,26 +523,32 @@ export default function VulnDashboard() {
 
 Base de datos actual: ${dash.totalAll || vulns.length} CVEs indexados.
 Top CVEs con explotación activa: ${(dash.topExploited || []).map(v => v.cveId).join(", ")}.
-Equipos IT registrados: ${contacts.map(c => `${c.name} (${c.products.join(", ")})`).join("; ")}.
 
-Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos cuando sea relevante. Si te preguntan sobre impacto, correlaciona con los productos y equipos IT registrados.`;
+Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos cuando sea relevante.
+Usa únicamente datos técnicos de vulnerabilidades y no incluyas datos de usuarios/contactos.`;
 
     try {
-      const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
+      const res = await apiFetch("/ai/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "llama3.1", messages: [{ role: "system", content: context }, ...aiMessages.map(m => ({ role: m.role, content: m.content })), { role: "user", content: userMsg }], stream: false }),
+        body: JSON.stringify({
+          messages: [
+            { role: "system", content: context },
+            ...aiMessages.map(m => ({ role: m.role, content: m.content })),
+            { role: "user", content: userMsg },
+          ],
+        }),
       });
       if (res.ok) {
         const data = await res.json();
-        setAiMessages(prev => [...prev, { role: "assistant", content: data.message?.content || "Sin respuesta del modelo." }]);
+        setAiMessages(prev => [...prev, { role: "assistant", content: data?.content || "Sin respuesta del modelo." }]);
       } else {
-        throw new Error("Ollama error");
+        throw new Error("AI API error");
       }
-    } catch {
-      // Simulated response for demo
-      const simulated = generateSimulatedResponse(userMsg);
-      setAiMessages(prev => [...prev, { role: "assistant", content: simulated }]);
+    } catch (e) {
+      setAiMessages(prev => [...prev, {
+        role: "assistant",
+        content: `No se pudo obtener respuesta del asistente IA. Verifica la configuración de Ollama en el backend.\n\nDetalle: ${e?.message || "Error desconocido"}`,
+      }]);
     }
     setAiLoading(false);
   };
@@ -551,6 +622,9 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
       setActiveVendor("");
     } else {
       next.notificationEmail = next.notificationEmail || next.email || "";
+      if (next.canLogin && !["ADMIN", "VIEWER"].includes((next.role || "").toUpperCase())) {
+        next.role = "";
+      }
     }
     setEditUser(next);
   };
@@ -616,6 +690,12 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
   };
 
   const saveUser = async (u) => {
+    const subscriberWithLogin = !!u.isSubscriber && !!u.canLogin;
+    if (subscriberWithLogin && !["ADMIN", "VIEWER"].includes((u.role || "").toUpperCase())) {
+      alert('Para suscriptores con inicio de sesión, debes seleccionar rol "Administrador" o "Viewer".');
+      return;
+    }
+
     try {
       const payload = {
         id: u.id,
@@ -659,6 +739,14 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
       setVulnDetail(await r.json());
     } catch (e) { console.error(e); }
     setVulnLoading(false);
+  };
+
+  const openVulnerabilityDetail = (v) => {
+    const id = v?.id || vulns.find(x => x.cveId === v?.cveId)?.id;
+    if (!id) return;
+    setSelectedVuln(v);
+    setView("vulns");
+    loadVulnDetail(id);
   };
 
   const openNotifyModal = async () => {
@@ -926,19 +1014,30 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
   );
 
   const currentUser = getUser();
-  const nav = [
+  const allNav = [
     { id: "overview", label: "Visión General", icon: "shield" },
     { id: "vulns", label: "Vulnerabilidades", icon: "bug" },
     { id: "search", label: "Búsqueda", icon: "search" },
     { id: "exploited", label: "Explotación Activa", icon: "zap" },
     { id: "manufacturers", label: "Fabricantes", icon: "server" },
-    { id: "contacts", label: "Contactos", icon: "users" },
     { id: "notifications", label: "Comunicaciones", icon: "mail" },
     { id: "reports", label: "Informes", icon: "file" },
     { id: "ai", label: "Asistente IA", icon: "brain" },
     { id: "collector", label: "Collector", icon: "server" },
     { id: "settings", label: "Configuración", icon: "settings" },
   ];
+  const isViewer = (currentUser?.role || "").toUpperCase() === "VIEWER";
+  const viewerAllowedViews = ["overview", "vulns", "search", "exploited", "ai"];
+  const nav = isViewer
+    ? allNav.filter((n) => viewerAllowedViews.includes(n.id))
+    : allNav;
+
+  useEffect(() => {
+    if (!isViewer) return;
+    if (!viewerAllowedViews.includes(view)) {
+      setView("overview");
+    }
+  }, [isViewer, view]);
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: C.gray50, fontFamily: "'Inter', -apple-system, sans-serif" }}>
@@ -1041,7 +1140,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                 <tbody>{(dash?.topExploited || []).map(v => {
                   const aff = getAffectedContacts(v);
                   return (
-                    <tr key={v.cveId} className="rh" style={{ cursor: "pointer" }} onClick={() => { setSelectedVuln(vulns.find(x => x.cveId === v.cveId) || v); setView("vulns"); }}>
+                    <tr key={v.cveId} className="rh" style={{ cursor: "pointer" }} onClick={() => openVulnerabilityDetail(v)}>
                       <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 12, fontFamily: "monospace", color: C.critical }}>{v.cveId}</td>
                       <td style={{ padding: "10px 14px" }}><SevBadge s={v.cvssV31Severity} small /> <span style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 700, marginLeft: 4 }}>{fmtScore(v.cvssV31Score)}</span></td>
                       <td style={{ padding: "10px 14px", fontFamily: "monospace", fontSize: 12, fontWeight: 600 }}>{fmtEpss(v.epssScore)}</td>
@@ -1351,30 +1450,35 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
               const aff = getAffectedContacts(v);
               return (
                 <Card key={v.cveId} style={{ marginBottom: 10, borderLeft: `4px solid ${C.critical}` }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <span style={{ fontSize: 16, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace" }}>{v.cveId}</span>
-                      <SevBadge s={v.cvssV31Severity} /><span style={{ fontFamily: "monospace", fontWeight: 800, fontSize: 14 }}>{fmtScore(v.cvssV31Score)}</span>
+                  <div
+                    onClick={() => openVulnerabilityDetail(v)}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 16, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace" }}>{v.cveId}</span>
+                        <SevBadge s={v.cvssV31Severity} /><span style={{ fontFamily: "monospace", fontWeight: 800, fontSize: 14 }}>{fmtScore(v.cvssV31Score)}</span>
+                      </div>
+                      <span style={{ fontSize: 10, color: C.gray500 }}>EPSS {fmtEpss(v.epssScore)}</span>
                     </div>
-                    <span style={{ fontSize: 10, color: C.gray500 }}>EPSS {fmtEpss(v.epssScore)}</span>
-                  </div>
-                  <p style={{ color: C.gray600, fontSize: 11, lineHeight: 1.5, marginBottom: 10 }}>{v.description}</p>
-                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
-                    {(v.affectedProducts || []).map((p, i) => <span key={i} style={{ background: C.bluePale, color: C.navy, padding: "2px 8px", borderRadius: 3, fontSize: 10, fontWeight: 600 }}>{p.vendor}/{p.product}</span>)}
-                  </div>
-                  {aff.length > 0 && (
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                      {aff.map(c => (
-                        <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 6, background: C.gray50, padding: "4px 10px", borderRadius: 4, fontSize: 10 }}>
-                          <I name="mail" size={12} color={C.blue} />
-                          <strong>{c.name.split(" ").slice(1, 3).join(" ")}</strong>
-                          <span style={{ color: C.gray500 }}>{c.email}</span>
-                        </div>
-                      ))}
+                    <p style={{ color: C.gray600, fontSize: 11, lineHeight: 1.5, marginBottom: 10 }}>{v.description}</p>
+                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
+                      {(v.affectedProducts || []).map((p, i) => <span key={i} style={{ background: C.bluePale, color: C.navy, padding: "2px 8px", borderRadius: 3, fontSize: 10, fontWeight: 600 }}>{p.vendor}/{p.product}</span>)}
                     </div>
-                  )}
-                  <div style={{ padding: "8px 10px", borderRadius: 4, background: v.remediationInfo?.patchAvailable ? C.lowBg : C.highBg, fontSize: 11, borderLeft: `3px solid ${v.remediationInfo?.patchAvailable ? C.low : C.high}` }}>
-                    <strong>{v.remediationInfo?.patchAvailable ? "✅ Parche disponible" : "❌ Sin parche"}</strong>
+                    {aff.length > 0 && (
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                        {aff.map(c => (
+                          <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 6, background: C.gray50, padding: "4px 10px", borderRadius: 4, fontSize: 10 }}>
+                            <I name="mail" size={12} color={C.blue} />
+                            <strong>{c.name.split(" ").slice(1, 3).join(" ")}</strong>
+                            <span style={{ color: C.gray500 }}>{c.email}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ padding: "8px 10px", borderRadius: 4, background: v.remediationInfo?.patchAvailable ? C.lowBg : C.highBg, fontSize: 11, borderLeft: `3px solid ${v.remediationInfo?.patchAvailable ? C.low : C.high}` }}>
+                      <strong>{v.remediationInfo?.patchAvailable ? "✅ Parche disponible" : "❌ Sin parche"}</strong>
+                    </div>
                   </div>
                 </Card>
               );
@@ -1751,34 +1855,18 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
 
           {/* ═══ REPORTS ═══ */}
           {view === "reports" && <>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Generación de Informes</h1>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <Card title="Nuevo Informe PDF" icon="file">
-                <div style={{ marginBottom: 12 }}>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Periodo</label>
-                  <select value={reportHours} onChange={e => setReportHours(e.target.value)} style={{ width: "100%", padding: "10px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12 }}>
-                    <option value="6">Últimas 6h</option><option value="12">Últimas 12h</option><option value="24">Últimas 24h</option><option value="48">Últimas 48h</option><option value="168">Última semana</option>
-                  </select>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Informes</h1>
+            <Card title="Módulo en construcción" icon="file">
+              <div style={{ textAlign: "center", padding: "22px 10px" }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.gray700, marginBottom: 8 }}>
+                  Esta sección estará disponible próximamente.
                 </div>
-                <div style={{ marginBottom: 14 }}>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Severidad mínima</label>
-                  <select value={reportSev} onChange={e => setReportSev(e.target.value)} style={{ width: "100%", padding: "10px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12 }}>
-                    <option value="CRITICAL">Solo CRITICAL</option><option value="HIGH">HIGH+</option><option value="MEDIUM">MEDIUM+</option><option value="LOW">Todas</option>
-                  </select>
+                <div style={{ fontSize: 12, color: C.gray500, marginBottom: 14 }}>
+                  Estamos preparando el nuevo módulo de generación y gestión de informes.
                 </div>
-                <Btn primary onClick={handleReport} disabled={generating} style={{ width: "100%" }}>
-                  {generating ? <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span> Generando...</> : <><I name="file" size={14} color="#fff" /> Generar PDF</>}
-                </Btn>
-                {reportResult && <div className="fade" style={{ marginTop: 12, padding: "10px 12px", background: C.lowBg, borderRadius: 4, borderLeft: `3px solid ${C.low}`, fontSize: 12, color: C.low, fontWeight: 600 }}>✅ {reportResult.message} — {reportResult.summary.total} CVEs, {reportResult.summary.critical} críticas</div>}
-              </Card>
-              <Card title="Contenido del informe" icon="check">
-                {[["Portada", "Branding SEIDOR OCC con clasificación TLP"], ["Resumen ejecutivo", "Métricas de severidad y explotación"], ["Acción inmediata", "CVEs con explotación activa (CISA KEV)"], ["Equipos afectados", "Correlación automática con servicios IT"], ["Tabla detallada", "CVSS, EPSS, productos, parche, remediación"]].map(([t, d]) => (
-                  <div key={t} style={{ display: "flex", gap: 8, padding: "6px 0", borderBottom: `1px solid ${C.gray100}`, fontSize: 12 }}>
-                    <I name="check" size={13} color={C.low} /><div><strong>{t}:</strong> {d}</div>
-                  </div>
-                ))}
-              </Card>
-            </div>
+                <Btn onClick={() => setView("overview")}>Volver a Visión General</Btn>
+              </div>
+            </Card>
           </>}
 
           {/* ═══ AI ASSISTANT ═══ */}
@@ -1849,7 +1937,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
           {view === "settings" && <>
             <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Configuración</h1>
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-              {[{ id: "smtp", label: "SMTP" }, { id: "users", label: "Usuarios" }, { id: "tags", label: "Etiquetas" }].map(t => (
+              {[{ id: "smtp", label: "SMTP" }, { id: "ia", label: "IA" }, { id: "users", label: "Usuarios" }, { id: "tags", label: "Etiquetas" }].map(t => (
                 <div key={t.id} onClick={() => setSettingsTab(t.id)} style={{ padding: "8px 18px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: settingsTab === t.id ? C.navy : C.gray100, color: settingsTab === t.id ? "#fff" : C.gray600, transition: "all 0.15s" }}>{t.label}</div>
               ))}
             </div>
@@ -1904,6 +1992,70 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
               )}
             </Card>}
 
+            {/* IA Tab */}
+            {settingsTab === "ia" && <Card title="Configuración IA (Ollama)" icon="brain">
+              {aiConfigLoading ? (
+                <div style={{ padding: 20, textAlign: "center", color: C.gray500 }}>Cargando configuración IA...</div>
+              ) : (
+                <>
+                  <div style={{ marginBottom: 12, background: C.gray50, border: `1px solid ${C.gray200}`, borderRadius: 6, padding: "10px 12px", fontSize: 11, color: C.gray600 }}>
+                    Fuente actual: <strong>{aiConfig.source === "db" ? "Base de datos" : ".env"}</strong>. Si guardas aquí, pasará a usar configuración en base de datos.
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Proveedor</label>
+                      <select
+                        value={aiConfig.provider || "ollama"}
+                        onChange={e => setAiConfig({ ...aiConfig, provider: e.target.value })}
+                        style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}
+                      >
+                        <option value="ollama">Ollama</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Base URL Ollama</label>
+                      <Input value={aiConfig.baseUrl || ""} onChange={v => setAiConfig({ ...aiConfig, baseUrl: v })} placeholder="http://192.168.1.30:11434" />
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Modelo</label>
+                    <select
+                      value={aiConfig.model || ""}
+                      onChange={e => setAiConfig({ ...aiConfig, model: e.target.value })}
+                      style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}
+                    >
+                      <option value="">Selecciona modelo...</option>
+                      {[...new Set([DEFAULT_AI_MODEL, "sylink/sylink:8b", ...(aiModels || [])])].map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                    <div style={{ marginTop: 8 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Modelo manual (opcional)</label>
+                      <Input
+                        value={aiConfig.model || ""}
+                        onChange={v => setAiConfig({ ...aiConfig, model: v })}
+                        placeholder={`Ej: ${DEFAULT_AI_MODEL} o sylink/sylink:8b`}
+                      />
+                    </div>
+                    {(aiModels || []).length === 0 && (
+                      <div style={{ fontSize: 11, color: C.gray500, marginTop: 6 }}>
+                        No se pudieron listar modelos automáticamente. Puedes escribir el modelo manualmente en `.env` o revisar conectividad con Ollama.
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                    <Btn onClick={refreshAiModels}>Recargar modelos</Btn>
+                    <Btn onClick={() => loadData("settings")}>Recargar</Btn>
+                    <Btn primary onClick={saveAiConfig} disabled={aiConfigSaving}>
+                      {aiConfigSaving ? "Guardando..." : "Guardar Configuración IA"}
+                    </Btn>
+                  </div>
+                </>
+              )}
+            </Card>}
+
             {/* Users Tab */}
             {settingsTab === "users" && <>
               <Card title="Gestión de Usuarios" icon="users" action={<Btn small primary onClick={() => openUserForm()}><I name="plus" size={14} /> Nuevo</Btn>}>
@@ -1952,7 +2104,11 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                         <input type="checkbox" checked={!!editUser.canLogin} onChange={e => setEditUser({
                           ...editUser,
                           canLogin: e.target.checked,
-                          role: e.target.checked ? (editUser.role === "SUBSCRIBER" ? "VIEWER" : editUser.role || "USER") : "SUBSCRIBER",
+                          role: e.target.checked
+                            ? (editUser.isSubscriber
+                              ? (["ADMIN", "VIEWER"].includes((editUser.role || "").toUpperCase()) ? editUser.role : "")
+                              : (editUser.role === "SUBSCRIBER" ? "USER" : editUser.role || "USER"))
+                            : "SUBSCRIBER",
                         })} />
                         <span style={{ fontSize: 12, color: C.text }}>Permitir inicio de sesión</span>
                       </div>
@@ -1966,10 +2122,20 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                       <>
                         <div style={{ marginBottom: 12 }}>
                           <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Rol de acceso</label>
-                          <select value={editUser.role || "USER"} onChange={e => setEditUser({ ...editUser, role: e.target.value })} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
-                            <option value="USER">Usuario</option>
-                            <option value="VIEWER">Viewer</option>
-                            <option value="ADMIN">Administrador</option>
+                          <select value={editUser.role || ""} onChange={e => setEditUser({ ...editUser, role: e.target.value })} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
+                            <option value="" disabled>Seleccionar rol...</option>
+                            {editUser.isSubscriber ? (
+                              <>
+                                <option value="VIEWER">Viewer</option>
+                                <option value="ADMIN">Administrador</option>
+                              </>
+                            ) : (
+                              <>
+                                <option value="USER">Usuario</option>
+                                <option value="VIEWER">Viewer</option>
+                                <option value="ADMIN">Administrador</option>
+                              </>
+                            )}
                           </select>
                         </div>
                         <div style={{ marginBottom: 12 }}>

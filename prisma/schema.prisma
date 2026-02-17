@@ -150,6 +150,8 @@ model CollectorRun {
   cvesFetched  Int       @default(0) @map("cves_fetched")
   cvesNew      Int       @default(0) @map("cves_new")
   cvesUpdated  Int       @default(0) @map("cves_updated")
+  manufacturersNew Int   @default(0) @map("manufacturers_new")
+  productsNew  Int       @default(0) @map("products_new")
   status       String
   errorMessage String?   @map("error_message")
   durationMs   Int?      @map("duration_ms")
