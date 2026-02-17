@@ -32,7 +32,7 @@ export class AiService {
         });
 
         if (dbConfig) {
-            const settings = JSON.parse(dbConfig.settings);
+            const settings = JSON.parse(dbConfig.settings || '{}');
             this.config = {
                 provider: settings.provider,
                 baseUrl: settings.baseUrl,

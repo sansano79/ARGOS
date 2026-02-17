@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import * as helmet from 'helmet';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -16,6 +17,10 @@ async function bootstrap() {
     origin: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(','),
     credentials: true,
   });
+
+  // Allow larger JSON payloads (template header image can be base64 data URL)
+  app.use(json({ limit: '10mb' }));
+  app.use(urlencoded({ extended: true, limit: '10mb' }));
 
   // Validation
   app.useGlobalPipes(

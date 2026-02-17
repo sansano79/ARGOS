@@ -47,4 +47,45 @@ export class NotificationController {
     async getTemplates() {
         return await this.notificationService.getAvailableTemplates();
     }
+
+    @Get('template-config')
+    @Roles('ADMIN')
+    async getTemplateConfig(): Promise<any> {
+        return await this.notificationService.getTemplateConfig();
+    }
+
+    @Get('template-configs')
+    @Roles('ADMIN')
+    async listTemplateConfigs(): Promise<any> {
+        return await this.notificationService.listTemplateConfigs();
+    }
+
+    @Get('template-config/:id')
+    @Roles('ADMIN')
+    async getTemplateConfigById(@Param('id', ParseIntPipe) id: number): Promise<any> {
+        return await this.notificationService.getTemplateConfigById(id);
+    }
+
+    @Post('template-config')
+    @Roles('ADMIN')
+    async saveTemplateConfig(@Body() config: any): Promise<any> {
+        return await this.notificationService.saveTemplateConfig(config);
+    }
+
+    @Post('template-config/:id/activate')
+    @Roles('ADMIN')
+    async activateTemplateConfig(@Param('id', ParseIntPipe) id: number): Promise<any> {
+        return await this.notificationService.activateTemplateConfig(id);
+    }
+
+    @Post('template-preview')
+    @Roles('ADMIN')
+    async getTemplatePreview(
+        @Body() body: { vulnerabilityId: number; config?: any },
+    ): Promise<any> {
+        return await this.notificationService.getTemplatePreview(
+            Number(body?.vulnerabilityId),
+            body?.config || {},
+        );
+    }
 }

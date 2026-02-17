@@ -82,11 +82,11 @@ model Vulnerability {
   kevDateAdded       DateTime? @map("kev_date_added")
   kevDueDate         DateTime? @map("kev_due_date")
   hasPublicExploit   Boolean  @default(false) @map("has_public_exploit")
-  exploitReferences  String   @default("[]") @map("exploit_references") @db.Text
-  references         String   @default("[]") @db.Text
+  exploitReferences  String?  @map("exploit_references") @db.Text
+  references         String?  @db.Text
 
-  affectedProducts   String   @default("[]") @map("affected_products") @db.Text
-  remediationInfo    String   @default("{}") @map("remediation_info")  @db.Text
+  affectedProducts   String?  @map("affected_products") @db.Text
+  remediationInfo    String?  @map("remediation_info")  @db.Text
 
   source             String   @default("nvd")
   rawData            String?  @map("raw_data") @db.LongText
@@ -167,7 +167,7 @@ model ApiConfiguration {
   provider          String
   apiKeyEncrypted   String?   @map("api_key_encrypted")
   endpointUrl       String?   @map("endpoint_url")
-  settings          String    @default("{}")
+  settings          String?   @db.LongText
   isActive          Boolean   @default(true) @map("is_active")
   lastUsedAt        DateTime? @map("last_used_at")
   createdBy         Int?      @map("created_by")

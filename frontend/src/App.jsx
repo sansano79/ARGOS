@@ -164,10 +164,35 @@ export default function VulnDashboard() {
   const [tags, setTags] = useState([]);
   const [notifHistory, setNotifHistory] = useState([]);
   const [notifDetail, setNotifDetail] = useState(null);
+  const [templateConfig, setTemplateConfig] = useState({
+    headerImageUrl: "",
+    introMessage: "",
+    showExploitProbability: true,
+    showExploitExists: true,
+    showAffectedSoftware: true,
+    showDescription: true,
+    showReferences: true,
+    showPatchLink: true,
+  });
+  const [templateName, setTemplateName] = useState("Plantilla CVE");
+  const [templateList, setTemplateList] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [templateLoading, setTemplateLoading] = useState(false);
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [previewVulnId, setPreviewVulnId] = useState("");
+  const [templatePreviewHtml, setTemplatePreviewHtml] = useState("");
+  const [templatePreviewMeta, setTemplatePreviewMeta] = useState({ cveId: "", manufacturer: "" });
+  const [templatePreviewLoading, setTemplatePreviewLoading] = useState(false);
 
   // Filters & search
   const [searchQ, setSearchQ] = useState("");
   const [searchType, setSearchType] = useState("all");
+  const [searchTagId, setSearchTagId] = useState("");
+  const [searchPublishedFrom, setSearchPublishedFrom] = useState("");
+  const [searchPublishedTo, setSearchPublishedTo] = useState("");
+  const [searchMinScore, setSearchMinScore] = useState("");
+  const [searchExploit, setSearchExploit] = useState("all");
+  const [searchSeverity, setSearchSeverity] = useState("");
   const [sevFilter, setSevFilter] = useState("");
   const [selectedVuln, setSelectedVuln] = useState(null);
 
@@ -230,20 +255,79 @@ export default function VulnDashboard() {
         const r = await apiFetch(`/vulnerabilities${q}`); const d = await r.json(); setVulns(d.data || []); setVulnsTotal(d.total || 0);
       } else if (v === "contacts") {
         const r = await apiFetch("/contacts"); setContacts(await r.json());
+      } else if (v === "search") {
+        const [vulnsR, tagsR] = await Promise.all([
+          apiFetch("/vulnerabilities?limit=1000"),
+          apiFetch("/tags"),
+        ]);
+        const vulnData = await vulnsR.json();
+        setVulns(Array.isArray(vulnData?.data) ? vulnData.data : []);
+        setVulnsTotal(vulnData?.total || 0);
+        const tagsData = await tagsR.json();
+        setTags(Array.isArray(tagsData) ? tagsData : []);
       } else if (v === "reports") {
         const r = await apiFetch("/vulnerabilities/reports"); const d = await r.json(); setReports(d.data || []);
       } else if (v === "collector") {
-        const r = await apiFetch("/vulnerabilities/runs?limit=30"); setRuns(await r.json());
+        const [runsR, dashR] = await Promise.all([
+          apiFetch("/vulnerabilities/runs?limit=30"),
+          apiFetch("/vulnerabilities/dashboard"),
+        ]);
+        const runsData = await runsR.json();
+        const dashData = await dashR.json();
+        setRuns(Array.isArray(runsData) ? runsData : (Array.isArray(runsData?.data) ? runsData.data : []));
+        setDash(dashData || { totalAll: 0, today: [], week: [], topExploited: [], lastRun: null });
       } else if (v === "settings") {
         setSmtpLoading(true);
-        const [smtpR, usersR, tagsR] = await Promise.all([apiFetch("/notifications/config"), apiFetch("/users"), apiFetch("/tags")]);
-        const smtpD = await smtpR.json(); if (smtpD) setSmtpConfig({ ...smtpD, pass: "" });
-        setUsers(await usersR.json()); setTags(await tagsR.json());
-        setSmtpLoading(false);
+        try {
+          const smtpR = await apiFetch("/notifications/config");
+          const smtpD = await smtpR.json();
+          if (smtpD) setSmtpConfig({ ...smtpD, pass: "" });
+        } finally {
+          setSmtpLoading(false);
+        }
+
+        const [usersRes, tagsRes] = await Promise.allSettled([
+          apiFetch("/users").then(r => r.json()),
+          apiFetch("/tags").then(r => r.json()),
+        ]);
+
+        if (usersRes.status === "fulfilled") {
+          setUsers(Array.isArray(usersRes.value) ? usersRes.value : []);
+        }
+        if (tagsRes.status === "fulfilled") {
+          setTags(Array.isArray(tagsRes.value) ? tagsRes.value : []);
+        }
       } else if (v === "notifications") {
-        const r = await apiFetch("/notifications/history"); const d = await r.json(); setNotifHistory(d.data || []);
+        setTemplateLoading(true);
+        const [historyRes, templateRes, templatesRes, vulnsRes] = await Promise.allSettled([
+          apiFetch("/notifications/history").then(r => r.json()),
+          apiFetch("/notifications/template-config").then(r => r.json()),
+          apiFetch("/notifications/template-configs").then(r => r.json()),
+          apiFetch("/vulnerabilities?limit=300").then(r => r.json()),
+        ]);
+        if (historyRes.status === "fulfilled") {
+          setNotifHistory(historyRes.value?.data || []);
+        }
+        if (templateRes.status === "fulfilled" && templateRes.value) {
+          setTemplateConfig(prev => ({ ...prev, ...templateRes.value }));
+          setTemplateName(templateRes.value?.name || "Plantilla CVE");
+        }
+        if (templatesRes.status === "fulfilled") {
+          const list = Array.isArray(templatesRes.value) ? templatesRes.value : [];
+          setTemplateList(list);
+          const active = list.find(t => t.isActive);
+          setSelectedTemplateId(active ? String(active.id) : "");
+        }
+        if (vulnsRes.status === "fulfilled") {
+          setVulns(Array.isArray(vulnsRes.value?.data) ? vulnsRes.value.data : []);
+        }
+        setTemplateLoading(false);
       }
-    } catch (e) { console.error("Load error:", e.message); }
+    } catch (e) {
+      setSmtpLoading(false);
+      setTemplateLoading(false);
+      console.error("Load error:", e.message);
+    }
   }, [sevFilter]);
 
   useEffect(() => { if (isLoggedIn) loadData(view); }, [view, isLoggedIn, loadData]);
@@ -280,13 +364,55 @@ export default function VulnDashboard() {
   const gc = (arr, sev) => (arr || []).find(c => c?.cvssV31Severity === sev)?._count || 0;
   const nextRun = () => { if (!dash?.lastRun?.finishedAt) return "-"; return Math.max(0, Math.floor((new Date(dash?.lastRun?.finishedAt).getTime() + 1800000 - now) / 60000)) + "m"; };
 
-  // Search logic (searches loaded vulns)
-  const searchResults = searchQ.trim().length >= 2 ? vulns.filter(v => {
-    const q = searchQ.toLowerCase();
-    if (searchType === "cve") return v.cveId.toLowerCase().includes(q);
-    if (searchType === "product") return (v.affectedProducts || []).some(p => `${p.vendor}/${p.product}`.toLowerCase().includes(q) || p.vendor?.toLowerCase().includes(q) || p.product?.toLowerCase().includes(q));
-    return v.cveId.toLowerCase().includes(q) || (v.description || "").toLowerCase().includes(q) || (v.affectedProducts || []).some(p => `${p.vendor} ${p.product}`.toLowerCase().includes(q));
-  }) : [];
+  // Search logic (live filtering)
+  const hasSearchCriteria = (
+    searchQ.trim().length > 0 ||
+    searchTagId !== "" ||
+    searchPublishedFrom !== "" ||
+    searchPublishedTo !== "" ||
+    searchMinScore !== "" ||
+    searchExploit !== "all" ||
+    searchSeverity !== ""
+  );
+
+  const searchResults = vulns.filter(v => {
+    const q = searchQ.trim().toLowerCase();
+    let textMatch = true;
+    if (q) {
+      if (searchType === "cve") {
+        textMatch = v.cveId.toLowerCase().includes(q);
+      } else if (searchType === "product") {
+        textMatch = (v.affectedProducts || []).some(
+          p => `${p.vendor}/${p.product}`.toLowerCase().includes(q) ||
+            p.vendor?.toLowerCase().includes(q) ||
+            p.product?.toLowerCase().includes(q),
+        );
+      } else {
+        textMatch =
+          v.cveId.toLowerCase().includes(q) ||
+          (v.description || "").toLowerCase().includes(q) ||
+          (v.affectedProducts || []).some(p => `${p.vendor} ${p.product}`.toLowerCase().includes(q));
+      }
+    }
+
+    const tagMatch = searchTagId === "" || (v.tags || []).some(t => String(t.id) === String(searchTagId));
+    const severityMatch = searchSeverity === "" || v.cvssV31Severity === searchSeverity;
+
+    const minScore = parseFloat(searchMinScore);
+    const scoreMatch = Number.isNaN(minScore) || (Number(v.cvssV31Score || 0) >= minScore);
+
+    const publishedAt = v.publishedAt ? new Date(v.publishedAt) : null;
+    const fromMatch = !searchPublishedFrom || (publishedAt && publishedAt >= new Date(`${searchPublishedFrom}T00:00:00`));
+    const toMatch = !searchPublishedTo || (publishedAt && publishedAt <= new Date(`${searchPublishedTo}T23:59:59`));
+
+    let exploitMatch = true;
+    if (searchExploit === "known") exploitMatch = !!v.isKnownExploited;
+    else if (searchExploit === "public") exploitMatch = !!v.hasPublicExploit;
+    else if (searchExploit === "any") exploitMatch = !!v.isKnownExploited || !!v.hasPublicExploit;
+    else if (searchExploit === "none") exploitMatch = !v.isKnownExploited && !v.hasPublicExploit;
+
+    return textMatch && tagMatch && severityMatch && scoreMatch && fromMatch && toMatch && exploitMatch;
+  });
 
   // Find contacts affected by a CVE
   const getAffectedContacts = (vuln) => {
@@ -383,6 +509,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
   const [vulnLoading, setVulnLoading] = useState(false);
   const [notifSending, setNotifSending] = useState(false);
   const [showNotifModal, setShowNotifModal] = useState(false);
+  const [notifContactsLoading, setNotifContactsLoading] = useState(false);
 
   // Load full detail
   const loadVulnDetail = async (id) => {
@@ -394,14 +521,34 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
     setVulnLoading(false);
   };
 
+  const openNotifyModal = async () => {
+    setShowNotifModal(true);
+    if (contacts.length > 0) return;
+    setNotifContactsLoading(true);
+    try {
+      const r = await apiFetch("/contacts");
+      const data = await r.json();
+      setContacts(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setNotifContactsLoading(false);
+    }
+  };
+
   // Send notification
   const handleNotifyContact = async (contactId) => {
     if (!vulnDetail) return;
+    const parsedContactId = Number(contactId);
+    if (!Number.isInteger(parsedContactId) || parsedContactId <= 0) {
+      alert("Contacto inválido");
+      return;
+    }
     setNotifSending(true);
     try {
       const res = await apiFetch(`/vulnerabilities/${vulnDetail.id}/notify`, {
         method: "POST",
-        body: JSON.stringify({ contactId })
+        body: JSON.stringify({ contactId: parsedContactId })
       });
       if (res.ok) {
         await loadVulnDetail(vulnDetail.id); // Reload to see history
@@ -438,6 +585,102 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
   // Notification detail
   const viewNotification = async (id) => {
     try { const r = await apiFetch(`/notifications/history/${id}`); setNotifDetail(await r.json()); } catch (e) { console.error(e); }
+  };
+
+  const saveTemplateConfig = async () => {
+    setTemplateSaving(true);
+    try {
+      const res = await apiFetch("/notifications/template-config", {
+        method: "POST",
+        body: JSON.stringify({
+          ...templateConfig,
+          name: templateName,
+          templateId: selectedTemplateId ? Number(selectedTemplateId) : undefined,
+        }),
+      });
+      if (!res.ok) throw new Error("Error guardando plantilla");
+      setSmtpMsg({ type: "success", text: "Plantilla guardada correctamente" });
+      await loadData("notifications");
+    } catch (e) {
+      setSmtpMsg({ type: "error", text: "Error guardando plantilla" });
+    } finally {
+      setTemplateSaving(false);
+      setTimeout(() => setSmtpMsg(null), 3000);
+    }
+  };
+
+  const loadTemplateById = async (id) => {
+    if (!id) return;
+    setTemplateLoading(true);
+    try {
+      const res = await apiFetch(`/notifications/template-config/${id}`);
+      if (!res.ok) throw new Error("Error cargando plantilla");
+      const data = await res.json();
+      setTemplateConfig(prev => ({ ...prev, ...data }));
+      setTemplateName(data?.name || "Plantilla CVE");
+      setSelectedTemplateId(String(id));
+    } catch (e) {
+      setSmtpMsg({ type: "error", text: "Error cargando plantilla" });
+      setTimeout(() => setSmtpMsg(null), 3000);
+    } finally {
+      setTemplateLoading(false);
+    }
+  };
+
+  const activateTemplate = async () => {
+    if (!selectedTemplateId) return;
+    try {
+      const res = await apiFetch(`/notifications/template-config/${selectedTemplateId}/activate`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error("Error activando plantilla");
+      setSmtpMsg({ type: "success", text: "Plantilla activada" });
+      await loadData("notifications");
+    } catch (e) {
+      setSmtpMsg({ type: "error", text: "Error activando plantilla" });
+    } finally {
+      setTimeout(() => setSmtpMsg(null), 3000);
+    }
+  };
+
+  const onTemplateHeaderUpload = (file) => {
+    if (!file) return;
+    if (file.size > 1.5 * 1024 * 1024) {
+      setSmtpMsg({ type: "error", text: "La imagen de cabecera es demasiado grande (máx. 1.5MB)" });
+      setTimeout(() => setSmtpMsg(null), 3500);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setTemplateConfig(prev => ({ ...prev, headerImageUrl: String(reader.result || "") }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const generateTemplatePreview = async () => {
+    if (!previewVulnId) return;
+    setTemplatePreviewLoading(true);
+    try {
+      const res = await apiFetch("/notifications/template-preview", {
+        method: "POST",
+        body: JSON.stringify({
+          vulnerabilityId: Number(previewVulnId),
+          config: templateConfig,
+        }),
+      });
+      if (!res.ok) throw new Error("Error generando vista previa");
+      const data = await res.json();
+      setTemplatePreviewHtml(data.html || "");
+      setTemplatePreviewMeta({
+        cveId: data.cveId || "",
+        manufacturer: data.manufacturer || "",
+      });
+    } catch {
+      setSmtpMsg({ type: "error", text: "Error generando vista previa" });
+      setTimeout(() => setSmtpMsg(null), 3000);
+    } finally {
+      setTemplatePreviewLoading(false);
+    }
   };
 
   const sw = collapsed ? 58 : 230;
@@ -722,17 +965,19 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                         <div style={{ background: C.gray50, borderRadius: 8, padding: 20, border: `1px solid ${C.gray200}` }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                                 <h3 style={{ fontSize: 14, fontWeight: 700, color: C.navy, margin: 0, display: "flex", alignItems: "center", gap: 8 }}><I name="mail" size={16} /> Notificaciones y Alertas</h3>
-                                <Btn small primary onClick={() => setShowNotifModal(true)}><I name="send" size={12} /> Notificar a contacto</Btn>
+                                <Btn small primary onClick={openNotifyModal}><I name="send" size={12} /> Notificar a contacto</Btn>
                             </div>
 
                             {showNotifModal && (
                                 <div style={{ marginBottom: 16, background: "#fff", padding: 16, borderRadius: 6, border: `1px solid ${C.blue}`, animation: "fadeIn 0.2s" }}>
                                     <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Selecciona un contacto para enviar alerta sobre {vulnDetail.cveId}:</div>
                                     <div style={{ display: "flex", gap: 8 }}>
-                                        <select id="contact-select" style={{ flex: 1, padding: 8, borderRadius: 4, border: `1px solid ${C.gray300}` }}>
-                                            {contacts.map(c => <option key={c.id} value={c.id}>{c.name} ({c.email})</option>)}
+                                        <select id="contact-select" disabled={notifContactsLoading || contacts.length === 0} style={{ flex: 1, padding: 8, borderRadius: 4, border: `1px solid ${C.gray300}` }}>
+                                            {notifContactsLoading && <option value="">Cargando contactos...</option>}
+                                            {!notifContactsLoading && contacts.length === 0 && <option value="">No hay contactos disponibles</option>}
+                                            {!notifContactsLoading && contacts.map(c => <option key={c.id} value={c.id}>{c.name} ({c.email})</option>)}
                                         </select>
-                                        <Btn small primary disabled={notifSending} onClick={() => handleNotifyContact(document.getElementById("contact-select").value)}>
+                                        <Btn small primary disabled={notifSending || notifContactsLoading || contacts.length === 0} onClick={() => handleNotifyContact(document.getElementById("contact-select").value)}>
                                             {notifSending ? "Enviando..." : "Enviar Email"}
                                         </Btn>
                                         <Btn small onClick={() => setShowNotifModal(false)}>Cancelar</Btn>
@@ -784,6 +1029,51 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                   <option value="product">Producto / Vendor</option>
                 </select>
               </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(120px, 1fr))", gap: 10, marginBottom: 12 }}>
+                <select value={searchTagId} onChange={e => setSearchTagId(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
+                  <option value="">Etiqueta (todas)</option>
+                  {tags.map(t => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
+                </select>
+                <select value={searchSeverity} onChange={e => setSearchSeverity(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
+                  <option value="">Criticidad (todas)</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                  <option value="HIGH">HIGH</option>
+                  <option value="MEDIUM">MEDIUM</option>
+                  <option value="LOW">LOW</option>
+                </select>
+                <select value={searchExploit} onChange={e => setSearchExploit(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
+                  <option value="all">Exploit (todos)</option>
+                  <option value="known">KEV (explotación activa)</option>
+                  <option value="public">Exploit público</option>
+                  <option value="any">Cualquier explotación</option>
+                  <option value="none">Sin explotación</option>
+                </select>
+                <input
+                  type="number"
+                  min="0"
+                  max="10"
+                  step="0.1"
+                  value={searchMinScore}
+                  onChange={e => setSearchMinScore(e.target.value)}
+                  placeholder="CVSS mínimo (ej. 7.5)"
+                  style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff", boxSizing: "border-box" }}
+                />
+                <Btn onClick={() => { setSearchQ(""); setSearchType("all"); setSearchTagId(""); setSearchPublishedFrom(""); setSearchPublishedTo(""); setSearchMinScore(""); setSearchExploit("all"); setSearchSeverity(""); }}>Limpiar filtros</Btn>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+                <input
+                  type="date"
+                  value={searchPublishedFrom}
+                  onChange={e => setSearchPublishedFrom(e.target.value)}
+                  style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff", boxSizing: "border-box" }}
+                />
+                <input
+                  type="date"
+                  value={searchPublishedTo}
+                  onChange={e => setSearchPublishedTo(e.target.value)}
+                  style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff", boxSizing: "border-box" }}
+                />
+              </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
                 <span style={{ fontSize: 11, color: C.gray500, lineHeight: "26px" }}>Búsquedas rápidas:</span>
                 {["fortinet", "microsoft", "ivanti", "cisco", "CVE-2025", "sonicwall", "apple"].map(q => (
@@ -792,10 +1082,10 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
               </div>
             </Card>
 
-            {searchQ.trim().length >= 2 && (
+            {hasSearchCriteria && (
               <div className="fade" style={{ marginTop: 14 }}>
                 <div style={{ fontSize: 12, color: C.gray500, marginBottom: 10 }}>
-                  {searchResults.length} resultado{searchResults.length !== 1 ? "s" : ""} para "{searchQ}"
+                  {searchResults.length} resultado{searchResults.length !== 1 ? "s" : ""}
                 </div>
                 {searchResults.map(v => {
                   const aff = getAffectedContacts(v);
@@ -830,7 +1120,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                     </Card>
                   );
                 })}
-                {searchResults.length === 0 && <Card><div style={{ textAlign: "center", padding: 20, color: C.gray500 }}>Sin resultados para "{searchQ}"</div></Card>}
+                {searchResults.length === 0 && <Card><div style={{ textAlign: "center", padding: 20, color: C.gray500 }}>Sin resultados con los filtros actuales</div></Card>}
               </div>
             )}
           </>}
@@ -968,6 +1258,137 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
           {/* ═══ NOTIFICATIONS HISTORY ═══ */}
           {view === "notifications" && <>
             <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Comunicaciones</h1>
+            <Card title="Plantilla de Notificación de Vulnerabilidades" icon="mail" style={{ marginBottom: 16 }}>
+              {templateLoading ? (
+                <div style={{ padding: 20, textAlign: "center", color: C.gray500 }}>Cargando plantilla...</div>
+              ) : (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto", gap: 8, alignItems: "end", marginBottom: 12 }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Plantillas guardadas</label>
+                      <select value={selectedTemplateId} onChange={e => loadTemplateById(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
+                        <option value="">(Nueva plantilla)</option>
+                        {templateList.map(t => (
+                          <option key={t.id} value={String(t.id)}>
+                            {t.name}{t.isActive ? " (activa)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Nombre de plantilla</label>
+                      <Input value={templateName} onChange={setTemplateName} placeholder="Ej: Comunicados críticos" />
+                    </div>
+                    <Btn onClick={() => {
+                      setSelectedTemplateId("");
+                      setTemplateName("Plantilla CVE");
+                      setTemplateConfig({
+                        headerImageUrl: "",
+                        introMessage: "La Oficina de Ciberseguridad Corporativa informa de la publicación de nuevas Vulnerabilidades del Fabricante {{fabricante}} en los siguientes CVE con una estimación de Impacto CVSS superior a 7.5 sobre 10.\n\nSe recomienda proceder a la identificación de los activos afectados y ejecutar las correspondientes tareas de mitigación y actuación recomendadas por el fabricante.\n\nImportante: La lista de versiones afectadas que aparecen en este comunicado ha sido simplificada, por favor, consulte la lista Oficial del fabricante en los enlaces que aparecen en el apartado de referencias.",
+                        showExploitProbability: true,
+                        showExploitExists: true,
+                        showAffectedSoftware: true,
+                        showDescription: true,
+                        showReferences: true,
+                        showPatchLink: true,
+                      });
+                    }}>Nueva</Btn>
+                    <Btn onClick={activateTemplate} disabled={!selectedTemplateId}>Activar</Btn>
+                  </div>
+
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Encabezado (imagen)</label>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={e => onTemplateHeaderUpload(e.target.files?.[0])}
+                        style={{ fontSize: 12 }}
+                      />
+                      {templateConfig.headerImageUrl && (
+                        <Btn small onClick={() => setTemplateConfig({ ...templateConfig, headerImageUrl: "" })}>Quitar imagen</Btn>
+                      )}
+                    </div>
+                    {templateConfig.headerImageUrl && (
+                      <img src={templateConfig.headerImageUrl} alt="Cabecera plantilla" style={{ maxWidth: "100%", maxHeight: 130, marginTop: 8, borderRadius: 6, border: `1px solid ${C.gray200}` }} />
+                    )}
+                  </div>
+
+                  <div style={{ background: C.gray50, border: `1px solid ${C.gray200}`, borderRadius: 6, padding: "10px 12px", fontSize: 11, color: C.gray600, marginBottom: 12 }}>
+                    El fabricante se incorpora automáticamente desde la vulnerabilidad (vendor detectado en software afectado). Puedes usar <code>{"{{fabricante}}"}</code> en el mensaje.
+                  </div>
+
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Mensaje inicial</label>
+                    <textarea
+                      value={templateConfig.introMessage}
+                      onChange={e => setTemplateConfig({ ...templateConfig, introMessage: e.target.value })}
+                      rows={6}
+                      style={{ width: "100%", padding: "10px 12px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.gray600, marginBottom: 6 }}>Bloques por vulnerabilidad</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                      {[
+                        ["showExploitProbability", "Posibilidad de explotación"],
+                        ["showExploitExists", "Existencia de exploit (sí/no)"],
+                        ["showAffectedSoftware", "Listado de software afectado"],
+                        ["showDescription", "Descripción de la vulnerabilidad"],
+                        ["showReferences", "Enlaces de información"],
+                        ["showPatchLink", "Enlace del parche"],
+                      ].map(([key, label]) => (
+                        <label key={key} style={{ fontSize: 12, color: C.gray700, display: "flex", alignItems: "center", gap: 6 }}>
+                          <input
+                            type="checkbox"
+                            checked={!!templateConfig[key]}
+                            onChange={e => setTemplateConfig({ ...templateConfig, [key]: e.target.checked })}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                    <Btn onClick={() => loadData("notifications")}>Recargar</Btn>
+                    <Btn primary onClick={saveTemplateConfig} disabled={templateSaving}>
+                      {templateSaving ? "Guardando..." : "Guardar plantilla"}
+                    </Btn>
+                  </div>
+
+                  <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${C.gray100}` }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end", marginBottom: 10 }}>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Vulnerabilidad para vista previa</label>
+                        <select value={previewVulnId} onChange={e => setPreviewVulnId(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
+                          <option value="">Selecciona un CVE...</option>
+                          {vulns.map(v => (
+                            <option key={v.id} value={String(v.id)}>{v.cveId} ({v.cvssV31Severity || "N/A"})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <Btn primary onClick={generateTemplatePreview} disabled={!previewVulnId || templatePreviewLoading}>
+                        {templatePreviewLoading ? "Generando..." : "Generar vista previa"}
+                      </Btn>
+                    </div>
+                    {templatePreviewMeta.cveId && (
+                      <div style={{ fontSize: 11, color: C.gray600, marginBottom: 8 }}>
+                        Vista previa para <strong>{templatePreviewMeta.cveId}</strong> · Fabricante detectado: <strong>{templatePreviewMeta.manufacturer || "N/D"}</strong>
+                      </div>
+                    )}
+                    <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, overflow: "hidden", background: "#fff" }}>
+                      {templatePreviewHtml ? (
+                        <iframe title="Preview plantilla" srcDoc={templatePreviewHtml} style={{ width: "100%", height: 520, border: 0 }} />
+                      ) : (
+                        <div style={{ padding: 16, fontSize: 12, color: C.gray500 }}>Genera una vista previa para revisar la plantilla antes de enviar.</div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </Card>
             <Card title="Historial de Notificaciones" icon="mail" noPad>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr style={{ background: C.gray50 }}>
@@ -1270,7 +1691,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                     <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", borderBottom: `2px solid ${C.gray200}` }}>{h}</th>
                   ))}
                 </tr></thead>
-                <tbody>{runs.map(r => (
+                <tbody>{(Array.isArray(runs) ? runs : []).map(r => (
                   <tr key={r.id} className="rh">
                     <td style={{ padding: "8px 12px", fontFamily: "monospace", fontSize: 11, color: C.gray400 }}>#{r.id}</td>
                     <td style={{ padding: "8px 12px", fontSize: 10, fontFamily: "monospace" }}>{fmtDate(r.startedAt)}</td>
