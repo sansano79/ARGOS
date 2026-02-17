@@ -15,9 +15,12 @@ datasource db {
 model User {
   id              Int       @id @default(autoincrement())
   email           String    @unique
-  passwordHash    String    @map("password_hash")
+  passwordHash    String?   @map("password_hash")
   name            String
   role            String    @default("USER")
+  canLogin        Boolean   @default(true) @map("can_login")
+  isSubscriber    Boolean   @default(false) @map("is_subscriber")
+  notificationEmail String? @map("notification_email")
   isActive        Boolean   @default(true) @map("is_active")
   lastLoginAt     DateTime? @map("last_login_at")
   createdAt       DateTime  @default(now()) @map("created_at")
@@ -27,6 +30,8 @@ model User {
   reports         VulnerabilityReport[]
   apiConfigs      ApiConfiguration[]
   collectorRuns   CollectorRun[]
+  subscriptions   UserSubscription[]
+  subscriberNotifications VulnerabilityNotification[] @relation("subscriber_notifications")
 
   @@map("users")
 }
@@ -243,6 +248,7 @@ model VulnerabilityNotification {
   id              Int      @id @default(autoincrement())
   vulnerabilityId Int      @map("vulnerability_id")
   contactId       Int?     @map("contact_id")
+  subscriberUserId Int?    @map("subscriber_user_id")
   recipientEmail  String   @map("recipient_email")
   recipientName   String?  @map("recipient_name")
   sentAt          DateTime @default(now()) @map("sent_at")
@@ -251,9 +257,62 @@ model VulnerabilityNotification {
 
   vulnerability   Vulnerability @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
   contact         ItContact?    @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  subscriberUser  User?         @relation("subscriber_notifications", fields: [subscriberUserId], references: [id], onDelete: SetNull)
 
   @@index([vulnerabilityId])
   @@index([contactId])
+  @@index([subscriberUserId])
   @@index([sentAt(sort: Desc)])
   @@map("vulnerability_notifications")
+}
+
+// ══════════════════════════════════════════════════════════════
+// CATÁLOGO SOFTWARE (FABRICANTE / PRODUCTO / VERSIONES)
+// ══════════════════════════════════════════════════════════════
+
+model SoftwareCatalog {
+  id          Int      @id @default(autoincrement())
+  vendor      String
+  product     String
+  versions    String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([vendor, product])
+  @@index([vendor])
+  @@index([product])
+  @@map("software_catalog")
+}
+
+model Manufacturer {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([name])
+  @@map("manufacturers")
+}
+
+// ══════════════════════════════════════════════════════════════
+// SUSCRIPCIONES DE USUARIOS
+// ══════════════════════════════════════════════════════════════
+
+model UserSubscription {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  vendor    String
+  product   String
+  versions  String?  @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, vendor, product])
+  @@index([userId])
+  @@index([vendor, product])
+  @@map("user_subscriptions")
 }

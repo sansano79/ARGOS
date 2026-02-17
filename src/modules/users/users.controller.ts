@@ -21,6 +21,11 @@ export class UsersController {
         return this.usersService.findAll();
     }
 
+    @Get('subscription-catalog')
+    async getSubscriptionCatalog() {
+        return this.usersService.getSubscriptionCatalog();
+    }
+
     @Get(':id')
     async findOne(@Param('id', ParseIntPipe) id: number) {
         return this.usersService.findOne(id);

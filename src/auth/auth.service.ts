@@ -28,7 +28,7 @@ export class AuthService {
 
     const user = await this.prisma.user.findUnique({ where: { email } });
 
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || !user.canLogin || !user.passwordHash) {
       await this.recordAttempt(email, false);
       return null;
     }

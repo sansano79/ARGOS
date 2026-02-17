@@ -10,6 +10,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { UsersModule } from './modules/users/users.module';
 import { TagsModule } from './modules/tags/tags.module';
+import { ManufacturersModule } from './modules/manufacturers/manufacturers.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { TagsModule } from './modules/tags/tags.module';
     ContactsModule,
     UsersModule,
     TagsModule,
+    ManufacturersModule,
   ],
 })
 export class AppModule { }

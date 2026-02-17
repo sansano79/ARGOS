@@ -161,6 +161,9 @@ export default function VulnDashboard() {
   const [contacts, setContacts] = useState([]);
   const [reports, setReports] = useState([]);
   const [users, setUsers] = useState([]);
+  const [subscriptionCatalog, setSubscriptionCatalog] = useState([]);
+  const [subscriberVendors, setSubscriberVendors] = useState([]);
+  const [activeVendor, setActiveVendor] = useState("");
   const [tags, setTags] = useState([]);
   const [notifHistory, setNotifHistory] = useState([]);
   const [notifDetail, setNotifDetail] = useState(null);
@@ -183,6 +186,12 @@ export default function VulnDashboard() {
   const [templatePreviewHtml, setTemplatePreviewHtml] = useState("");
   const [templatePreviewMeta, setTemplatePreviewMeta] = useState({ cveId: "", manufacturer: "" });
   const [templatePreviewLoading, setTemplatePreviewLoading] = useState(false);
+  const [manufacturers, setManufacturers] = useState([]);
+  const [selectedManufacturer, setSelectedManufacturer] = useState("");
+  const [newManufacturerName, setNewManufacturerName] = useState("");
+  const [newProductForm, setNewProductForm] = useState({ vendor: "", product: "", versions: "" });
+  const [mergeForm, setMergeForm] = useState({ targetName: "", sourceNames: [] });
+  const [manufacturersLoading, setManufacturersLoading] = useState(false);
 
   // Filters & search
   const [searchQ, setSearchQ] = useState("");
@@ -276,6 +285,17 @@ export default function VulnDashboard() {
         const dashData = await dashR.json();
         setRuns(Array.isArray(runsData) ? runsData : (Array.isArray(runsData?.data) ? runsData.data : []));
         setDash(dashData || { totalAll: 0, today: [], week: [], topExploited: [], lastRun: null });
+      } else if (v === "manufacturers") {
+        setManufacturersLoading(true);
+        const r = await apiFetch("/manufacturers");
+        const data = await r.json();
+        const list = Array.isArray(data) ? data : [];
+        setManufacturers(list);
+        if (!selectedManufacturer && list.length > 0) {
+          setSelectedManufacturer(list[0].name);
+          setMergeForm({ targetName: list[0].name, sourceNames: [list[0].name] });
+        }
+        setManufacturersLoading(false);
       } else if (v === "settings") {
         setSmtpLoading(true);
         try {
@@ -286,9 +306,10 @@ export default function VulnDashboard() {
           setSmtpLoading(false);
         }
 
-        const [usersRes, tagsRes] = await Promise.allSettled([
+        const [usersRes, tagsRes, catalogRes] = await Promise.allSettled([
           apiFetch("/users").then(r => r.json()),
           apiFetch("/tags").then(r => r.json()),
+          apiFetch("/users/subscription-catalog").then(r => r.json()),
         ]);
 
         if (usersRes.status === "fulfilled") {
@@ -296,6 +317,9 @@ export default function VulnDashboard() {
         }
         if (tagsRes.status === "fulfilled") {
           setTags(Array.isArray(tagsRes.value) ? tagsRes.value : []);
+        }
+        if (catalogRes.status === "fulfilled") {
+          setSubscriptionCatalog(Array.isArray(catalogRes.value) ? catalogRes.value : []);
         }
       } else if (v === "notifications") {
         setTemplateLoading(true);
@@ -326,6 +350,7 @@ export default function VulnDashboard() {
     } catch (e) {
       setSmtpLoading(false);
       setTemplateLoading(false);
+      setManufacturersLoading(false);
       console.error("Load error:", e.message);
     }
   }, [sevFilter]);
@@ -490,13 +515,128 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
   const deleteContact = async (id) => { try { await apiFetch(`/contacts/${id}`, { method: "DELETE" }); await loadData("contacts"); } catch (e) { console.error(e); } };
 
   // Users CRUD
+  const buildUserFormState = (u = {}) => ({
+    id: u.id || null,
+    name: u.name || "",
+    email: u.email || "",
+    password: "",
+    role: u.role || "USER",
+    canLogin: u.canLogin !== false,
+    isSubscriber: u.isSubscriber === true,
+    notificationEmail: u.notificationEmail || u.email || "",
+    subscriptions: Array.isArray(u.subscriptions) ? u.subscriptions.map(s => ({
+      vendor: String(s.vendor || "").toLowerCase(),
+      product: String(s.product || "").toLowerCase(),
+      versions: Array.isArray(s.versions) ? s.versions : [],
+    })) : [],
+    isActive: u.isActive !== false,
+  });
+
+  const openUserForm = (u = null) => {
+    const state = buildUserFormState(u || {});
+    setEditUser(state);
+    const vendors = [...new Set((state.subscriptions || []).map(s => s.vendor))];
+    setSubscriberVendors(vendors);
+    const firstVendor = vendors[0] || (subscriptionCatalog[0]?.vendor || "");
+    setActiveVendor(firstVendor);
+    setShowUserForm(true);
+  };
+
+  const setSubscriberEnabled = (enabled) => {
+    const next = { ...editUser, isSubscriber: enabled };
+    if (!enabled) {
+      next.subscriptions = [];
+      next.notificationEmail = "";
+      setSubscriberVendors([]);
+      setActiveVendor("");
+    } else {
+      next.notificationEmail = next.notificationEmail || next.email || "";
+    }
+    setEditUser(next);
+  };
+
+  const toggleVendorSelection = (vendor, checked) => {
+    const normalizedVendor = String(vendor || "").toLowerCase();
+    if (checked) {
+      setSubscriberVendors(prev => prev.includes(normalizedVendor) ? prev : [...prev, normalizedVendor]);
+      setActiveVendor(normalizedVendor);
+      return;
+    }
+
+    setSubscriberVendors(prev => {
+      const next = prev.filter(v => v !== normalizedVendor);
+      if (activeVendor === normalizedVendor) setActiveVendor(next[0] || "");
+      return next;
+    });
+    setEditUser(prev => ({
+      ...prev,
+      subscriptions: (prev.subscriptions || []).filter(s => s.vendor !== normalizedVendor),
+    }));
+  };
+
+  const toggleProductSubscription = (vendor, product, checked) => {
+    const normalizedVendor = String(vendor || "").toLowerCase();
+    const normalizedProduct = String(product || "").toLowerCase();
+    setEditUser(prev => {
+      const current = Array.isArray(prev.subscriptions) ? prev.subscriptions : [];
+      const exists = current.find(s => s.vendor === normalizedVendor && s.product === normalizedProduct);
+      let nextSubs = current;
+
+      if (checked && !exists) {
+        nextSubs = [...current, { vendor: normalizedVendor, product: normalizedProduct, versions: [] }];
+      } else if (!checked && exists) {
+        nextSubs = current.filter(s => !(s.vendor === normalizedVendor && s.product === normalizedProduct));
+      }
+
+      return { ...prev, subscriptions: nextSubs };
+    });
+    if (checked) {
+      setSubscriberVendors(prev => prev.includes(normalizedVendor) ? prev : [...prev, normalizedVendor]);
+      setActiveVendor(normalizedVendor);
+    }
+  };
+
+  const toggleSubscriptionVersion = (vendor, product, version, checked) => {
+    const normalizedVendor = String(vendor || "").toLowerCase();
+    const normalizedProduct = String(product || "").toLowerCase();
+    const ver = String(version || "").trim();
+    if (!ver) return;
+
+    setEditUser(prev => ({
+      ...prev,
+      subscriptions: (prev.subscriptions || []).map(s => {
+        if (s.vendor !== normalizedVendor || s.product !== normalizedProduct) return s;
+        const currentVersions = Array.isArray(s.versions) ? s.versions : [];
+        const nextVersions = checked
+          ? [...new Set([...currentVersions, ver])]
+          : currentVersions.filter(v => v !== ver);
+        return { ...s, versions: nextVersions };
+      }),
+    }));
+  };
+
   const saveUser = async (u) => {
     try {
-      if (u.id) { await apiFetch(`/users/${u.id}`, { method: "PUT", body: JSON.stringify(u) }); }
-      else { await apiFetch("/users", { method: "POST", body: JSON.stringify(u) }); }
+      const payload = {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.canLogin ? (u.role || "USER") : "SUBSCRIBER",
+        canLogin: !!u.canLogin,
+        isSubscriber: !!u.isSubscriber,
+        notificationEmail: u.isSubscriber ? (u.notificationEmail || u.email) : null,
+        subscriptions: u.isSubscriber ? (u.subscriptions || []) : [],
+        isActive: u.isActive !== false,
+      };
+      if (u.password && u.password.trim().length > 0) payload.password = u.password;
+
+      if (payload.id) { await apiFetch(`/users/${payload.id}`, { method: "PUT", body: JSON.stringify(payload) }); }
+      else { await apiFetch("/users", { method: "POST", body: JSON.stringify(payload) }); }
       await loadData("settings");
     } catch (e) { console.error(e); }
     setEditUser(null); setShowUserForm(false);
+    setSubscriberVendors([]);
+    setActiveVendor("");
   };
   const deleteUser = async (id) => { try { await apiFetch(`/users/${id}`, { method: "DELETE" }); await loadData("settings"); } catch (e) { console.error(e); } };
 
@@ -581,6 +721,80 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
     try { await apiFetch("/tags", { method: "POST", body: JSON.stringify({ name: newTagName, color: newTagColor }) }); setNewTagName(""); await loadData("settings"); } catch (e) { console.error(e); }
   };
   const deleteTag = async (id) => { try { await apiFetch(`/tags/${id}`, { method: "DELETE" }); await loadData("settings"); } catch (e) { console.error(e); } };
+
+  const createManufacturer = async () => {
+    const name = newManufacturerName.trim().toLowerCase();
+    if (!name) return;
+    try {
+      const res = await apiFetch("/manufacturers", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) throw new Error("No se pudo crear fabricante");
+      setNewManufacturerName("");
+      await loadData("manufacturers");
+      await loadData("settings");
+      setSelectedManufacturer(name);
+      setMergeForm({ targetName: name, sourceNames: [name] });
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  const createManufacturerProduct = async () => {
+    const vendor = String(newProductForm.vendor || "").trim().toLowerCase();
+    const product = String(newProductForm.product || "").trim().toLowerCase();
+    if (!vendor || !product) return;
+
+    const versions = String(newProductForm.versions || "")
+      .split(",")
+      .map(v => v.trim())
+      .filter(Boolean);
+
+    try {
+      const res = await apiFetch("/manufacturers/products", {
+        method: "POST",
+        body: JSON.stringify({ vendor, product, versions }),
+      });
+      if (!res.ok) throw new Error("No se pudo crear producto");
+      setNewProductForm({ vendor, product: "", versions: "" });
+      await loadData("manufacturers");
+      await loadData("settings");
+      setSelectedManufacturer(vendor);
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  const toggleMergeSource = (name, checked) => {
+    setMergeForm(prev => ({
+      ...prev,
+      sourceNames: checked
+        ? [...new Set([...(prev.sourceNames || []), name])]
+        : (prev.sourceNames || []).filter(v => v !== name),
+    }));
+  };
+
+  const applyManufacturerMerge = async () => {
+    const targetName = String(mergeForm.targetName || "").trim().toLowerCase();
+    const sourceNames = [...new Set((mergeForm.sourceNames || []).map(v => String(v || "").trim().toLowerCase()).filter(Boolean))];
+    if (!targetName || sourceNames.length === 0) return;
+
+    try {
+      const res = await apiFetch("/manufacturers/merge", {
+        method: "POST",
+        body: JSON.stringify({ targetName, sourceNames }),
+      });
+      if (!res.ok) throw new Error("No se pudo armonizar fabricantes");
+      await loadData("manufacturers");
+      await loadData("settings");
+      setSelectedManufacturer(targetName);
+      setMergeForm({ targetName, sourceNames: [targetName] });
+      alert("Fabricantes armonizados correctamente");
+    } catch (e) {
+      alert(e.message);
+    }
+  };
 
   // Notification detail
   const viewNotification = async (id) => {
@@ -717,6 +931,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
     { id: "vulns", label: "Vulnerabilidades", icon: "bug" },
     { id: "search", label: "Búsqueda", icon: "search" },
     { id: "exploited", label: "Explotación Activa", icon: "zap" },
+    { id: "manufacturers", label: "Fabricantes", icon: "server" },
     { id: "contacts", label: "Contactos", icon: "users" },
     { id: "notifications", label: "Comunicaciones", icon: "mail" },
     { id: "reports", label: "Informes", icon: "file" },
@@ -1166,6 +1381,112 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
             })}
           </>}
 
+          {/* ═══ MANUFACTURERS ═══ */}
+          {view === "manufacturers" && <>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Fabricantes</h1>
+            <p style={{ color: C.gray500, fontSize: 12, marginBottom: 16 }}>Gestión avanzada de fabricantes y software para suscripciones automáticas.</p>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+              <Card title="Nuevo Fabricante" icon="plus">
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Input value={newManufacturerName} onChange={setNewManufacturerName} placeholder="ej: adobe" style={{ flex: 1 }} />
+                  <Btn primary onClick={createManufacturer}>Crear</Btn>
+                </div>
+              </Card>
+              <Card title="Nuevo Producto" icon="plus">
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                  <select
+                    value={newProductForm.vendor}
+                    onChange={e => setNewProductForm({ ...newProductForm, vendor: e.target.value })}
+                    style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", fontSize: 12 }}
+                  >
+                    <option value="">Selecciona fabricante</option>
+                    {manufacturers.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
+                  </select>
+                  <Input value={newProductForm.product} onChange={v => setNewProductForm({ ...newProductForm, product: v })} placeholder="producto" />
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Input value={newProductForm.versions} onChange={v => setNewProductForm({ ...newProductForm, versions: v })} placeholder="versiones (coma separadas)" style={{ flex: 1 }} />
+                  <Btn primary onClick={createManufacturerProduct}>Crear</Btn>
+                </div>
+              </Card>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
+              <Card title="Listado de Fabricantes" icon="server">
+                {manufacturersLoading && <div style={{ fontSize: 12, color: C.gray500 }}>Cargando...</div>}
+                {!manufacturersLoading && manufacturers.length === 0 && <div style={{ fontSize: 12, color: C.gray500 }}>No hay fabricantes todavía.</div>}
+                {!manufacturersLoading && manufacturers.map(m => (
+                  <div
+                    key={m.name}
+                    onClick={() => {
+                      setSelectedManufacturer(m.name);
+                      setNewProductForm(prev => ({ ...prev, vendor: m.name }));
+                      setMergeForm({ targetName: m.name, sourceNames: [m.name] });
+                    }}
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      border: `1px solid ${selectedManufacturer === m.name ? C.blue : C.gray200}`,
+                      background: selectedManufacturer === m.name ? C.bluePale : "#fff",
+                      cursor: "pointer",
+                      marginBottom: 6,
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{m.name}</div>
+                    <div style={{ fontSize: 10, color: C.gray500 }}>{m.productsCount} productos</div>
+                  </div>
+                ))}
+              </Card>
+
+              <Card
+                title={selectedManufacturer ? `Software vinculado a ${selectedManufacturer}` : "Software vinculado"}
+                icon="edit"
+              >
+                {selectedManufacturer && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      {((manufacturers.find(m => m.name === selectedManufacturer)?.products) || []).map(p => (
+                        <div key={`${p.id}-${p.product}`} style={{ padding: "8px 10px", border: `1px solid ${C.gray200}`, borderRadius: 6, background: C.gray50, marginBottom: 6 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700 }}>{p.product}</div>
+                          <div style={{ fontSize: 10, color: C.gray500 }}>
+                            {(p.versions || []).length > 0 ? `Versiones: ${p.versions.join(", ")}` : "Versiones: todas"}
+                          </div>
+                        </div>
+                      ))}
+                      {((manufacturers.find(m => m.name === selectedManufacturer)?.products) || []).length === 0 && (
+                        <div style={{ fontSize: 12, color: C.gray500 }}>No hay productos vinculados a este fabricante.</div>
+                      )}
+                    </div>
+
+                    <div style={{ borderTop: `1px solid ${C.gray200}`, paddingTop: 12 }}>
+                      <h3 style={{ fontSize: 13, fontWeight: 700, margin: "0 0 8px" }}>Armonizar / unir fabricantes</h3>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 11, color: C.gray600, display: "block", marginBottom: 4 }}>Nombre final del fabricante</label>
+                        <Input value={mergeForm.targetName} onChange={v => setMergeForm({ ...mergeForm, targetName: v })} placeholder="fabricante objetivo" />
+                      </div>
+                      <div style={{ maxHeight: 140, overflow: "auto", border: `1px solid ${C.gray200}`, borderRadius: 6, padding: 8, background: "#fff" }}>
+                        {manufacturers.map(m => {
+                          const checked = (mergeForm.sourceNames || []).includes(m.name);
+                          return (
+                            <label key={`merge-${m.name}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12 }}>
+                              <input type="checkbox" checked={checked} onChange={e => toggleMergeSource(m.name, e.target.checked)} />
+                              <span>{m.name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <div style={{ marginTop: 8 }}>
+                        <Btn primary onClick={applyManufacturerMerge}>Aplicar armonización</Btn>
+                      </div>
+                    </div>
+                  </>
+                )}
+                {!selectedManufacturer && <div style={{ fontSize: 12, color: C.gray500 }}>Selecciona un fabricante de la lista para ver su software.</div>}
+              </Card>
+            </div>
+          </>}
+
           {/* ═══ CONTACTS ═══ */}
           {view === "contacts" && <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -1585,7 +1906,7 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
 
             {/* Users Tab */}
             {settingsTab === "users" && <>
-              <Card title="Gestión de Usuarios" icon="users" action={<Btn small primary onClick={() => { setEditUser({}); setShowUserForm(true); }}><I name="plus" size={14} /> Nuevo</Btn>}>
+              <Card title="Gestión de Usuarios" icon="users" action={<Btn small primary onClick={() => openUserForm()}><I name="plus" size={14} /> Nuevo</Btn>}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: C.gray50 }}>
                     {["Nombre", "Email", "Rol", "Estado", "Último acceso", "Acciones"].map(h => (
@@ -1594,36 +1915,145 @@ Responde siempre en español, con rigor técnico. Incluye CVE IDs específicos c
                   </tr></thead>
                   <tbody>{users.map(u => (
                     <tr key={u.id} className="rh">
-                      <td style={{ padding: "8px 12px", fontWeight: 600, fontSize: 12 }}>{u.name}</td>
+                      <td style={{ padding: "8px 12px", fontWeight: 600, fontSize: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>{u.name}</span>
+                          {u.isSubscriber && <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: C.infoBg, color: C.info }}>SUSCRIPTOR</span>}
+                        </div>
+                      </td>
                       <td style={{ padding: "8px 12px", fontSize: 11, fontFamily: "monospace" }}>{u.email}</td>
                       <td style={{ padding: "8px 12px" }}><span style={{ padding: "2px 8px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: u.role === "ADMIN" ? C.bluePale : C.gray100, color: u.role === "ADMIN" ? C.blue : C.gray600 }}>{u.role}</span></td>
                       <td style={{ padding: "8px 12px" }}><span style={{ color: u.isActive ? C.low : C.critical, fontWeight: 600, fontSize: 10 }}>{u.isActive ? "● Activo" : "○ Inactivo"}</span></td>
                       <td style={{ padding: "8px 12px", fontSize: 10, color: C.gray400 }}>{fmtDate(u.lastLoginAt)}</td>
                       <td style={{ padding: "8px 12px" }}>
-                        <span style={{ cursor: "pointer", marginRight: 8 }} onClick={() => { setEditUser(u); setShowUserForm(true); }}><I name="edit" size={14} color={C.blue} /></span>
+                        <span style={{ cursor: "pointer", marginRight: 8 }} onClick={() => openUserForm(u)}><I name="edit" size={14} color={C.blue} /></span>
                         <span style={{ cursor: "pointer" }} onClick={() => deleteUser(u.id)}><I name="trash" size={14} color={C.critical} /></span>
                       </td>
                     </tr>
                   ))}</tbody>
                 </table>
               </Card>
-              {showUserForm && (
+              {showUserForm && editUser && (
                 <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowUserForm(false)}>
-                  <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 420, maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+                  <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 980, maxHeight: "92vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
                     <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 16px" }}>{editUser?.id ? "Editar Usuario" : "Nuevo Usuario"}</h3>
-                    {[{ k: "name", l: "Nombre" }, { k: "email", l: "Email", t: "email" }, { k: "password", l: "Contraseña", t: "password" }].map(f => (
-                      <div key={f.k} style={{ marginBottom: 12 }}>
-                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>{f.l}</label>
-                        <Input value={editUser[f.k] || ""} onChange={v => setEditUser({ ...editUser, [f.k]: v })} placeholder={f.l} />
-                      </div>
-                    ))}
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Rol</label>
-                      <select value={editUser.role || "USER"} onChange={e => setEditUser({ ...editUser, role: e.target.value })} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
-                        <option value="USER">Usuario</option>
-                        <option value="ADMIN">Administrador</option>
-                      </select>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                      {[{ k: "name", l: "Nombre" }, { k: "email", l: "Email" }].map(f => (
+                        <div key={f.k} style={{ marginBottom: 12 }}>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>{f.l}</label>
+                          <Input value={editUser[f.k] || ""} onChange={v => setEditUser({ ...editUser, [f.k]: v })} placeholder={f.l} />
+                        </div>
+                      ))}
                     </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input type="checkbox" checked={!!editUser.canLogin} onChange={e => setEditUser({
+                          ...editUser,
+                          canLogin: e.target.checked,
+                          role: e.target.checked ? (editUser.role === "SUBSCRIBER" ? "VIEWER" : editUser.role || "USER") : "SUBSCRIBER",
+                        })} />
+                        <span style={{ fontSize: 12, color: C.text }}>Permitir inicio de sesión</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input type="checkbox" checked={!!editUser.isSubscriber} onChange={e => setSubscriberEnabled(e.target.checked)} />
+                        <span style={{ fontSize: 12, color: C.text }}>Usuario suscriptor de alertas</span>
+                      </div>
+                    </div>
+
+                    {editUser.canLogin && (
+                      <>
+                        <div style={{ marginBottom: 12 }}>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Rol de acceso</label>
+                          <select value={editUser.role || "USER"} onChange={e => setEditUser({ ...editUser, role: e.target.value })} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
+                            <option value="USER">Usuario</option>
+                            <option value="VIEWER">Viewer</option>
+                            <option value="ADMIN">Administrador</option>
+                          </select>
+                        </div>
+                        <div style={{ marginBottom: 12 }}>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contraseña {editUser.id ? "(opcional)" : "(obligatoria)"}</label>
+                          <input
+                            type="password"
+                            value={editUser.password || ""}
+                            onChange={e => setEditUser({ ...editUser, password: e.target.value })}
+                            placeholder="Mínimo 8 caracteres"
+                            style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }}
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {editUser.isSubscriber && (
+                      <div style={{ marginTop: 6, border: `1px solid ${C.gray200}`, borderRadius: 8, padding: 14, background: C.gray50 }}>
+                        <div style={{ marginBottom: 10 }}>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email de notificación</label>
+                          <Input value={editUser.notificationEmail || ""} onChange={v => setEditUser({ ...editUser, notificationEmail: v })} placeholder="destinatario@empresa.com" icon="mail" />
+                        </div>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 14 }}>
+                          <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", maxHeight: 300, overflow: "auto" }}>
+                            <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray100}`, fontSize: 11, fontWeight: 700, color: C.gray600 }}>Fabricantes</div>
+                            {subscriptionCatalog.length === 0 && <div style={{ padding: 10, fontSize: 11, color: C.gray500 }}>Sin catálogo disponible aún.</div>}
+                            {subscriptionCatalog.map(item => {
+                              const checked = subscriberVendors.includes(item.vendor);
+                              return (
+                                <label key={item.vendor} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderBottom: `1px solid ${C.gray100}`, cursor: "pointer", fontSize: 12 }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={e => toggleVendorSelection(item.vendor, e.target.checked)}
+                                  />
+                                  <span onClick={() => setActiveVendor(item.vendor)} style={{ color: activeVendor === item.vendor ? C.navy : C.text, fontWeight: activeVendor === item.vendor ? 700 : 500 }}>
+                                    {item.vendor}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+
+                          <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", maxHeight: 300, overflow: "auto" }}>
+                            <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray100}`, fontSize: 11, fontWeight: 700, color: C.gray600 }}>
+                              Software {activeVendor ? `de ${activeVendor}` : ""}
+                            </div>
+                            {!activeVendor && <div style={{ padding: 10, fontSize: 11, color: C.gray500 }}>Selecciona un fabricante.</div>}
+                            {activeVendor && ((subscriptionCatalog.find(v => v.vendor === activeVendor)?.products) || []).map(p => {
+                              const sub = (editUser.subscriptions || []).find(s => s.vendor === activeVendor && s.product === p.product);
+                              const checked = !!sub;
+                              const selectedVersions = sub?.versions || [];
+                              return (
+                                <div key={`${activeVendor}-${p.product}`} style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray100}` }}>
+                                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600 }}>
+                                    <input type="checkbox" checked={checked} onChange={e => toggleProductSubscription(activeVendor, p.product, e.target.checked)} />
+                                    {p.product}
+                                  </label>
+                                  {checked && (
+                                    <div style={{ marginTop: 6, marginLeft: 22 }}>
+                                      <div style={{ fontSize: 10, color: C.gray500, marginBottom: 4 }}>Versiones (si no marcas ninguna, se notifican todas)</div>
+                                      {(!p.versions || p.versions.length === 0) && <div style={{ fontSize: 10, color: C.gray400 }}>No hay versiones catalogadas.</div>}
+                                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                        {(p.versions || []).map(ver => (
+                                          <label key={ver} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, padding: "2px 6px", background: C.gray50, border: `1px solid ${C.gray200}`, borderRadius: 12 }}>
+                                            <input
+                                              type="checkbox"
+                                              checked={selectedVersions.includes(ver)}
+                                              onChange={e => toggleSubscriptionVersion(activeVendor, p.product, ver, e.target.checked)}
+                                            />
+                                            <span>{ver}</span>
+                                          </label>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
                       <Btn onClick={() => setShowUserForm(false)}>Cancelar</Btn>
                       <Btn primary onClick={() => saveUser(editUser)}>Guardar</Btn>
