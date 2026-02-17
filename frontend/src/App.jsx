@@ -512,11 +512,12 @@ export default function VulnDashboard() {
   };
 
   // AI Chat handler
-  const handleAiSend = async () => {
-    if (!aiQuery.trim()) return;
-    const userMsg = aiQuery.trim();
+  const handleAiSend = async (messageOverride = null) => {
+    const prompt = (typeof messageOverride === "string" ? messageOverride : aiQuery).trim();
+    if (!prompt) return;
+    const userMsg = prompt;
     setAiMessages(prev => [...prev, { role: "user", content: userMsg }]);
-    setAiQuery("");
+    if (messageOverride == null) setAiQuery("");
     setAiLoading(true);
 
     const context = `Eres el asistente de IA de la Oficina de Ciberseguridad Corporativa (OCC) de SEIDOR. Tu rol es analizar vulnerabilidades (CVEs), evaluar impacto en la infraestructura corporativa, y recomendar acciones de remediación.
@@ -551,6 +552,19 @@ Usa únicamente datos técnicos de vulnerabilidades y no incluyas datos de usuar
       }]);
     }
     setAiLoading(false);
+  };
+
+  const analyzeVulnerabilityWithAi = async (v) => {
+    if (!v) return;
+    const prompt = `Analiza el impacto de ${v.cveId} en nuestra infraestructura.
+Productos afectados: ${(v.affectedProducts || []).map(p => `${p.vendor}/${p.product}`).join(", ") || "No informado"}.
+CVSS: ${v.cvssV31Score ?? "N/A"} (${v.cvssV31Severity || "N/A"}).
+EPSS: ${fmtEpss(v.epssScore)}.
+Indica prioridad, acciones inmediatas y plan de mitigación.`;
+    setView("ai");
+    setVulnDetail(null);
+    setAiQuery(prompt);
+    await handleAiSend(prompt);
   };
 
   const generateSimulatedResponse = (q) => {
@@ -1318,7 +1332,7 @@ Usa únicamente datos técnicos de vulnerabilidades y no incluyas datos de usuar
                         </div>
 
                         <div style={{ marginTop: 24, textAlign: "right" }}>
-                            <Btn onClick={() => setAiQuery(`Analiza el impacto de ${vulnDetail.cveId} en nuestra infraestructura. Productos afectados: ${(vulnDetail.affectedProducts || []).map(p => p.product).join(", ")}`)} style={{ marginRight: 12 }}><I name="brain" size={14} /> Analizar con IA</Btn>
+                            <Btn onClick={() => analyzeVulnerabilityWithAi(vulnDetail)} style={{ marginRight: 12 }}><I name="brain" size={14} /> Analizar con IA</Btn>
                             <Btn onClick={() => setVulnDetail(null)}>Cerrar</Btn>
                         </div>
 
