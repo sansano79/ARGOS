@@ -21,6 +21,10 @@ model User {
   canLogin        Boolean   @default(true) @map("can_login")
   isSubscriber    Boolean   @default(false) @map("is_subscriber")
   notificationEmail String? @map("notification_email")
+  contactPerson   String?   @map("contact_person")
+  department      String?
+  phone           String?
+  notes           String?   @db.Text
   isActive        Boolean   @default(true) @map("is_active")
   lastLoginAt     DateTime? @map("last_login_at")
   createdAt       DateTime  @default(now()) @map("created_at")

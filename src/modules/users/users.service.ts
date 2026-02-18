@@ -17,6 +17,10 @@ export class UsersService {
                 canLogin: true,
                 isSubscriber: true,
                 notificationEmail: true,
+                contactPerson: true,
+                department: true,
+                phone: true,
+                notes: true,
                 isActive: true,
                 lastLoginAt: true,
                 createdAt: true,
@@ -47,6 +51,10 @@ export class UsersService {
                 canLogin: true,
                 isSubscriber: true,
                 notificationEmail: true,
+                contactPerson: true,
+                department: true,
+                phone: true,
+                notes: true,
                 isActive: true,
                 lastLoginAt: true,
                 createdAt: true,
@@ -106,6 +114,10 @@ export class UsersService {
         canLogin?: boolean;
         isSubscriber?: boolean;
         notificationEmail?: string;
+        contactPerson?: string;
+        department?: string;
+        phone?: string;
+        notes?: string;
         subscriptions?: Array<{ vendor: string; product: string; versions?: string[] }>;
     }) {
         const existing = await this.prisma.user.findUnique({
@@ -136,6 +148,10 @@ export class UsersService {
                 canLogin,
                 isSubscriber,
                 notificationEmail,
+                contactPerson: data.contactPerson || null,
+                department: data.department || null,
+                phone: data.phone || null,
+                notes: data.notes || null,
                 subscriptions: isSubscriber ? {
                     create: subscriptionItems.map((s) => ({
                         vendor: s.vendor,
@@ -166,6 +182,10 @@ export class UsersService {
         canLogin?: boolean;
         isSubscriber?: boolean;
         notificationEmail?: string;
+        contactPerson?: string;
+        department?: string;
+        phone?: string;
+        notes?: string;
         subscriptions?: Array<{ vendor: string; product: string; versions?: string[] }>;
     }) {
         const existing = await this.prisma.user.findUnique({
@@ -198,6 +218,10 @@ export class UsersService {
         updateData.isSubscriber = isSubscriber;
         updateData.notificationEmail = notificationEmail;
         if (data.isActive !== undefined) updateData.isActive = data.isActive;
+        if (data.contactPerson !== undefined) updateData.contactPerson = data.contactPerson || null;
+        if (data.department !== undefined) updateData.department = data.department || null;
+        if (data.phone !== undefined) updateData.phone = data.phone || null;
+        if (data.notes !== undefined) updateData.notes = data.notes || null;
 
         if (data.password) {
             updateData.passwordHash = await bcrypt.hash(data.password, 12);
