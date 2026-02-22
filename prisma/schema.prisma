@@ -70,6 +70,24 @@ model LoginAttempt {
 }
 
 // ══════════════════════════════════════════════════════════════
+// RECUPERACIÓN DE CONTRASEÑA
+// ══════════════════════════════════════════════════════════════
+
+model PasswordReset {
+  id        Int       @id @default(autoincrement())
+  email     String
+  tokenHash String    @map("token_hash")
+  createdAt DateTime  @default(now()) @map("created_at")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+
+  @@index([tokenHash])
+  @@index([email])
+  @@index([expiresAt])
+  @@map("password_resets")
+}
+
+// ══════════════════════════════════════════════════════════════
 // VULNERABILIDADES
 // ══════════════════════════════════════════════════════════════
 

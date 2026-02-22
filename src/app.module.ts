@@ -11,6 +11,7 @@ import { ContactsModule } from './modules/contacts/contacts.module';
 import { UsersModule } from './modules/users/users.module';
 import { TagsModule } from './modules/tags/tags.module';
 import { ManufacturersModule } from './modules/manufacturers/manufacturers.module';
+import { PasswordResetModule } from './modules/password-reset/password-reset.module';
 
 @Module({
   imports: [
@@ -29,6 +30,8 @@ import { ManufacturersModule } from './modules/manufacturers/manufacturers.modul
     UsersModule,
     TagsModule,
     ManufacturersModule,
+    PasswordResetModule,
   ],
 })
 export class AppModule { }
+
