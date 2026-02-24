@@ -54,7 +54,8 @@ COPY --from=builder /app/src/templates ./dist/src/templates
 
 COPY docker/entrypoint.sh ./entrypoint.sh
 
-RUN mkdir -p storage/reports storage/logs storage/cache data \
+RUN sed -i 's/\r$//' entrypoint.sh \
+  && mkdir -p storage/reports storage/logs storage/cache data \
   && chown -R occ:occ /app \
   && chmod +x entrypoint.sh
 
