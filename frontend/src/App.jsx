@@ -9,6 +9,10 @@ const setToken = (t) => localStorage.setItem("occ_token", t);
 const clearToken = () => { localStorage.removeItem("occ_token"); localStorage.removeItem("occ_user"); };
 const getUser = () => { try { return JSON.parse(localStorage.getItem("occ_user")); } catch { return null; } };
 const setUser = (u) => localStorage.setItem("occ_user", JSON.stringify(u));
+const getResetTokenFromPath = () => {
+  const m = window.location.pathname.match(/^\/reset-password\/([^/]+)$/);
+  return m?.[1] ? decodeURIComponent(m[1]) : "";
+};
 
 const apiFetch = async (url, opts = {}) => {
   const token = getToken();
@@ -141,12 +145,27 @@ const Card = ({ title, icon, action, children, noPad, style: s = {} }) => (
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 export default function VulnDashboard() {
+  const initialResetToken = getResetTokenFromPath();
+
   // Auth state
   const [isLoggedIn, setIsLoggedIn] = useState(!!getToken());
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPass, setLoginPass] = useState("");
   const [loginErr, setLoginErr] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [authMode, setAuthMode] = useState(initialResetToken ? "reset" : "login");
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotErr, setForgotErr] = useState("");
+  const [forgotMsg, setForgotMsg] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [resetToken, setResetToken] = useState(initialResetToken);
+  const [tokenCheckLoading, setTokenCheckLoading] = useState(initialResetToken.length > 0);
+  const [tokenValid, setTokenValid] = useState(false);
+  const [resetPass, setResetPass] = useState("");
+  const [resetConfirm, setResetConfirm] = useState("");
+  const [resetErr, setResetErr] = useState("");
+  const [resetMsg, setResetMsg] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
 
   // Navigation
   const [view, setView] = useState("overview");
@@ -241,6 +260,7 @@ export default function VulnDashboard() {
   const [aiConfigSaving, setAiConfigSaving] = useState(false);
   const [smtpMsg, setSmtpMsg] = useState(null);
   const aiEndRef = useRef(null);
+  const validatedTokenRef = useRef("");
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
   useEffect(() => { aiEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [aiMessages]);
@@ -250,13 +270,114 @@ export default function VulnDashboard() {
     e.preventDefault(); setLoginErr(""); setLoginLoading(true);
     try {
       const res = await fetch(`${API_BASE}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: loginEmail, password: loginPass }) });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.message || "Login failed"); }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        if (res.status === 502) throw new Error("API no disponible (502 Bad Gateway). Revisa el servicio occ-api.");
+        throw new Error(d.message || "Login failed");
+      }
       const data = await res.json();
       setToken(data.access_token); setUser(data.user); setIsLoggedIn(true);
-    } catch (e) { setLoginErr(e.message || "Error de autenticación"); }
+    } catch (e) {
+      const msg = String(e?.message || "");
+      if (msg.toLowerCase().includes("failed to fetch")) {
+        setLoginErr("No se pudo conectar con la API. Verifica que backend/proxy estén levantados.");
+      } else {
+        setLoginErr(msg || "Error de autenticación");
+      }
+    }
     setLoginLoading(false);
   };
   const handleLogout = () => { clearToken(); setIsLoggedIn(false); };
+
+  const validateResetToken = useCallback(async (token) => {
+    if (!token) {
+      setTokenValid(false);
+      setTokenCheckLoading(false);
+      return;
+    }
+    setTokenCheckLoading(true);
+    setResetErr("");
+    setResetMsg("");
+    try {
+      const res = await fetch(`${API_BASE}/auth/reset-password/${encodeURIComponent(token)}`);
+      if (!res.ok) throw new Error("No se pudo validar el enlace");
+      const data = await res.json();
+      setTokenValid(!!data?.valid);
+      if (data?.email) setLoginEmail(String(data.email));
+      if (!data?.valid) setResetErr("El enlace de recuperación es inválido o ha expirado.");
+    } catch {
+      setTokenValid(false);
+      setResetErr("No se pudo validar el enlace. Intenta solicitar uno nuevo.");
+    } finally {
+      setTokenCheckLoading(false);
+    }
+  }, []);
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setForgotErr("");
+    setForgotMsg("");
+    setForgotLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotEmail.trim().toLowerCase() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "No se pudo procesar la solicitud");
+      setForgotMsg(data?.message || "Si el correo está registrado, recibirás un enlace de recuperación en breve.");
+    } catch (e) {
+      setForgotErr(e.message || "Error solicitando recuperación");
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setResetErr("");
+    setResetMsg("");
+
+    if (resetPass !== resetConfirm) {
+      setResetErr("Las contraseñas no coinciden.");
+      return;
+    }
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(resetPass)) {
+      setResetErr("La contraseña debe tener mínimo 8 caracteres, mayúscula, minúscula y número.");
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/update-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: resetToken, password: resetPass }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "No se pudo actualizar la contraseña");
+      setResetMsg(data?.message || "La contraseña se actualizó correctamente.");
+      setResetPass("");
+      setResetConfirm("");
+      setTokenValid(false);
+      window.history.replaceState({}, "", "/");
+      setTimeout(() => {
+        setAuthMode("login");
+      }, 1200);
+    } catch (e) {
+      setResetErr(e.message || "Error al actualizar la contraseña");
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isLoggedIn || authMode !== "reset" || !resetToken) return;
+    if (validatedTokenRef.current === resetToken) return;
+    validatedTokenRef.current = resetToken;
+    validateResetToken(resetToken);
+  }, [authMode, isLoggedIn, resetToken, validateResetToken]);
 
   // Load data when view changes
   const loadData = useCallback(async (v) => {
@@ -1035,18 +1156,78 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
           <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Servicios OCC</h1>
           <p style={{ fontSize: 11, color: C.gray500, margin: 0, letterSpacing: 1, textTransform: "uppercase" }}>Oficina de Ciberseguridad Corporativa</p>
         </div>
-        <form onSubmit={handleLogin}>
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email</label>
-            <input value={loginEmail} onChange={e => setLoginEmail(e.target.value)} type="email" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
-          </div>
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contraseña</label>
-            <input value={loginPass} onChange={e => setLoginPass(e.target.value)} type="password" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
-          </div>
-          {loginErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{loginErr}</div>}
-          <button type="submit" disabled={loginLoading} style={{ width: "100%", padding: "12px", fontSize: 14, fontWeight: 700, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>{loginLoading ? "Accediendo..." : "Iniciar Sesión"}</button>
-        </form>
+        {authMode === "login" && (
+          <>
+            <form onSubmit={handleLogin}>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email</label>
+                <input value={loginEmail} onChange={e => setLoginEmail(e.target.value)} type="email" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contraseña</label>
+                <input value={loginPass} onChange={e => setLoginPass(e.target.value)} type="password" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
+              </div>
+              <div style={{ textAlign: "right", marginBottom: 16 }}>
+                <button type="button" onClick={() => { setAuthMode("forgot"); setForgotEmail(loginEmail); setLoginErr(""); }} style={{ background: "none", border: "none", color: C.blue, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+                  ¿Olvidaste tu contraseña?
+                </button>
+              </div>
+              {loginErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{loginErr}</div>}
+              <button type="submit" disabled={loginLoading} style={{ width: "100%", padding: "12px", fontSize: 14, fontWeight: 700, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>{loginLoading ? "Accediendo..." : "Iniciar Sesión"}</button>
+            </form>
+          </>
+        )}
+
+        {authMode === "forgot" && (
+          <>
+            <div style={{ fontSize: 12, color: C.gray600, marginBottom: 14 }}>
+              Ingresa tu correo y te enviaremos un enlace de recuperación.
+            </div>
+            <form onSubmit={handleForgotPassword}>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email</label>
+                <input value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} type="email" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
+              </div>
+              {forgotErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{forgotErr}</div>}
+              {forgotMsg && <div style={{ background: C.infoBg, color: C.info, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{forgotMsg}</div>}
+              <button type="submit" disabled={forgotLoading} style={{ width: "100%", padding: "12px", fontSize: 14, fontWeight: 700, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", marginBottom: 10 }}>{forgotLoading ? "Enviando..." : "Enviar enlace"}</button>
+              <button type="button" onClick={() => { setAuthMode("login"); setForgotErr(""); }} style={{ width: "100%", padding: "11px", fontSize: 13, fontWeight: 700, background: "#fff", color: C.gray700, border: `1px solid ${C.gray300}`, borderRadius: 8, cursor: "pointer" }}>Volver al login</button>
+            </form>
+          </>
+        )}
+
+        {authMode === "reset" && (
+          <>
+            {tokenCheckLoading && <div style={{ background: C.infoBg, color: C.info, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>Validando enlace de recuperación...</div>}
+            {!tokenCheckLoading && !tokenValid && (
+              <>
+                {resetErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{resetErr}</div>}
+                <button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setAuthMode("forgot"); }} style={{ width: "100%", padding: "11px", fontSize: 13, fontWeight: 700, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", marginBottom: 10 }}>Solicitar nuevo enlace</button>
+                <button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setAuthMode("login"); }} style={{ width: "100%", padding: "11px", fontSize: 13, fontWeight: 700, background: "#fff", color: C.gray700, border: `1px solid ${C.gray300}`, borderRadius: 8, cursor: "pointer" }}>Volver al login</button>
+              </>
+            )}
+
+            {!tokenCheckLoading && tokenValid && (
+              <form onSubmit={handleResetPassword}>
+                <div style={{ fontSize: 12, color: C.gray600, marginBottom: 14 }}>
+                  Define tu nueva contraseña para la cuenta <strong>{loginEmail || ""}</strong>.
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Nueva contraseña</label>
+                  <input value={resetPass} onChange={e => setResetPass(e.target.value)} type="password" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Confirmar contraseña</label>
+                  <input value={resetConfirm} onChange={e => setResetConfirm(e.target.value)} type="password" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
+                </div>
+                {resetErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{resetErr}</div>}
+                {resetMsg && <div style={{ background: C.infoBg, color: C.info, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{resetMsg}</div>}
+                <button type="submit" disabled={resetLoading} style={{ width: "100%", padding: "12px", fontSize: 14, fontWeight: 700, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", marginBottom: 10 }}>{resetLoading ? "Actualizando..." : "Actualizar contraseña"}</button>
+                <button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setAuthMode("login"); }} style={{ width: "100%", padding: "11px", fontSize: 13, fontWeight: 700, background: "#fff", color: C.gray700, border: `1px solid ${C.gray300}`, borderRadius: 8, cursor: "pointer" }}>Volver al login</button>
+              </form>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
