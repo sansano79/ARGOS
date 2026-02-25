@@ -8,7 +8,7 @@ PRISMA="./node_modules/.bin/prisma"
 # Apply schema to database (works without migration files)
 echo "📦 Applying database schema..."
 if [ "${PRISMA_DB_PUSH_ON_START:-true}" = "true" ]; then
-  if ! $PRISMA db push --skip-generate; then
+  if ! $PRISMA db push --skip-generate --accept-data-loss; then
     echo "❌ db push failed. Aborting startup."
     exit 1
   fi
