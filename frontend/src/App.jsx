@@ -23,6 +23,37 @@ const apiFetch = async (url, opts = {}) => {
   if (res.status === 401) { clearToken(); window.location.reload(); throw new Error("Unauthorized"); }
   return res;
 };
+const BACKFILL_ENDPOINTS = [
+  "/vulnerabilities/nvd/backfill/lastmodified",
+  "/vulnerability-collector/nvd/backfill/lastmodified",
+];
+const readResponsePayload = async (res) => {
+  const raw = await res.text();
+  if (!raw) return { raw: "", json: {} };
+  try { return { raw, json: JSON.parse(raw) }; } catch { return { raw, json: {} }; }
+};
+const callBackfillApi = async (suffix, opts = {}) => {
+  let lastErr = "";
+  for (const base of BACKFILL_ENDPOINTS) {
+    const path = `${base}${suffix}`;
+    try {
+      const res = await apiFetch(path, opts);
+      const payload = await readResponsePayload(res);
+      if (!res.ok) {
+        const msg = payload.json?.message || payload.json?.error || payload.raw || `HTTP ${res.status}`;
+        if (res.status === 404 || res.status === 405) {
+          lastErr = `${path} no disponible (${res.status})`;
+          continue;
+        }
+        throw new Error(`${msg} [${res.status}]`);
+      }
+      return payload.json;
+    } catch (e) {
+      lastErr = String(e?.message || e || "Error desconocido");
+    }
+  }
+  throw new Error(lastErr || "No se pudo contactar con el endpoint de backfill");
+};
 
 // ─── SEIDOR Brand Colors ─────────────────────────────────────────────────────
 const C = {
@@ -44,6 +75,14 @@ const fmtDate = (d) => d ? new Date(d).toLocaleString("es-ES", { day: "2-digit",
 const fmtEpss = (e) => e != null ? `${(parseFloat(e) * 100).toFixed(1)}%` : "-";
 const fmtScore = (s) => s != null ? parseFloat(s).toFixed(1) : "-";
 const fmtMs = (ms) => ms ? `${(ms / 1000).toFixed(1)}s` : "-";
+const parseMaybeJsonObject = (value) => {
+  if (!value) return {};
+  if (typeof value === "object") return value;
+  if (typeof value === "string") {
+    try { return JSON.parse(value); } catch { return {}; }
+  }
+  return {};
+};
 
 // ─── SVG Icons ───────────────────────────────────────────────────────────────
 const I = ({ name, size = 18, color = "currentColor" }) => {
@@ -235,6 +274,10 @@ export default function VulnDashboard() {
 
   // Collector & Reports
   const [collecting, setCollecting] = useState(false);
+  const [backfillJobId, setBackfillJobId] = useState(() => localStorage.getItem("occ_backfill_job_id") || "");
+  const [backfillBusy, setBackfillBusy] = useState(false);
+  const [backfillStatus, setBackfillStatus] = useState(null);
+  const [backfillMsg, setBackfillMsg] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [reportResult, setReportResult] = useState(null);
   const [reportHours, setReportHours] = useState("24");
@@ -264,6 +307,21 @@ export default function VulnDashboard() {
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
   useEffect(() => { aiEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [aiMessages]);
+  useEffect(() => {
+    if (view !== "collector") return undefined;
+    if (!backfillJobId) return undefined;
+    if ((backfillStatus?.job?.status || "").toUpperCase() !== "RUNNING") return undefined;
+    const t = setInterval(() => {
+      const jobId = String(backfillJobId || "").trim();
+      if (!jobId) return;
+      callBackfillApi(`/status/${encodeURIComponent(jobId)}`)
+        .then((data) => {
+          if (data && !data.error) setBackfillStatus(data);
+        })
+        .catch(() => undefined);
+    }, 6000);
+    return () => clearInterval(t);
+  }, [view, backfillJobId, backfillStatus?.job?.status]);
 
   // Login handler
   const handleLogin = async (e) => {
@@ -411,6 +469,18 @@ export default function VulnDashboard() {
         const dashData = await dashR.json();
         setRuns(Array.isArray(runsData) ? runsData : (Array.isArray(runsData?.data) ? runsData.data : []));
         setDash(dashData || { totalAll: 0, today: [], week: [], topExploited: [], lastRun: null });
+        if (backfillJobId) {
+          try {
+            const statusData = await callBackfillApi(`/status/${encodeURIComponent(backfillJobId)}`);
+            if (!statusData?.error) {
+              setBackfillStatus(statusData);
+            } else {
+              setBackfillStatus(null);
+            }
+          } catch {
+            setBackfillStatus(null);
+          }
+        }
       } else if (v === "manufacturers") {
         setManufacturersLoading(true);
         const r = await apiFetch("/manufacturers");
@@ -499,7 +569,7 @@ export default function VulnDashboard() {
       setManufacturersLoading(false);
       console.error("Load error:", e.message);
     }
-  }, [sevFilter]);
+  }, [sevFilter, backfillJobId]);
 
   useEffect(() => { if (isLoggedIn) loadData(view); }, [view, isLoggedIn, loadData]);
 
@@ -703,6 +773,75 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     try { await apiFetch("/vulnerabilities/collect", { method: "POST" }); await loadData("overview"); } catch (e) { console.error(e); }
     setCollecting(false);
   };
+
+  const setStoredBackfillJobId = (jobId) => {
+    const value = String(jobId || "").trim();
+    setBackfillJobId(value);
+    if (value) localStorage.setItem("occ_backfill_job_id", value);
+    else localStorage.removeItem("occ_backfill_job_id");
+  };
+
+  const refreshBackfillStatus = async (jobIdOverride) => {
+    const jobId = String(jobIdOverride || backfillJobId || "").trim();
+    if (!jobId) {
+      setBackfillMsg({ type: "error", text: "No hay jobId de backfill para consultar." });
+      return;
+    }
+    try {
+      const data = await callBackfillApi(`/status/${encodeURIComponent(jobId)}`);
+      if (data?.error) throw new Error(data.error);
+      setBackfillStatus(data);
+      if (data?.job?.jobId) {
+        setStoredBackfillJobId(data.job.jobId);
+      }
+      setBackfillMsg({ type: "success", text: `Estado cargado (${data?.job?.status || "N/A"})` });
+    } catch (e) {
+      setBackfillMsg({ type: "error", text: e?.message || "No se pudo consultar el estado del backfill" });
+    }
+  };
+
+  const startBackfill = async () => {
+    setBackfillBusy(true);
+    setBackfillMsg(null);
+    try {
+      const data = await callBackfillApi("/start", { method: "POST" });
+      if (!data?.jobId) throw new Error("Respuesta inválida al iniciar/reanudar backfill");
+      setStoredBackfillJobId(data.jobId);
+      setBackfillMsg({
+        type: "success",
+        text: data?.resumed ? `Backfill reanudado (${data.jobId})` : `Backfill iniciado (${data.jobId})`,
+      });
+      await refreshBackfillStatus(data.jobId);
+    } catch (e) {
+      setBackfillMsg({ type: "error", text: e?.message || "No se pudo iniciar/reanudar el backfill" });
+    }
+    setBackfillBusy(false);
+  };
+
+  const runBackfillToCompletion = async () => {
+    const jobId = String(backfillJobId || "").trim();
+    if (!jobId) {
+      setBackfillMsg({ type: "error", text: "Primero inicia/reanuda un backfill para obtener jobId." });
+      return;
+    }
+    setBackfillBusy(true);
+    setBackfillMsg(null);
+    try {
+      const data = await callBackfillApi(`/run/${encodeURIComponent(jobId)}`, { method: "POST" });
+      setBackfillMsg({
+        type: "success",
+        text: data?.alreadyRunning
+          ? "Backfill ya estaba ejecutándose en segundo plano."
+          : "Backfill lanzado en segundo plano. Usa Estado para seguimiento.",
+      });
+      await refreshBackfillStatus(jobId);
+      await loadData("collector");
+    } catch (e) {
+      setBackfillMsg({ type: "error", text: e?.message || "Fallo al ejecutar el backfill" });
+    }
+    setBackfillBusy(false);
+  };
+
   const handleReport = async () => {
     setGenerating(true); setReportResult(null);
     try {
@@ -1250,6 +1389,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
   const nav = isViewer
     ? allNav.filter((n) => viewerAllowedViews.includes(n.id))
     : allNav;
+  const backfillMetrics = parseMaybeJsonObject(backfillStatus?.job?.metrics);
 
   useEffect(() => {
     if (!isViewer) return;
@@ -2498,6 +2638,87 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                   </div>
                 ))}
               </div>
+            </Card>
+
+            <Card
+              title="Restore NVD (Backfill 10 años)"
+              icon="refresh"
+              style={{ marginBottom: 16 }}
+              action={(
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Btn small onClick={() => refreshBackfillStatus()} disabled={backfillBusy || !backfillJobId}>
+                    <I name="refresh" size={12} /> Estado
+                  </Btn>
+                  <Btn small onClick={() => setStoredBackfillJobId("")} disabled={backfillBusy || !backfillJobId}>
+                    Limpiar jobId
+                  </Btn>
+                </div>
+              )}
+            >
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 8, alignItems: "center", marginBottom: 12 }}>
+                <Input
+                  value={backfillJobId}
+                  onChange={(v) => setStoredBackfillJobId(v)}
+                  placeholder="jobId backfill (se guarda en este navegador)"
+                  icon="clock"
+                />
+                <Btn primary onClick={startBackfill} disabled={backfillBusy}>
+                  {backfillBusy ? "Procesando..." : "Iniciar/Reanudar"}
+                </Btn>
+                <Btn onClick={runBackfillToCompletion} disabled={backfillBusy || !backfillJobId}>
+                  Ejecutar hasta completar
+                </Btn>
+              </div>
+
+              {backfillMsg && (
+                <div style={{
+                  marginBottom: 10,
+                  padding: "8px 10px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  background: backfillMsg.type === "error" ? C.criticalBg : C.lowBg,
+                  color: backfillMsg.type === "error" ? C.critical : C.low,
+                  border: `1px solid ${backfillMsg.type === "error" ? "#fecaca" : "#bbf7d0"}`,
+                }}>
+                  {backfillMsg.text}
+                </div>
+              )}
+
+              {backfillStatus?.job ? (
+                <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, overflow: "hidden" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 0 }}>
+                    <div style={{ padding: "10px 12px", borderRight: `1px solid ${C.gray100}` }}>
+                      <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Estado</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{backfillStatus.job.status || "-"}</div>
+                    </div>
+                    <div style={{ padding: "10px 12px", borderRight: `1px solid ${C.gray100}` }}>
+                      <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Checkpoints</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{backfillStatus?.checkpoints?.DONE || 0} / {(backfillStatus?.remaining || 0) + (backfillStatus?.checkpoints?.DONE || 0)}</div>
+                    </div>
+                    <div style={{ padding: "10px 12px", borderRight: `1px solid ${C.gray100}` }}>
+                      <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Insertados/Actualizados</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{backfillMetrics.inserted || 0} / {backfillMetrics.updated || 0}</div>
+                    </div>
+                    <div style={{ padding: "10px 12px" }}>
+                      <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Páginas / Items</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{backfillMetrics.pagesProcessed || 0} / {backfillMetrics.itemsFetched || 0}</div>
+                    </div>
+                  </div>
+                  <div style={{ borderTop: `1px solid ${C.gray100}`, padding: "8px 12px", fontSize: 11, color: C.gray600, fontFamily: "monospace" }}>
+                    jobId: {backfillStatus.job.jobId} · rango: {fmtDate(backfillStatus.job.fromTs)} → {fmtDate(backfillStatus.job.toTs)}
+                  </div>
+                  {backfillStatus?.latestError?.lastError && (
+                    <div style={{ borderTop: `1px solid ${C.gray100}`, padding: "8px 12px", fontSize: 11, color: C.critical, background: C.criticalBg }}>
+                      Último error checkpoint #{backfillStatus.latestError.id} (intentos: {backfillStatus.latestError.attempts}):
+                      {" "}
+                      {String(backfillStatus.latestError.lastError)}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: C.gray500 }}>No hay estado cargado. Inicia/reanuda un backfill o pega un `jobId` y pulsa `Estado`.</div>
+              )}
             </Card>
 
             <Card title="Historial de ejecuciones" icon="clock" noPad>
