@@ -443,7 +443,7 @@ export default function VulnDashboard() {
       if (v === "overview") {
         const r = await apiFetch("/vulnerabilities/dashboard"); setDash(await r.json());
       } else if (v === "vulns" || v === "exploited") {
-        const q = v === "exploited" ? "?exploited=true&limit=100" : `?limit=100${sevFilter ? `&severity=${sevFilter}` : ''}`;
+        const q = v === "exploited" ? "?exploited=true&limit=100" : `?dashboardDefault=true&limit=100${sevFilter ? `&severity=${sevFilter}` : ''}`;
         const r = await apiFetch(`/vulnerabilities${q}`); const d = await r.json(); setVulns(d.data || []); setVulnsTotal(d.total || 0);
       } else if (v === "contacts") {
         const r = await apiFetch("/users"); const allUsers = await r.json();
@@ -1533,7 +1533,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                     ))}
                   </tr></thead>
                   <tbody>{vulns.filter(v => !sevFilter || v.cvssV31Severity === sevFilter).map(v => (
-                    <tr key={v.cveId} className="rh" onClick={() => loadVulnDetail(v.id)} style={{ cursor: "pointer", background: v.isKnownExploited ? C.criticalBg : "#fff", borderLeft: v.isKnownExploited ? `3px solid ${C.critical}` : "3px solid transparent", transition: "background 0.1s" }}>
+                    <tr key={v.cveId} className="rh" onClick={() => openVulnerabilityDetail(v)} style={{ cursor: "pointer", background: v.isKnownExploited ? C.criticalBg : "#fff", borderLeft: v.isKnownExploited ? `3px solid ${C.critical}` : "3px solid transparent", transition: "background 0.1s" }}>
                       <td style={{ padding: "10px 12px", fontWeight: 700, fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>{v.cveId}</td>
                       <td style={{ padding: "10px 12px" }}><SevBadge s={v.cvssV31Severity} small /></td>
                       <td style={{ padding: "10px 12px", fontFamily: "monospace", fontSize: 11, fontWeight: 700 }}>{fmtScore(v.cvssV31Score)}</td>
@@ -1787,7 +1787,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12 }}>
                           <div style={{ fontSize: 10, color: C.gray400 }}>EPSS {fmtEpss(v.epssScore)}</div>
                           <div style={{ fontSize: 10, color: C.gray400 }}>{fmtDate(v.publishedAt)}</div>
-                          <Btn small style={{ marginTop: 6 }} onClick={() => { setSelectedVuln(v); setView("vulns"); }}>Detalle →</Btn>
+                          <Btn small style={{ marginTop: 6 }} onClick={() => openVulnerabilityDetail(v)}>Detalle →</Btn>
                         </div>
                       </div>
                     </Card>
@@ -2028,7 +2028,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                       <div style={{ fontSize: 10, fontWeight: 700, color: C.gray500, marginBottom: 4, textTransform: "uppercase" }}>CVEs que afectan a este equipo ({affectedVulns.length})</div>
                       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                         {affectedVulns.map(v => (
-                          <span key={v.cveId} onClick={() => { setSelectedVuln(v); setView("vulns"); }} style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 8px", background: sevBg(v.cvssV31Severity), border: `1px solid ${sevColor(v.cvssV31Severity)}30`, borderRadius: 3, fontSize: 9, fontWeight: 700, fontFamily: "monospace", cursor: "pointer", color: sevColor(v.cvssV31Severity) }}>
+                          <span key={v.cveId} onClick={() => openVulnerabilityDetail(v)} style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 8px", background: sevBg(v.cvssV31Severity), border: `1px solid ${sevColor(v.cvssV31Severity)}30`, borderRadius: 3, fontSize: 9, fontWeight: 700, fontFamily: "monospace", cursor: "pointer", color: sevColor(v.cvssV31Severity) }}>
                             {v.cveId} {v.isKnownExploited && "🔴"}
                           </span>
                         ))}
