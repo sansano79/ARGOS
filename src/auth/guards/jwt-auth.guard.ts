@@ -15,6 +15,6 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
             request.user = { id: 1, email: 'admin@servicios-occ.local', role: 'ADMIN', name: 'Dev Admin' };
             return true;
         }
-        return super.canActivate(context) as boolean;
+        return (await super.canActivate(context)) as boolean;
     }
 }
