@@ -109,11 +109,11 @@ model Vulnerability {
   kevDateAdded       DateTime? @map("kev_date_added")
   kevDueDate         DateTime? @map("kev_due_date")
   hasPublicExploit   Boolean  @default(false) @map("has_public_exploit")
-  exploitReferences  String?  @map("exploit_references") @db.Text
-  references         String?  @db.Text
+  exploitReferences  String?  @map("exploit_references") @db.LongText
+  references         String?  @db.LongText
 
-  affectedProducts   String?  @map("affected_products") @db.Text
-  remediationInfo    String?  @map("remediation_info")  @db.Text
+  affectedProducts   String?  @map("affected_products") @db.LongText
+  remediationInfo    String?  @map("remediation_info")  @db.LongText
 
   source             String   @default("nvd")
   rawData            String?  @map("raw_data") @db.LongText
