@@ -307,6 +307,25 @@ export default function VulnDashboard() {
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
   useEffect(() => { aiEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [aiMessages]);
+
+  // Auto-login if bypass is active in backend
+  useEffect(() => {
+    const checkBypass = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/health`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.bypassAuth && !getToken()) {
+          setUser({ id: 1, email: "admin@servicios-occ.local", role: "ADMIN", name: "Modo Desarrollo" });
+          setIsLoggedIn(true);
+        }
+      } catch (e) {
+        console.error("Health check error:", e);
+      }
+    };
+    if (!isLoggedIn) checkBypass();
+  }, [isLoggedIn]);
+
   useEffect(() => {
     if (view !== "collector") return undefined;
     if (!backfillJobId) return undefined;

@@ -17,7 +17,7 @@ import { PasswordResetModule } from './modules/password-reset/password-reset.mod
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: ['.env', '.env.prod'],
     }),
     ScheduleModule.forRoot(),
     PrismaModule,
