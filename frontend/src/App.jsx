@@ -1303,6 +1303,32 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
   };
 
   const sw = collapsed ? 58 : 230;
+  const currentUser = getUser();
+  const allNav = [
+    { id: "overview", label: "Visión General", icon: "shield" },
+    { id: "vulns", label: "Vulnerabilidades", icon: "bug" },
+    { id: "search", label: "Búsqueda", icon: "search" },
+    { id: "exploited", label: "Explotación Activa", icon: "zap" },
+    { id: "manufacturers", label: "Fabricantes", icon: "server" },
+    { id: "notifications", label: "Comunicaciones", icon: "mail" },
+    { id: "reports", label: "Informes", icon: "file" },
+    { id: "ai", label: "Asistente IA", icon: "brain" },
+    { id: "collector", label: "Collector", icon: "server" },
+    { id: "settings", label: "Configuración", icon: "settings" },
+  ];
+  const isViewer = (currentUser?.role || "").toUpperCase() === "VIEWER";
+  const viewerAllowedViews = ["overview", "vulns", "search", "exploited", "ai"];
+  const nav = isViewer
+    ? allNav.filter((n) => viewerAllowedViews.includes(n.id))
+    : allNav;
+  const backfillMetrics = parseMaybeJsonObject(backfillStatus?.job?.metrics);
+
+  useEffect(() => {
+    if (!isViewer) return;
+    if (!viewerAllowedViews.includes(view)) {
+      setView("overview");
+    }
+  }, [isViewer, view]);
 
   // Login screen
   if (!isLoggedIn) return (
@@ -1389,33 +1415,6 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
       </div>
     </div>
   );
-
-  const currentUser = getUser();
-  const allNav = [
-    { id: "overview", label: "Visión General", icon: "shield" },
-    { id: "vulns", label: "Vulnerabilidades", icon: "bug" },
-    { id: "search", label: "Búsqueda", icon: "search" },
-    { id: "exploited", label: "Explotación Activa", icon: "zap" },
-    { id: "manufacturers", label: "Fabricantes", icon: "server" },
-    { id: "notifications", label: "Comunicaciones", icon: "mail" },
-    { id: "reports", label: "Informes", icon: "file" },
-    { id: "ai", label: "Asistente IA", icon: "brain" },
-    { id: "collector", label: "Collector", icon: "server" },
-    { id: "settings", label: "Configuración", icon: "settings" },
-  ];
-  const isViewer = (currentUser?.role || "").toUpperCase() === "VIEWER";
-  const viewerAllowedViews = ["overview", "vulns", "search", "exploited", "ai"];
-  const nav = isViewer
-    ? allNav.filter((n) => viewerAllowedViews.includes(n.id))
-    : allNav;
-  const backfillMetrics = parseMaybeJsonObject(backfillStatus?.job?.metrics);
-
-  useEffect(() => {
-    if (!isViewer) return;
-    if (!viewerAllowedViews.includes(view)) {
-      setView("overview");
-    }
-  }, [isViewer, view]);
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: C.gray50, fontFamily: "'Inter', -apple-system, sans-serif" }}>
