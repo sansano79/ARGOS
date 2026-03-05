@@ -1,0 +1,254 @@
+version: 1
+name: smart-notifications
+profile: production
+
+metadata:
+  ownerTeam: OCC Security
+  description: >-
+    Configuración integral de Notificaciones Inteligentes:
+    pipeline de datos, análisis IA, formato de salida, automatización, trazabilidad
+    y preparación para integración con Microsoft Defender.
+  lastUpdated: 2026-03-05
+
+features:
+  smartWeeklyReports: true
+  exploitChainingAnalysis: true
+  aggregatedCriticality: true
+  realWorldPrioritization: true
+  htmlEmailDelivery: true
+  previewBeforeSend: true
+  persistAnalysisJson: true
+  technicalTableInEmail: true
+  perSubscriberConfig: true
+  futureDefenderIntegration: true
+  ownerSystemSelection: true
+  actionOrchestrationDraft: true
+
+schedule:
+  enabled: true
+  cron: "0 0 8 * * 1" # Lunes 08:00
+  timezone: "Europe/Madrid"
+  runMode: "automatic" # automatic | manual | both
+  maxSubscribersPerRun: 1000
+  stopOnSubscriberError: false
+  retry:
+    enabled: true
+    maxAttempts: 2
+    backoffSeconds: 30
+
+dataLayer:
+  lookbackDays: 180
+  includePreviouslyNotified: true
+  includeNewMatchingBySubscription: true
+  maxCandidateVulnerabilities: 150
+
+  candidateFilters:
+    minCvssForCandidates: 7.0
+    minEpssForCandidates: 0.20
+    includeKnownExploited: true
+    includePublicExploit: true
+    onlyPublishedWithinWindow: true
+
+  subscriptionMatching:
+    matchByVendor: true
+    matchByProduct: true
+    matchByVersionsWhenPresent: true
+    ifNoVersionInCveAssumePotentialMatch: true
+    normalizeCaseAndTrim: true
+
+  deduplication:
+    enabled: true
+    key: "vulnerabilityId+subscriberId"
+    preventDuplicateRecordsPerRun: true
+
+  enrichment:
+    includeDescription: true
+    includeAttackVector: true
+    includeCvss: true
+    includeEpss: true
+    includeKnownExploited: true
+    includePublicExploit: true
+    includeAffectedProducts: true
+    includeReferences: true
+    includeExploitReferences: true
+
+riskScoring:
+  enabled: true
+  baseScore: "cvssV31Score"
+  boosts:
+    knownExploitedBoost: 3
+    publicExploitBoost: 2
+    epssHighBoost: 2
+    epssMediumBoost: 1
+
+  thresholds:
+    epssHighThreshold: 0.70
+    epssMediumThreshold: 0.30
+
+  ordering:
+    primary: "realRiskScore DESC"
+    secondary: "publishedAt DESC"
+    topRiskCount: 3
+
+aiLayer:
+  providerSelectionMode: "env-fallback" # configured | env-fallback
+  provider: "openai" # openai | ollama
+
+  openai:
+    model: "gpt-4o-mini"
+    requireApiKey: true
+    enforceJsonMode: true
+    temperature: 0.2
+
+  ollama:
+    baseUrl: "http://192.168.1.35:11434"
+    model: "krith/qwen2.5-32b-instruct:IQ1_M"
+
+  promptProfile:
+    persona: "Analista Senior de Ciberseguridad"
+    language: "es" # es | en
+    extraInstructions: ""
+    forbidMarkdown: true
+    forceStrictJsonResponse: true
+    includeAssumptionPolicy: true
+
+  outputSchema:
+    requiredKeys:
+      - executiveSummary
+      - top3RealRisk
+      - detectedCorrelations
+      - mitigationRoadmap
+    top3RealRisk:
+      fields: [cveId, reason, priority, evidence]
+    detectedCorrelations:
+      fields: [title, description, involvedCves, attackPath, riskLevel]
+    mitigationRoadmap:
+      fields: [order, action, why, cves]
+
+  fallback:
+    enabled: true
+    useDeterministicFallbackWhenAiFails: true
+    persistFallbackFlag: true
+
+notificationOutput:
+  subjectPrefix: "[OCC] Informe inteligente semanal"
+
+  contentCustomization:
+    emailTitle: "🧠 Informe Inteligente Semanal"
+    introText: >-
+      Este informe resume el análisis inteligente de las vulnerabilidades detectadas
+      en tus activos durante los últimos {{lookbackDays}} días.
+    footerText: "Servicios OCC — Informe inteligente generado automáticamente"
+
+  sectionTitles:
+    executive: "Resumen Ejecutivo"
+    topRisk: "Top Riesgo Real"
+    correlations: "Correlaciones Detectadas"
+    roadmap: "Hoja de Ruta de Mitigación"
+    technical: "Base Técnica Analizada"
+
+  sectionVisibility:
+    showExecutiveSection: true
+    showStatsSection: true
+    showTopRiskSection: true
+    showCorrelationsSection: true
+    showRoadmapSection: true
+    showTechnicalSection: true
+
+  technicalTable:
+    includeTechnicalTable: true
+    technicalTableLimit: 20
+
+  delivery:
+    channel: "email" # email | webhook (future)
+    sendPreviewOnly: false
+    sendOnManualRun: true
+    sendOnCronRun: true
+
+persistence:
+  storeReportRecord: true
+  storeInputSnapshot: true
+  storeAnalysisJson: true
+  storeErrorMessage: true
+  retainDays: 365
+  statuses:
+    - generated
+    - sent
+    - failed
+    - skipped
+
+securityAndCompliance:
+  avoidUserSensitiveDataInPrompt: true
+  promptDataScope: "technical-vulnerability-only"
+  sanitizeHtmlOutput: true
+  redactSecretsInLogs: true
+
+observability:
+  logLevel: "info"
+  includePerSubscriberMetrics: true
+  includeRunSummary: true
+  metrics:
+    - processedSubscribers
+    - sentReports
+    - failedReports
+    - skippedReports
+    - fallbackUsed
+
+defenderIntegration:
+  enabled: false
+  mode: "future"
+  provider: "microsoft-defender"
+
+  auth:
+    tenantId: ""
+    clientId: ""
+    clientSecretRef: ""
+    scope: "https://api.security.microsoft.com/.default"
+
+  ownerSystemSelection:
+    enabled: true
+    sourceOfTruth: "subscriber-owned-systems"
+    allowManualOverride: true
+    matchKeys:
+      - hostname
+      - deviceId
+      - aadDeviceId
+      - serialNumber
+
+  dataCollection:
+    fetchDeviceInventory: true
+    fetchExposureAndRecommendations: true
+    fetchSoftwareAndVulnSignals: true
+    fetchMachineTags: true
+    fetchLastSeen: true
+
+  actionDrafts:
+    enabled: true
+    actionsCatalog:
+      - isolate_device
+      - collect_investigation_package
+      - run_antivirus_scan
+      - start_live_response_session
+      - open_incident_ticket
+    requireApprovalBeforeExecution: true
+    executionMode: "dry-run" # dry-run | approved-run
+
+apiSurface:
+  smartNotifications:
+    getConfig: "/api/smart-notifications/config"
+    saveConfig: "/api/smart-notifications/config"
+    runAll: "/api/smart-notifications/weekly/run-all"
+    runSubscriber: "/api/smart-notifications/weekly/run/:subscriberId"
+    previewSubscriber: "/api/smart-notifications/weekly/preview/:subscriberId"
+    history: "/api/smart-notifications/weekly/history"
+
+  ai:
+    getConfig: "/api/ai/config"
+    saveConfig: "/api/ai/config"
+    getModels: "/api/ai/models?provider={openai|ollama}&baseUrl={optional}"
+
+futureRoadmap:
+  - "Integrar selección de sistemas owner desde Defender y sincronización incremental"
+  - "Añadir editor visual de plantillas por tenant/suscriptor"
+  - "Soportar multicanal (email + Teams + webhook)"
+  - "Añadir explainability score por correlación detectada"
