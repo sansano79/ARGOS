@@ -167,6 +167,9 @@ type DefenderActionCatalogItem = {
 export class SmartNotificationsService {
     private readonly logger = new Logger(SmartNotificationsService.name);
     private static readonly CONFIG_SLUG = 'smart-notifications-config';
+    private readonly prismaAny: any;
+    private readonly aiServiceAny: any;
+    private readonly notificationServiceAny: any;
 
     private static readonly DEFAULT_CONFIG: SmartNotificationConfig = {
         lookbackDays: 180,
@@ -208,12 +211,16 @@ export class SmartNotificationsService {
         private readonly prisma: PrismaService,
         private readonly aiService: AiService,
         private readonly notificationService: NotificationService,
-    ) { }
+    ) {
+        this.prismaAny = this.prisma as any;
+        this.aiServiceAny = this.aiService as any;
+        this.notificationServiceAny = this.notificationService as any;
+    }
 
     async getSubscriberOwnedSystems(subscriberId: number) {
         await this.ensureSubscriberExists(subscriberId);
 
-        const items = await this.prisma.subscriberOwnedSystem.findMany({
+        const items = await this.prismaAny.subscriberOwnedSystem.findMany({
             where: {
                 subscriberUserId: subscriberId,
                 isActive: true,
@@ -252,7 +259,7 @@ export class SmartNotificationsService {
         }
 
         for (const system of normalized) {
-            await this.prisma.subscriberOwnedSystem.upsert({
+            await this.prismaAny.subscriberOwnedSystem.upsert({
                 where: {
                     subscriberUserId_externalId: {
                         subscriberUserId: subscriberId,
@@ -319,7 +326,7 @@ export class SmartNotificationsService {
             );
 
             if (currentIds.size > 0) {
-                await this.prisma.subscriberOwnedSystem.updateMany({
+                await this.prismaAny.subscriberOwnedSystem.updateMany({
                     where: {
                         subscriberUserId: subscriberId,
                         externalId: { notIn: [...currentIds] },
@@ -389,7 +396,7 @@ export class SmartNotificationsService {
             throw new Error('At least one systemExternalId is required');
         }
 
-        const existingSystems = await this.prisma.subscriberOwnedSystem.findMany({
+        const existingSystems = await this.prismaAny.subscriberOwnedSystem.findMany({
             where: {
                 subscriberUserId: subscriberId,
                 externalId: { in: uniqueSystemIds },
@@ -405,7 +412,7 @@ export class SmartNotificationsService {
         const existingIds = new Set(existingSystems.map((item) => item.externalId));
         const missingIds = uniqueSystemIds.filter((id) => !existingIds.has(id));
 
-        const request = await this.prisma.defenderActionRequest.create({
+        const request = await this.prismaAny.defenderActionRequest.create({
             data: {
                 subscriberUserId: subscriberId,
                 actionId: selectedAction.actionId,
@@ -756,7 +763,7 @@ export class SmartNotificationsService {
         const effectiveAi = await this.getEffectiveAiSettings(smartConfig);
         const { promptSystem, promptUser } = this.buildCorrelationPrompt(dataset, smartConfig);
 
-        const report = await this.prisma.smartNotificationReport.create({
+        const report = await this.prismaAny.smartNotificationReport.create({
             data: {
                 subscriberUserId: dataset.subscriber.id,
                 periodStart,
@@ -787,7 +794,7 @@ export class SmartNotificationsService {
         });
 
         try {
-            const aiResponse = await this.aiService.chatStructuredJson([
+            const aiResponse = await this.aiServiceAny.chatStructuredJson([
                 { role: 'system', content: promptSystem },
                 { role: 'user', content: promptUser },
             ], { model: effectiveAi.model });
@@ -805,7 +812,7 @@ export class SmartNotificationsService {
                 context,
             );
 
-            await this.prisma.smartNotificationReport.update({
+            await this.prismaAny.smartNotificationReport.update({
                 where: { id: report.id },
                 data: {
                     subject,
@@ -827,7 +834,7 @@ export class SmartNotificationsService {
             const message = error instanceof Error ? error.message : 'Unknown error';
             this.logger.error(`Smart weekly report failed for subscriber=${subscriberId}: ${message}`);
 
-            await this.prisma.smartNotificationReport.update({
+            await this.prismaAny.smartNotificationReport.update({
                 where: { id: report.id },
                 data: {
                     status: 'failed',
@@ -873,7 +880,7 @@ export class SmartNotificationsService {
         let usedFallback = false;
 
         try {
-            const aiResponse = await this.aiService.chatStructuredJson([
+            const aiResponse = await this.aiServiceAny.chatStructuredJson([
                 { role: 'system', content: promptSystem },
                 { role: 'user', content: promptUser },
             ], { model: effectiveAi.model });
@@ -886,7 +893,7 @@ export class SmartNotificationsService {
 
         const subject = `${smartConfig.subjectPrefix} — ${dataset.subscriber.name} (${dataset.stats.total} CVEs)`;
         const context = this.buildWeeklyEmailContext(dataset, analysis, smartConfig);
-        const html = await this.notificationService.renderTemplate('smart-weekly-report', context);
+        const html = await this.notificationServiceAny.renderTemplate('smart-weekly-report', context);
 
         return {
             subscriberId,
@@ -931,7 +938,7 @@ export class SmartNotificationsService {
         let usedFallback = false;
 
         try {
-            const aiResponse = await this.aiService.chatStructuredJson([
+            const aiResponse = await this.aiServiceAny.chatStructuredJson([
                 { role: 'system', content: promptSystem },
                 { role: 'user', content: promptUser },
             ], { model: effectiveAi.model });
@@ -944,7 +951,7 @@ export class SmartNotificationsService {
 
         const subject = `${smartConfig.subjectPrefix} [TEST] — ${dataset.subscriber.name} (${dataset.stats.total} CVEs)`;
         const context = this.buildWeeklyEmailContext(dataset, analysis, smartConfig);
-        const html = await this.notificationService.renderTemplate('smart-weekly-report', context);
+        const html = await this.notificationServiceAny.renderTemplate('smart-weekly-report', context);
         const sent = await this.notificationService.sendEmail(
             dataset.subscriber.email,
             subject,
@@ -979,7 +986,7 @@ export class SmartNotificationsService {
             : undefined;
 
         const [items, total] = await Promise.all([
-            this.prisma.smartNotificationReport.findMany({
+            this.prismaAny.smartNotificationReport.findMany({
                 where,
                 include: {
                     subscriber: {
@@ -990,7 +997,7 @@ export class SmartNotificationsService {
                 take: safeLimit,
                 skip,
             }),
-            this.prisma.smartNotificationReport.count({ where }),
+            this.prismaAny.smartNotificationReport.count({ where }),
         ]);
 
         return {
@@ -1245,7 +1252,7 @@ export class SmartNotificationsService {
 
         if (!subscriber) return null;
 
-        const ownedSystems = await this.prisma.subscriberOwnedSystem.findMany({
+        const ownedSystems = await this.prismaAny.subscriberOwnedSystem.findMany({
             where: {
                 subscriberUserId: subscriber.id,
                 isActive: true,
