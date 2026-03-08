@@ -249,6 +249,11 @@ export default function VulnDashboard() {
   const [newProductForm, setNewProductForm] = useState({ vendor: "", product: "", versions: "" });
   const [mergeForm, setMergeForm] = useState({ targetName: "", sourceNames: [] });
   const [manufacturersLoading, setManufacturersLoading] = useState(false);
+  const [mfrSearch, setMfrSearch] = useState("");
+  const [mfrTab, setMfrTab] = useState("catalog");
+  const [mfrAliases, setMfrAliases] = useState(null);
+  const [mfrAliasesLoading, setMfrAliasesLoading] = useState(false);
+  const [mfrMsg, setMfrMsg] = useState(null);
 
   // Filters & search
   const [searchQ, setSearchQ] = useState("");
