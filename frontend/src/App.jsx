@@ -254,6 +254,15 @@ export default function VulnDashboard() {
   const [mfrAliases, setMfrAliases] = useState(null);
   const [mfrAliasesLoading, setMfrAliasesLoading] = useState(false);
   const [mfrMsg, setMfrMsg] = useState(null);
+  const loadManufacturers = async () => {
+    setManufacturersLoading(true);
+    try {
+      const r = await apiFetch("/manufacturers");
+      const data = await r.json();
+      setManufacturers(Array.isArray(data) ? data : []);
+    } catch (e) { console.error(e); }
+    finally { setManufacturersLoading(false); }
+  };
 
   // Filters & search
   const [searchQ, setSearchQ] = useState("");
@@ -1891,108 +1900,363 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ MANUFACTURERS ═══ */}
             {view === "manufacturers" && <>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Fabricantes</h1>
-              <p style={{ color: C.gray500, fontSize: 12, marginBottom: 16 }}>Gestión avanzada de fabricantes y software para suscripciones automáticas.</p>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                <Card title="Nuevo Fabricante" icon="plus">
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <Input value={newManufacturerName} onChange={setNewManufacturerName} placeholder="ej: adobe" style={{ flex: 1 }} />
-                    <Btn primary onClick={createManufacturer}>Crear</Btn>
-                  </div>
-                </Card>
-                <Card title="Nuevo Producto" icon="plus">
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                    <select
-                      value={newProductForm.vendor}
-                      onChange={e => setNewProductForm({ ...newProductForm, vendor: e.target.value })}
-                      style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", fontSize: 12 }}
-                    >
-                      <option value="">Selecciona fabricante</option>
-                      {manufacturers.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
-                    </select>
-                    <Input value={newProductForm.product} onChange={v => setNewProductForm({ ...newProductForm, product: v })} placeholder="producto" />
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <Input value={newProductForm.versions} onChange={v => setNewProductForm({ ...newProductForm, versions: v })} placeholder="versiones (coma separadas)" style={{ flex: 1 }} />
-                    <Btn primary onClick={createManufacturerProduct}>Crear</Btn>
-                  </div>
-                </Card>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+                <div>
+                  <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Fabricantes y Catálogo</h1>
+                  <p style={{ color: C.gray500, fontSize: 12 }}>Gestión avanzada de fabricantes, software y normalización de nombres para suscripciones.</p>
+                </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
-                <Card title="Listado de Fabricantes" icon="server">
-                  {manufacturersLoading && <div style={{ fontSize: 12, color: C.gray500 }}>Cargando...</div>}
-                  {!manufacturersLoading && manufacturers.length === 0 && <div style={{ fontSize: 12, color: C.gray500 }}>No hay fabricantes todavía.</div>}
-                  {!manufacturersLoading && manufacturers.map(m => (
-                    <div
-                      key={m.name}
-                      onClick={() => {
-                        setSelectedManufacturer(m.name);
-                        setNewProductForm(prev => ({ ...prev, vendor: m.name }));
-                        setMergeForm({ targetName: m.name, sourceNames: [m.name] });
-                      }}
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: 6,
-                        border: `1px solid ${selectedManufacturer === m.name ? C.blue : C.gray200}`,
-                        background: selectedManufacturer === m.name ? C.bluePale : "#fff",
-                        cursor: "pointer",
-                        marginBottom: 6,
-                      }}
-                    >
-                      <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{m.name}</div>
-                      <div style={{ fontSize: 10, color: C.gray500 }}>{m.productsCount} productos</div>
-                    </div>
-                  ))}
-                </Card>
+              {/* ── Stats bar ── */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
+                {[
+                  { label: "Fabricantes", value: manufacturers.length, color: C.blue },
+                  { label: "Productos", value: manufacturers.reduce((s, m) => s + (m.productsCount || 0), 0), color: "#059669" },
+                  { label: "Aliases configurados", value: mfrAliases?.totalAliases || "—", color: "#7C3AED" },
+                  { label: "Duplicados detectados", value: mfrAliases?.stats?.duplicateGroups?.length || 0, color: mfrAliases?.stats?.duplicateGroups?.length > 0 ? C.critical : "#059669" },
+                ].map((s, i) => (
+                  <div key={i} style={{ background: "#fff", border: `1px solid ${C.gray200}`, borderRadius: 8, padding: "12px 14px", textAlign: "center" }}>
+                    <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.value}</div>
+                    <div style={{ fontSize: 11, color: C.gray500, fontWeight: 600 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
 
-                <Card
-                  title={selectedManufacturer ? `Software vinculado a ${selectedManufacturer}` : "Software vinculado"}
-                  icon="edit"
-                >
-                  {selectedManufacturer && (
-                    <>
-                      <div style={{ marginBottom: 14 }}>
-                        {((manufacturers.find(m => m.name === selectedManufacturer)?.products) || []).map(p => (
-                          <div key={`${p.id}-${p.product}`} style={{ padding: "8px 10px", border: `1px solid ${C.gray200}`, borderRadius: 6, background: C.gray50, marginBottom: 6 }}>
-                            <div style={{ fontSize: 12, fontWeight: 700 }}>{p.product}</div>
-                            <div style={{ fontSize: 10, color: C.gray500 }}>
-                              {(p.versions || []).length > 0 ? `Versiones: ${p.versions.join(", ")}` : "Versiones: todas"}
+              {/* ── Message banner ── */}
+              {mfrMsg && (
+                <div style={{ padding: "10px 14px", borderRadius: 6, marginBottom: 14, fontSize: 12, fontWeight: 600, background: mfrMsg.type === "error" ? C.criticalBg : "#ECFDF5", color: mfrMsg.type === "error" ? C.critical : "#065F46", border: `1px solid ${mfrMsg.type === "error" ? "#FECACA" : "#A7F3D0"}` }}>
+                  {mfrMsg.text}
+                  <button onClick={() => setMfrMsg(null)} style={{ float: "right", background: "none", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 14, lineHeight: 1 }}>×</button>
+                </div>
+              )}
+
+              {/* ── Tabs ── */}
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4, marginBottom: 16 }}>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {[
+                    { id: "catalog", label: "📦 Catálogo" },
+                    { id: "aliases", label: "🔗 Aliases / Normalización" },
+                    { id: "merge", label: "🔄 Armonizar" },
+                    { id: "add", label: "➕ Añadir" },
+                  ].map(t => (
+                    <button key={t.id} onClick={() => {
+                      setMfrTab(t.id);
+                      setMfrMsg(null);
+                      if (t.id === "aliases" && !mfrAliases) {
+                        setMfrAliasesLoading(true);
+                        apiFetch("/manufacturers/aliases").then(r => r.json()).then(d => setMfrAliases(d)).catch(() => {}).finally(() => setMfrAliasesLoading(false));
+                      }
+                    }} style={{
+                      padding: "8px 16px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: "none",
+                      background: mfrTab === t.id ? C.navy : C.gray100, color: mfrTab === t.id ? "#fff" : C.gray600,
+                      cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap",
+                    }}>{t.label}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── TAB: Catálogo ── */}
+              {mfrTab === "catalog" && (
+                <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: 12 }}>
+                  {/* Left: vendor list with search */}
+                  <Card title="Fabricantes" icon="server" noPad>
+                    <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray200}` }}>
+                      <input
+                        type="text"
+                        value={mfrSearch}
+                        onChange={e => setMfrSearch(e.target.value)}
+                        placeholder="🔍 Buscar fabricante..."
+                        style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, boxSizing: "border-box" }}
+                      />
+                    </div>
+                    <div style={{ maxHeight: 520, overflow: "auto", padding: "6px 8px" }}>
+                      {manufacturersLoading && <div style={{ padding: 20, textAlign: "center", color: C.gray500, fontSize: 12 }}>Cargando...</div>}
+                      {!manufacturersLoading && manufacturers
+                        .filter(m => !mfrSearch || m.name.toLowerCase().includes(mfrSearch.toLowerCase()))
+                        .map(m => (
+                        <div
+                          key={m.name}
+                          onClick={() => {
+                            setSelectedManufacturer(m.name);
+                            setNewProductForm(prev => ({ ...prev, vendor: m.name }));
+                            setMergeForm({ targetName: m.name, sourceNames: [m.name] });
+                          }}
+                          style={{
+                            padding: "8px 10px",
+                            borderRadius: 6,
+                            border: `1px solid ${selectedManufacturer === m.name ? C.blue : C.gray200}`,
+                            background: selectedManufacturer === m.name ? C.bluePale : "#fff",
+                            cursor: "pointer",
+                            marginBottom: 4,
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{m.name}</div>
+                          </div>
+                          <span style={{ background: C.gray100, color: C.gray600, padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                            {m.productsCount}
+                          </span>
+                        </div>
+                      ))}
+                      {!manufacturersLoading && manufacturers.filter(m => !mfrSearch || m.name.toLowerCase().includes(mfrSearch.toLowerCase())).length === 0 && (
+                        <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: C.gray400 }}>
+                          {mfrSearch ? `Sin resultados para "${mfrSearch}"` : "No hay fabricantes todavía."}
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+
+                  {/* Right: product detail */}
+                  <div>
+                    {selectedManufacturer ? (
+                      <Card title={`Software — ${selectedManufacturer}`} icon="edit"
+                        action={<button onClick={async () => {
+                          if (!confirm(`¿Eliminar fabricante "${selectedManufacturer}" y todos sus productos?`)) return;
+                          try {
+                            await apiFetch(`/manufacturers/${encodeURIComponent(selectedManufacturer)}`, { method: "DELETE" });
+                            setMfrMsg({ type: "success", text: `Fabricante "${selectedManufacturer}" eliminado` });
+                            setSelectedManufacturer("");
+                            loadManufacturers();
+                          } catch (e) { setMfrMsg({ type: "error", text: e.message }); }
+                        }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: C.critical, fontWeight: 600 }}>🗑️ Eliminar fabricante</button>}
+                      >
+                        {((manufacturers.find(m => m.name === selectedManufacturer)?.products) || []).length === 0 ? (
+                          <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: C.gray500 }}>No hay productos vinculados a este fabricante.</div>
+                        ) : (
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 8 }}>
+                            {((manufacturers.find(m => m.name === selectedManufacturer)?.products) || []).map(p => (
+                              <div key={`${p.id}-${p.product}`} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 8, background: C.gray50, position: "relative" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{p.product}</div>
+                                  <button onClick={async () => {
+                                    if (!confirm(`¿Eliminar producto "${p.product}"?`)) return;
+                                    try {
+                                      await apiFetch(`/manufacturers/products/${p.id}`, { method: "DELETE" });
+                                      setMfrMsg({ type: "success", text: `Producto "${p.product}" eliminado` });
+                                      loadManufacturers();
+                                    } catch (e) { setMfrMsg({ type: "error", text: e.message }); }
+                                  }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: C.gray400, padding: 2 }} title="Eliminar producto">✕</button>
+                                </div>
+                                <div style={{ fontSize: 11, color: C.gray500, marginTop: 4 }}>
+                                  {(p.versions || []).length > 0 ? (
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 2 }}>
+                                      {p.versions.slice(0, 8).map((v, i) => (
+                                        <span key={i} style={{ background: "#fff", border: `1px solid ${C.gray200}`, padding: "1px 6px", borderRadius: 4, fontSize: 10 }}>{v}</span>
+                                      ))}
+                                      {p.versions.length > 8 && <span style={{ fontSize: 10, color: C.gray400 }}>+{p.versions.length - 8} más</span>}
+                                    </div>
+                                  ) : <span style={{ fontStyle: "italic" }}>Todas las versiones</span>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </Card>
+                    ) : (
+                      <Card title="Software vinculado" icon="edit">
+                        <div style={{ padding: 30, textAlign: "center", fontSize: 12, color: C.gray500 }}>
+                          ← Selecciona un fabricante de la lista para ver su software y versiones.
+                        </div>
+                      </Card>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── TAB: Aliases / Normalización ── */}
+              {mfrTab === "aliases" && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <Card title="Mapa de Aliases" icon="link">
+                    {mfrAliasesLoading ? (
+                      <div style={{ padding: 20, textAlign: "center", color: C.gray500, fontSize: 12 }}>Cargando aliases...</div>
+                    ) : mfrAliases?.aliases ? (
+                      <div style={{ maxHeight: 480, overflow: "auto" }}>
+                        {Object.entries(mfrAliases.aliases).sort((a, b) => a[0].localeCompare(b[0])).map(([canonical, aliases]) => (
+                          <div key={canonical} style={{ marginBottom: 10, padding: "8px 10px", border: `1px solid ${C.gray200}`, borderRadius: 6, background: C.gray50 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: C.blue, marginBottom: 4 }}>
+                              🏷️ {canonical}
+                            </div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                              {aliases.map((a, i) => (
+                                <span key={i} style={{ background: "#fff", border: `1px solid ${C.gray200}`, padding: "2px 8px", borderRadius: 4, fontSize: 11, color: C.gray600 }}>
+                                  {a} →
+                                </span>
+                              ))}
                             </div>
                           </div>
                         ))}
-                        {((manufacturers.find(m => m.name === selectedManufacturer)?.products) || []).length === 0 && (
-                          <div style={{ fontSize: 12, color: C.gray500 }}>No hay productos vinculados a este fabricante.</div>
-                        )}
                       </div>
+                    ) : (
+                      <div style={{ padding: 20, textAlign: "center", color: C.gray500, fontSize: 12 }}>No se pudieron cargar los aliases.</div>
+                    )}
+                  </Card>
 
-                      <div style={{ borderTop: `1px solid ${C.gray200}`, paddingTop: 12 }}>
-                        <h3 style={{ fontSize: 13, fontWeight: 700, margin: "0 0 8px" }}>Armonizar / unir fabricantes</h3>
-                        <div style={{ marginBottom: 8 }}>
-                          <label style={{ fontSize: 11, color: C.gray600, display: "block", marginBottom: 4 }}>Nombre final del fabricante</label>
-                          <Input value={mergeForm.targetName} onChange={v => setMergeForm({ ...mergeForm, targetName: v })} placeholder="fabricante objetivo" />
+                  <div>
+                    {/* Duplicates detected */}
+                    <Card title="Duplicados Detectados" icon="warning" style={{ marginBottom: 12 }}>
+                      {mfrAliases?.stats?.duplicateGroups?.length > 0 ? (
+                        <div style={{ maxHeight: 220, overflow: "auto" }}>
+                          {mfrAliases.stats.duplicateGroups.map((g, i) => (
+                            <div key={i} style={{ padding: "8px 10px", border: `1px solid #FDE68A`, borderRadius: 6, background: "#FFFBEB", marginBottom: 6 }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E", marginBottom: 4 }}>
+                                ⚠️ "{g.canonical}" — {g.count} variantes en catálogo
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                {g.variants.map((v, j) => (
+                                  <span key={j} style={{ background: "#fff", border: "1px solid #FDE68A", padding: "2px 8px", borderRadius: 4, fontSize: 11 }}>{v}</span>
+                                ))}
+                              </div>
+                              <button onClick={() => {
+                                setMfrTab("merge");
+                                setMergeForm({ targetName: g.canonical, sourceNames: g.variants });
+                              }} style={{ marginTop: 6, background: "none", border: "none", color: C.blue, fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+                                → Armonizar ahora
+                              </button>
+                            </div>
+                          ))}
                         </div>
-                        <div style={{ maxHeight: 140, overflow: "auto", border: `1px solid ${C.gray200}`, borderRadius: 6, padding: 8, background: "#fff" }}>
-                          {manufacturers.map(m => {
-                            const checked = (mergeForm.sourceNames || []).includes(m.name);
-                            return (
-                              <label key={`merge-${m.name}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12 }}>
-                                <input type="checkbox" checked={checked} onChange={e => toggleMergeSource(m.name, e.target.checked)} />
-                                <span>{m.name}</span>
-                              </label>
-                            );
-                          })}
+                      ) : (
+                        <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: "#059669" }}>
+                          ✅ No se detectaron duplicados. El catálogo está limpio.
                         </div>
-                        <div style={{ marginTop: 8 }}>
-                          <Btn primary onClick={applyManufacturerMerge}>Aplicar armonización</Btn>
+                      )}
+                    </Card>
+
+                    {/* Vendors with subscriptions */}
+                    <Card title="Vendors con Suscripciones Activas" icon="users">
+                      {mfrAliases?.stats?.vendorsWithSubscriptions?.length > 0 ? (
+                        <div style={{ maxHeight: 200, overflow: "auto" }}>
+                          {mfrAliases.stats.vendorsWithSubscriptions.map((v, i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 8px", borderBottom: `1px solid ${C.gray100}`, fontSize: 12 }}>
+                              <span style={{ fontWeight: 600 }}>{v.vendor}</span>
+                              <span style={{ background: C.bluePale, color: C.blue, padding: "1px 8px", borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                                {v.subscriptionCount} subs
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ padding: 16, textAlign: "center", fontSize: 12, color: C.gray500 }}>No hay suscripciones activas por vendor.</div>
+                      )}
+                    </Card>
+                  </div>
+                </div>
+              )}
+
+              {/* ── TAB: Armonizar ── */}
+              {mfrTab === "merge" && (
+                <Card title="Armonizar / Unir Fabricantes" icon="merge">
+                  <p style={{ fontSize: 12, color: C.gray500, marginBottom: 14 }}>
+                    Selecciona fabricantes a fusionar en un nombre canónico. Sus productos, suscripciones y CVEs se actualizarán automáticamente.
+                  </p>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                    <div>
+                      <label style={{ fontSize: 11, color: C.gray600, display: "block", marginBottom: 4, fontWeight: 600 }}>Nombre final (canónico)</label>
+                      <Input value={mergeForm.targetName} onChange={v => setMergeForm({ ...mergeForm, targetName: v })} placeholder="fabricante objetivo" />
+                      <div style={{ marginTop: 12 }}>
+                        <Btn primary onClick={async () => {
+                          setMfrMsg(null);
+                          try {
+                            const res = await apiFetch("/manufacturers/merge", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ targetName: mergeForm.targetName, sourceNames: mergeForm.sourceNames }),
+                            });
+                            const data = await res.json();
+                            if (data.error || !data.success) throw new Error(data.message || data.error || "Error en armonización");
+                            setMfrMsg({ type: "success", text: `✅ Armonización completada: ${data.merged?.length || 0} fabricantes fusionados en "${data.target}"` });
+                            setMergeForm({ targetName: "", sourceNames: [] });
+                            loadManufacturers();
+                            // Reload aliases
+                            apiFetch("/manufacturers/aliases").then(r => r.json()).then(d => setMfrAliases(d)).catch(() => {});
+                          } catch (e) {
+                            setMfrMsg({ type: "error", text: `Error: ${e.message}` });
+                          }
+                        }} disabled={!mergeForm.targetName || mergeForm.sourceNames.length < 2}>
+                          🔄 Aplicar armonización
+                        </Btn>
+                        <div style={{ fontSize: 11, color: C.gray400, marginTop: 6 }}>
+                          Seleccionados: {mergeForm.sourceNames.length} fabricantes
                         </div>
                       </div>
-                    </>
-                  )}
-                  {!selectedManufacturer && <div style={{ fontSize: 12, color: C.gray500 }}>Selecciona un fabricante de la lista para ver su software.</div>}
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: C.gray600, display: "block", marginBottom: 4, fontWeight: 600 }}>Fabricantes a fusionar</label>
+                      <input
+                        type="text"
+                        placeholder="🔍 Filtrar..."
+                        id="merge-filter"
+                        onChange={e => { document.getElementById("merge-filter").dataset.filter = e.target.value; document.getElementById("merge-list").querySelectorAll("[data-vendor]").forEach(el => { el.style.display = el.dataset.vendor.includes(e.target.value.toLowerCase()) ? "" : "none"; }); }}
+                        style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, boxSizing: "border-box", marginBottom: 6 }}
+                      />
+                      <div id="merge-list" style={{ maxHeight: 320, overflow: "auto", border: `1px solid ${C.gray200}`, borderRadius: 6, padding: 8, background: "#fff" }}>
+                        {manufacturers.map(m => {
+                          const checked = (mergeForm.sourceNames || []).includes(m.name);
+                          return (
+                            <label key={`merge-${m.name}`} data-vendor={m.name.toLowerCase()} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12, cursor: "pointer" }}>
+                              <input type="checkbox" checked={checked} onChange={e => toggleMergeSource(m.name, e.target.checked)} />
+                              <span style={{ flex: 1 }}>{m.name}</span>
+                              <span style={{ fontSize: 10, color: C.gray400 }}>{m.productsCount} prod.</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
                 </Card>
-              </div>
+              )}
+
+              {/* ── TAB: Añadir ── */}
+              {mfrTab === "add" && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <Card title="Nuevo Fabricante" icon="plus">
+                    <p style={{ fontSize: 12, color: C.gray500, marginBottom: 10 }}>
+                      El nombre se normaliza automáticamente (minúsculas + aliases).
+                    </p>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <Input value={newManufacturerName} onChange={setNewManufacturerName} placeholder="ej: Adobe Systems" style={{ flex: 1 }} />
+                      <Btn primary onClick={async () => {
+                        setMfrMsg(null);
+                        try {
+                          await createManufacturer();
+                          setMfrMsg({ type: "success", text: `Fabricante "${newManufacturerName}" creado correctamente` });
+                          setNewManufacturerName("");
+                        } catch (e) { setMfrMsg({ type: "error", text: e.message }); }
+                      }}>Crear</Btn>
+                    </div>
+                  </Card>
+                  <Card title="Nuevo Producto" icon="plus">
+                    <p style={{ fontSize: 12, color: C.gray500, marginBottom: 10 }}>
+                      Asocia un producto a un fabricante existente con versiones opcionales.
+                    </p>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                      <select
+                        value={newProductForm.vendor}
+                        onChange={e => setNewProductForm({ ...newProductForm, vendor: e.target.value })}
+                        style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", fontSize: 12 }}
+                      >
+                        <option value="">Selecciona fabricante</option>
+                        {manufacturers.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
+                      </select>
+                      <Input value={newProductForm.product} onChange={v => setNewProductForm({ ...newProductForm, product: v })} placeholder="nombre del producto" />
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <Input value={newProductForm.versions} onChange={v => setNewProductForm({ ...newProductForm, versions: v })} placeholder="versiones (coma separadas, opcional)" style={{ flex: 1 }} />
+                      <Btn primary onClick={async () => {
+                        setMfrMsg(null);
+                        try {
+                          await createManufacturerProduct();
+                          setMfrMsg({ type: "success", text: `Producto "${newProductForm.product}" creado correctamente` });
+                          setNewProductForm({ vendor: "", product: "", versions: "" });
+                        } catch (e) { setMfrMsg({ type: "error", text: e.message }); }
+                      }}>Crear</Btn>
+                    </div>
+                  </Card>
+                </div>
+              )}
             </>}
 
             {/* ═══ CONTACTS ═══ */}
