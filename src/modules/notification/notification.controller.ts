@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Query, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { NotificationService } from './notification.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -87,5 +87,36 @@ export class NotificationController {
             Number(body?.vulnerabilityId),
             body?.config || {},
         );
+    }
+
+    // ── Notification Policy endpoints ────────────────────────────────
+
+    @Get('policy/:userId')
+    @Roles('ADMIN')
+    async getNotificationPolicy(@Param('userId', ParseIntPipe) userId: number) {
+        return await this.notificationService.getNotificationPolicy(userId);
+    }
+
+    @Put('policy/:userId')
+    @Roles('ADMIN')
+    async upsertNotificationPolicy(
+        @Param('userId', ParseIntPipe) userId: number,
+        @Body() body: {
+            immediateForCritical?: boolean;
+            immediateForExploitable?: boolean;
+            digestFrequency?: string;
+            digestHour?: number;
+            digestDayOfWeek?: number;
+            minCvssForImmediate?: number;
+            isActive?: boolean;
+        },
+    ) {
+        return await this.notificationService.upsertNotificationPolicy(userId, body);
+    }
+
+    @Get('policies')
+    @Roles('ADMIN')
+    async getAllNotificationPolicies() {
+        return await this.notificationService.getAllNotificationPolicies();
     }
 }

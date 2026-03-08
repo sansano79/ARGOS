@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { normalizeName, normalizeProduct } from '../../shared/vendor-normalization';
 
 @Injectable()
 export class ManufacturersService {
@@ -47,7 +48,7 @@ export class ManufacturersService {
   }
 
   async createManufacturer(name: string) {
-    const normalized = this.normalizeName(name);
+    const normalized = normalizeName(name);
     if (!normalized) throw new BadRequestException('Manufacturer name is required');
 
     await (this.prisma as any).manufacturer.upsert({
@@ -60,8 +61,8 @@ export class ManufacturersService {
   }
 
   async createProduct(data: { vendor: string; product: string; versions?: string[] }) {
-    const vendor = this.normalizeName(data?.vendor);
-    const product = this.normalizeProduct(data?.product);
+    const vendor = normalizeName(data?.vendor);
+    const product = normalizeProduct(data?.product);
     if (!vendor || !product) {
       throw new BadRequestException('Vendor and product are required');
     }
@@ -105,9 +106,9 @@ export class ManufacturersService {
   }
 
   async mergeManufacturers(targetName: string, sourceNames: string[]) {
-    const target = this.normalizeName(targetName);
+    const target = normalizeName(targetName);
     const sourceSet = [...new Set((sourceNames || [])
-      .map((n) => this.normalizeName(n))
+      .map((n) => normalizeName(n))
       .filter((n) => !!n && n !== target))];
 
     if (!target) throw new BadRequestException('Target manufacturer is required');
@@ -221,7 +222,7 @@ export class ManufacturersService {
       if (!Array.isArray(affected)) continue;
       let changed = false;
       const next = affected.map((p: any) => {
-        const vendor = this.normalizeName(p?.vendor);
+        const vendor = normalizeName(p?.vendor);
         if (sourceLookup.has(vendor)) {
           changed = true;
           return { ...p, vendor: target };
@@ -239,13 +240,7 @@ export class ManufacturersService {
     return { success: true, target, merged: sourceSet };
   }
 
-  private normalizeName(value: string): string {
-    return String(value || '').trim().toLowerCase();
-  }
-
-  private normalizeProduct(value: string): string {
-    return String(value || '').trim().toLowerCase();
-  }
+  // normalizeName and normalizeProduct imported from shared/vendor-normalization
 
   private parseJsonArray(value: any): string[] {
     try {

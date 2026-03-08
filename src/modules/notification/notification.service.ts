@@ -910,6 +910,85 @@ export class NotificationService {
         };
     }
 
+    // ── Notification Policy CRUD ────────────────────────────────────
+
+    async getNotificationPolicy(userId: number) {
+        const policy = await this.prisma.notificationPolicy.findUnique({
+            where: { userId },
+        });
+
+        if (!policy) {
+            // Return defaults
+            return {
+                userId,
+                immediateForCritical: true,
+                immediateForExploitable: true,
+                digestFrequency: 'daily',
+                digestHour: 8,
+                digestDayOfWeek: null,
+                minCvssForImmediate: 9.0,
+                isActive: true,
+                isDefault: true,
+            };
+        }
+
+        return { ...policy, isDefault: false };
+    }
+
+    async upsertNotificationPolicy(userId: number, data: {
+        immediateForCritical?: boolean;
+        immediateForExploitable?: boolean;
+        digestFrequency?: string;
+        digestHour?: number;
+        digestDayOfWeek?: number;
+        minCvssForImmediate?: number;
+        isActive?: boolean;
+    }) {
+        // Validate user exists and is subscriber
+        const user = await this.prisma.user.findUnique({ where: { id: userId } });
+        if (!user) throw new NotFoundException(`User with id ${userId} not found`);
+
+        const updateData = {
+            ...(data.immediateForCritical !== undefined && { immediateForCritical: data.immediateForCritical }),
+            ...(data.immediateForExploitable !== undefined && { immediateForExploitable: data.immediateForExploitable }),
+            ...(data.digestFrequency !== undefined && { digestFrequency: data.digestFrequency }),
+            ...(data.digestHour !== undefined && { digestHour: data.digestHour }),
+            ...(data.digestDayOfWeek !== undefined && { digestDayOfWeek: data.digestDayOfWeek }),
+            ...(data.minCvssForImmediate !== undefined && { minCvssForImmediate: data.minCvssForImmediate }),
+            ...(data.isActive !== undefined && { isActive: data.isActive }),
+        };
+
+        const policy = await this.prisma.notificationPolicy.upsert({
+            where: { userId },
+            create: {
+                userId,
+                immediateForCritical: data.immediateForCritical ?? true,
+                immediateForExploitable: data.immediateForExploitable ?? true,
+                digestFrequency: data.digestFrequency ?? 'daily',
+                digestHour: data.digestHour ?? 8,
+                digestDayOfWeek: data.digestDayOfWeek ?? null,
+                minCvssForImmediate: data.minCvssForImmediate ?? 9.0,
+                isActive: data.isActive ?? true,
+            },
+            update: updateData,
+        });
+
+        return policy;
+    }
+
+    async getAllNotificationPolicies() {
+        const policies = await this.prisma.notificationPolicy.findMany({
+            include: {
+                user: {
+                    select: { id: true, name: true, email: true, isSubscriber: true },
+                },
+            },
+            orderBy: { userId: 'asc' },
+        });
+
+        return policies;
+    }
+
     async getAvailableTemplates() {
         const templatesDir = this.getTemplatesDir();
         try {

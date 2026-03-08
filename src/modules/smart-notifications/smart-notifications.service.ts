@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { NotificationService } from '../notification/notification.service';
 import { dump as yamlDump, load as yamlLoad } from 'js-yaml';
+import { matchesSubscription, getMatchedProducts, normalizeName } from '../../shared/vendor-normalization';
 
 type RiskLevel = 'critical' | 'high' | 'medium';
 
@@ -1353,8 +1354,8 @@ export class SmartNotificationsService {
         });
 
         const normalizedSubscriptions = (subscriber.subscriptions || []).map((subscription) => ({
-            vendor: String(subscription.vendor || '').trim().toLowerCase(),
-            product: String(subscription.product || '').trim().toLowerCase(),
+            vendor: normalizeName(subscription.vendor),
+            product: normalizeName(subscription.product),
             versions: this.parseJsonArray(subscription.versions || '[]').map((version) => version.toLowerCase()),
         }));
 
@@ -1430,7 +1431,7 @@ export class SmartNotificationsService {
         }
 
         for (const vulnerability of candidateNewMatches) {
-            const matchedProducts = this.getMatchedProducts(
+            const matchedProducts = getMatchedProducts(
                 normalizedSubscriptions,
                 this.parseAffectedProducts(vulnerability.affectedProducts),
             );
@@ -1457,7 +1458,7 @@ export class SmartNotificationsService {
 
         const groupedAssetsMap = new Map<string, { vendor: string; product: string; cveIds: Set<string> }>();
         for (const vulnerability of vulnerabilities) {
-            const matchedProducts = this.getMatchedProducts(normalizedSubscriptions, vulnerability.affectedProducts);
+            const matchedProducts = getMatchedProducts(normalizedSubscriptions, vulnerability.affectedProducts);
             const productsToUse = matchedProducts.length > 0 ? matchedProducts : vulnerability.affectedProducts;
 
             for (const product of productsToUse) {
@@ -1945,47 +1946,7 @@ ${roadmapHtml}`
         }
     }
 
-    private getMatchedProducts(
-        subscriptions: Array<{ vendor: string; product: string; versions: string[] }>,
-        affectedProducts: Array<{ vendor: string; product: string; version?: string; versionRange?: string }>,
-    ) {
-        const matches: Array<{ vendor: string; product: string; version?: string; versionRange?: string }> = [];
-
-        for (const affectedProduct of affectedProducts) {
-            if (
-                subscriptions.some((subscription) => this.matchesSubscription(subscription, affectedProduct))
-            ) {
-                matches.push(affectedProduct);
-            }
-        }
-
-        return matches;
-    }
-
-    private matchesSubscription(
-        subscription: { vendor: string; product: string; versions: string[] },
-        affectedProduct: { vendor: string; product: string; version?: string; versionRange?: string },
-    ): boolean {
-        const subscriptionVendor = String(subscription.vendor || '').trim().toLowerCase();
-        const subscriptionProduct = String(subscription.product || '').trim().toLowerCase();
-        const affectedVendor = String(affectedProduct.vendor || '').trim().toLowerCase();
-        const affectedProductName = String(affectedProduct.product || '').trim().toLowerCase();
-
-        if (subscriptionVendor && subscriptionVendor !== affectedVendor) return false;
-        if (subscriptionProduct && subscriptionProduct !== affectedProductName) return false;
-        if (!affectedVendor && !affectedProductName) return false;
-
-        if (!subscription.versions || subscription.versions.length === 0) return true;
-
-        const affectedVersion = String(affectedProduct.version || '').trim().toLowerCase();
-        const affectedRange = String(affectedProduct.versionRange || '').trim().toLowerCase();
-        if (!affectedVersion && !affectedRange) return true;
-
-        return subscription.versions.some((version) => {
-            const normalizedVersion = String(version || '').trim().toLowerCase();
-            return normalizedVersion && (affectedVersion === normalizedVersion || affectedRange.includes(normalizedVersion));
-        });
-    }
+    // getMatchedProducts and matchesSubscription imported from shared/vendor-normalization
 
     private async ensureSubscriberExists(subscriberId: number) {
         const exists = await this.prisma.user.findFirst({

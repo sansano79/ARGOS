@@ -219,23 +219,8 @@ model ApiConfiguration {
 // CONTACTOS IT
 // ══════════════════════════════════════════════════════════════
 
-model ItContact {
-  id              Int      @id @default(autoincrement())
-  name            String
-  email           String
-  contactPerson   String?  @map("contact_person")
-  department      String?
-  phone           String?
-  products        String   @default("[]")
-  notes           String?
-  isActive        Boolean  @default(true) @map("is_active")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  vulnNotifications VulnerabilityNotification[]
-
-  @@map("it_contacts")
-}
+// ItContact model removed — legacy model replaced by User subscriber system.
+// The it_contacts table remains in DB for historical data but is no longer managed by Prisma.
 
 // ══════════════════════════════════════════════════════════════
 // HISTORIAL DE NOTIFICACIONES
@@ -286,7 +271,7 @@ model VulnerabilityNotification {
   notificationLogId Int?   @map("notification_log_id")
 
   vulnerability   Vulnerability @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
-  contact         ItContact?    @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  // contact relation removed — contactId kept for historical data
   subscriberUser  User?         @relation("subscriber_notifications", fields: [subscriberUserId], references: [id], onDelete: SetNull)
 
   @@index([vulnerabilityId])

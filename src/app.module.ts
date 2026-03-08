@@ -7,7 +7,7 @@ import { VulnerabilityCollectorModule } from './modules/vulnerability-collector/
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { AiModule } from './modules/ai/ai.module';
-import { ContactsModule } from './modules/contacts/contacts.module';
+// ContactsModule removed — ItContact legacy model eliminated
 import { UsersModule } from './modules/users/users.module';
 import { TagsModule } from './modules/tags/tags.module';
 import { ManufacturersModule } from './modules/manufacturers/manufacturers.module';
@@ -27,7 +27,6 @@ import { SmartNotificationsModule } from './modules/smart-notifications/smart-no
     DashboardModule,
     NotificationModule,
     AiModule,
-    ContactsModule,
     UsersModule,
     TagsModule,
     ManufacturersModule,
