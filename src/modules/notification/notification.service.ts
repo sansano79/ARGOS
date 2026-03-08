@@ -692,6 +692,158 @@ export class NotificationService {
         }
     }
 
+    /**
+     * Cron: Send digest emails daily at 08:00.
+     * Processes PendingDigestNotification entries for subscribers with matching digestFrequency.
+     */
+    @Cron('0 0 8 * * *')
+    async sendScheduledDigests() {
+        this.logger.log('Digest cron: starting daily digest processing');
+
+        try {
+            // Find subscribers with pending digest notifications
+            const pendingGrouped = await this.prisma.pendingDigestNotification.findMany({
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            email: true,
+                            notificationEmail: true,
+                            notificationPolicy: true,
+                        },
+                    },
+                    vulnerability: {
+                        select: {
+                            id: true,
+                            cveId: true,
+                            cvssV31Severity: true,
+                            cvssV31Score: true,
+                            publishedAt: true,
+                            epssScore: true,
+                            hasPublicExploit: true,
+                            isKnownExploited: true,
+                            affectedProducts: true,
+                            description: true,
+                            references: true,
+                            remediationInfo: true,
+                        },
+                    },
+                },
+                orderBy: { createdAt: 'asc' },
+            });
+
+            if (pendingGrouped.length === 0) {
+                this.logger.log('Digest cron: no pending digest notifications');
+                return;
+            }
+
+            // Group by subscriber
+            const bySubscriber = new Map<number, {
+                user: typeof pendingGrouped[0]['user'];
+                entries: typeof pendingGrouped;
+            }>();
+
+            for (const entry of pendingGrouped) {
+                if (!bySubscriber.has(entry.userId)) {
+                    bySubscriber.set(entry.userId, { user: entry.user, entries: [] });
+                }
+                bySubscriber.get(entry.userId)!.entries.push(entry);
+            }
+
+            let emailsSent = 0;
+            let totalProcessed = 0;
+            const processedIds: number[] = [];
+
+            for (const [, { user, entries }] of bySubscriber) {
+                // Check digest frequency: for now, daily is always eligible at 08:00
+                const policy = user.notificationPolicy;
+                const frequency = policy?.digestFrequency || 'daily';
+
+                // Skip if frequency doesn't match today's schedule
+                const now = new Date();
+                if (frequency === 'weekly') {
+                    const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon...
+                    const targetDay = policy?.digestDayOfWeek ?? 1; // default Monday
+                    if (dayOfWeek !== targetDay) continue;
+                }
+                // '4h' and '8h' frequencies are handled via separate cron entries or skipped here
+
+                const recipientEmail = user.notificationEmail || user.email;
+                if (!recipientEmail) continue;
+
+                // Group entries by vendor
+                const vendorMap = new Map<string, Array<{
+                    cveId: string; severity: string; cvssScore: any; epssScore: any;
+                    hasPublicExploit: boolean; isKnownExploited: boolean; description: string;
+                    affectedProducts: any[]; references: any[]; remediationInfo: any; publishedAt: any;
+                }>>();
+
+                for (const entry of entries) {
+                    const v = entry.vulnerability;
+                    const vendor = entry.vendor || 'unknown';
+
+                    if (!vendorMap.has(vendor)) vendorMap.set(vendor, []);
+                    const list = vendorMap.get(vendor)!;
+
+                    // Avoid duplicate CVEs
+                    if (list.some((x) => x.cveId === v.cveId)) continue;
+
+                    list.push({
+                        cveId: v.cveId,
+                        severity: v.cvssV31Severity || 'N/A',
+                        cvssScore: v.cvssV31Score ?? 'N/A',
+                        epssScore: v.epssScore,
+                        hasPublicExploit: !!v.hasPublicExploit,
+                        isKnownExploited: !!v.isKnownExploited,
+                        description: v.description || 'Sin descripción disponible',
+                        affectedProducts: this.parseJson(v.affectedProducts) || [],
+                        references: this.parseJson(v.references) || [],
+                        remediationInfo: this.parseJson(v.remediationInfo) || {},
+                        publishedAt: v.publishedAt,
+                    });
+                }
+
+                const sent = await this.sendConsolidatedSubscriberEmail(
+                    recipientEmail,
+                    user.name,
+                    vendorMap,
+                    'digest',
+                );
+
+                // Record VulnerabilityNotification for deduplication
+                for (const entry of entries) {
+                    await this.prisma.vulnerabilityNotification.create({
+                        data: {
+                            vulnerabilityId: entry.vulnerabilityId,
+                            subscriberUserId: user.id,
+                            recipientEmail,
+                            recipientName: user.name,
+                            status: sent ? 'sent' : 'failed',
+                        },
+                    });
+                    processedIds.push(entry.id);
+                    totalProcessed++;
+                }
+
+                if (sent) emailsSent++;
+            }
+
+            // Remove processed pending entries
+            if (processedIds.length > 0) {
+                await this.prisma.pendingDigestNotification.deleteMany({
+                    where: { id: { in: processedIds } },
+                });
+            }
+
+            this.logger.log(
+                `Digest cron complete: ${emailsSent} digest emails sent, ${totalProcessed} CVEs processed`,
+            );
+        } catch (error) {
+            this.logger.error('Digest cron failed', error);
+        }
+    }
+
     private async logNotification(
         recipientEmail: string,
         recipientName: string,
