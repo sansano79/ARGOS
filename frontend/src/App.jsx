@@ -312,6 +312,15 @@ export default function VulnDashboard() {
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [notifContactsLoading, setNotifContactsLoading] = useState(false);
 
+  // Smart Notifications
+  const [smartTab, setSmartTab] = useState("subscribers"); // subscribers | history | config
+  const [smartSubscribers, setSmartSubscribers] = useState([]);
+  const [smartHistory, setSmartHistory] = useState({ data: [], total: 0 });
+  const [smartLoading, setSmartLoading] = useState(false);
+  const [smartRunning, setSmartRunning] = useState(null); // subscriberId or "all"
+  const [smartPreview, setSmartPreview] = useState(null);
+  const [smartMsg, setSmartMsg] = useState(null);
+
   const aiEndRef = useRef(null);
   const validatedTokenRef = useRef("");
 
@@ -1329,6 +1338,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     { id: "exploited", label: "Explotación Activa", icon: "zap" },
     { id: "manufacturers", label: "Fabricantes", icon: "server" },
     { id: "notifications", label: "Comunicaciones", icon: "mail" },
+    { id: "smart-notif", label: "Notif. Inteligentes", icon: "brain" },
     { id: "reports", label: "Informes", icon: "file" },
     { id: "ai", label: "Asistente IA", icon: "brain" },
     { id: "collector", label: "Collector", icon: "server" },
@@ -2240,6 +2250,257 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                     {notifDetail.error && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 12 }}>Error: {notifDetail.error}</div>}
                   </div>
                 </div>
+              )}
+            </>}
+
+            {/* ═══ SMART NOTIFICATIONS ═══ */}
+            {view === "smart-notif" && <>
+              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Notificaciones Inteligentes</h1>
+              <p style={{ color: C.gray500, fontSize: 12, marginBottom: 14 }}>Análisis AI de cadenas de explotación, riesgo acumulado y patrones de vulnerabilidad por suscriptor.</p>
+
+              {/* Tabs */}
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4, marginBottom: 16 }}>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {[
+                    { id: "subscribers", label: "Suscriptores" },
+                    { id: "history", label: "Historial" },
+                    { id: "config", label: "Configuración AI" },
+                  ].map(t => (
+                    <button key={t.id} onClick={() => {
+                      setSmartTab(t.id);
+                      setSmartPreview(null);
+                      setSmartMsg(null);
+                      if (t.id === "subscribers" && smartSubscribers.length === 0) {
+                        setSmartLoading(true);
+                        apiFetch("/users?role=subscriber").then(r => r.json()).then(d => setSmartSubscribers(Array.isArray(d) ? d : d.data || [])).catch(() => {}).finally(() => setSmartLoading(false));
+                      }
+                      if (t.id === "history") {
+                        setSmartLoading(true);
+                        apiFetch("/smart-notifications/weekly/history?limit=30").then(r => r.json()).then(d => setSmartHistory(d || { data: [], total: 0 })).catch(() => {}).finally(() => setSmartLoading(false));
+                      }
+                    }} style={{
+                      padding: "8px 18px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none",
+                      background: smartTab === t.id ? C.navy : C.gray100, color: smartTab === t.id ? "#fff" : C.gray600,
+                      cursor: "pointer", transition: "all 0.15s",
+                    }}>{t.label}</button>
+                  ))}
+                </div>
+                <div style={{ flex: 1, minWidth: 20 }} />
+                <Btn primary onClick={async () => {
+                  if (smartRunning) return;
+                  setSmartRunning("all");
+                  setSmartMsg(null);
+                  try {
+                    const res = await apiFetch("/smart-notifications/weekly/run-all", { method: "POST" });
+                    const data = await res.json();
+                    const ok = (data.results || []).filter(r => r.status === "sent").length;
+                    const fail = (data.results || []).filter(r => r.status === "failed").length;
+                    setSmartMsg({ type: "success", text: `Ejecución completada: ${ok} enviados, ${fail} fallidos de ${data.results?.length || 0} suscriptores` });
+                  } catch (e) {
+                    setSmartMsg({ type: "error", text: `Error: ${e.message}` });
+                  } finally { setSmartRunning(null); }
+                }} disabled={!!smartRunning} style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                  {smartRunning === "all" ? "⏳ Ejecutando..." : "▶ Ejecutar todos"}
+                </Btn>
+              </div>
+
+              {smartMsg && (
+                <div style={{ padding: "10px 14px", borderRadius: 6, marginBottom: 14, fontSize: 12, fontWeight: 600, background: smartMsg.type === "error" ? C.criticalBg : "#ECFDF5", color: smartMsg.type === "error" ? C.critical : "#065F46", border: `1px solid ${smartMsg.type === "error" ? "#FECACA" : "#A7F3D0"}` }}>
+                  {smartMsg.text}
+                  <button onClick={() => setSmartMsg(null)} style={{ float: "right", background: "none", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 14, lineHeight: 1 }}>×</button>
+                </div>
+              )}
+
+              {/* ── Tab: Subscribers ── */}
+              {smartTab === "subscribers" && (
+                <Card title="Suscriptores — Análisis Inteligente" icon="brain" noPad>
+                  {smartLoading ? (
+                    <div style={{ padding: 30, textAlign: "center", color: C.gray500 }}>Cargando suscriptores...</div>
+                  ) : smartSubscribers.length === 0 ? (
+                    <div style={{ padding: 30, textAlign: "center" }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: C.gray600, marginBottom: 8 }}>No hay suscriptores activos</div>
+                      <div style={{ fontSize: 12, color: C.gray400 }}>Crea suscriptores en Configuración → Gestión de Usuarios</div>
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ background: C.gray50, borderBottom: `2px solid ${C.gray200}` }}>
+                            <th style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: C.gray700 }}>Suscriptor</th>
+                            <th style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: C.gray700 }}>Email</th>
+                            <th style={{ padding: "10px 14px", textAlign: "center", fontWeight: 700, color: C.gray700 }}>Suscripciones</th>
+                            <th style={{ padding: "10px 14px", textAlign: "right", fontWeight: 700, color: C.gray700 }}>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {smartSubscribers.map(sub => (
+                            <tr key={sub.id} style={{ borderBottom: `1px solid ${C.gray100}` }}>
+                              <td style={{ padding: "10px 14px", fontWeight: 600 }}>{sub.name}</td>
+                              <td style={{ padding: "10px 14px", color: C.gray500 }}>{sub.notificationEmail || sub.email}</td>
+                              <td style={{ padding: "10px 14px", textAlign: "center" }}>
+                                <span style={{ background: C.bluePale, color: C.blue, padding: "2px 10px", borderRadius: 10, fontSize: 12, fontWeight: 600 }}>
+                                  {sub.subscriptions?.length || sub._count?.subscriptions || 0}
+                                </span>
+                              </td>
+                              <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                                  <Btn small onClick={async () => {
+                                    setSmartPreview(null);
+                                    setSmartMsg(null);
+                                    setSmartRunning(sub.id);
+                                    try {
+                                      const res = await apiFetch(`/smart-notifications/weekly/preview/${sub.id}`, { method: "POST" });
+                                      const data = await res.json();
+                                      if (data.error) throw new Error(data.error || data.message);
+                                      setSmartPreview({ subscriberId: sub.id, subscriberName: sub.name, ...data });
+                                    } catch (e) {
+                                      setSmartMsg({ type: "error", text: `Preview ${sub.name}: ${e.message}` });
+                                    } finally { setSmartRunning(null); }
+                                  }} disabled={!!smartRunning}>
+                                    {smartRunning === sub.id ? "⏳" : "👁️"} Preview
+                                  </Btn>
+                                  <Btn small primary onClick={async () => {
+                                    setSmartMsg(null);
+                                    setSmartRunning(sub.id);
+                                    try {
+                                      const res = await apiFetch(`/smart-notifications/weekly/run/${sub.id}`, { method: "POST" });
+                                      const data = await res.json();
+                                      if (data.error) throw new Error(data.error || data.message);
+                                      setSmartMsg({ type: "success", text: `${sub.name}: ${data.status || "completado"} — ${data.emailSent ? "email enviado ✓" : "email no enviado"}` });
+                                    } catch (e) {
+                                      setSmartMsg({ type: "error", text: `${sub.name}: ${e.message}` });
+                                    } finally { setSmartRunning(null); }
+                                  }} disabled={!!smartRunning}>
+                                    ▶ Ejecutar
+                                  </Btn>
+                                  <Btn small danger onClick={async () => {
+                                    setSmartMsg(null);
+                                    setSmartRunning(sub.id);
+                                    try {
+                                      const res = await apiFetch(`/smart-notifications/weekly/test/${sub.id}`, { method: "POST" });
+                                      const data = await res.json();
+                                      if (data.error) throw new Error(data.error || data.message);
+                                      setSmartMsg({ type: "success", text: `Test ${sub.name}: email enviado ✓` });
+                                    } catch (e) {
+                                      setSmartMsg({ type: "error", text: `Test ${sub.name}: ${e.message}` });
+                                    } finally { setSmartRunning(null); }
+                                  }} disabled={!!smartRunning}>
+                                    📧 Test
+                                  </Btn>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </Card>
+              )}
+
+              {/* ── Preview panel ── */}
+              {smartPreview && (
+                <Card title={`Preview — ${smartPreview.subscriberName}`} icon="brain" style={{ marginTop: 16 }}
+                  action={<button onClick={() => setSmartPreview(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: C.gray400 }}>×</button>}>
+                  <div style={{ fontSize: 12, color: C.gray500, marginBottom: 12 }}>
+                    Período: {smartPreview.periodStart ? fmtDate(smartPreview.periodStart) : "—"} → {smartPreview.periodEnd ? fmtDate(smartPreview.periodEnd) : "—"}
+                    {" | "}Vulnerabilidades analizadas: <strong>{smartPreview.totalVulnerabilities ?? "—"}</strong>
+                    {" | "}Cadenas detectadas: <strong>{smartPreview.analysis?.exploitChains?.length ?? smartPreview.analysis?.chains?.length ?? "—"}</strong>
+                  </div>
+                  {smartPreview.html ? (
+                    <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, overflow: "hidden" }}>
+                      <iframe srcDoc={smartPreview.html} style={{ width: "100%", height: 600, border: "none" }} title="Smart notification preview" />
+                    </div>
+                  ) : smartPreview.analysis ? (
+                    <div style={{ background: C.gray50, padding: 16, borderRadius: 6, fontSize: 12, fontFamily: "monospace", whiteSpace: "pre-wrap", maxHeight: 500, overflow: "auto" }}>
+                      {JSON.stringify(smartPreview.analysis, null, 2)}
+                    </div>
+                  ) : (
+                    <div style={{ padding: 20, textAlign: "center", color: C.gray500 }}>Sin datos de preview disponibles. Compruebe que el suscriptor tiene suscripciones activas y que existen vulnerabilidades recientes.</div>
+                  )}
+                </Card>
+              )}
+
+              {/* ── Tab: History ── */}
+              {smartTab === "history" && (
+                <Card title="Historial de Informes Inteligentes" icon="file" noPad>
+                  {smartLoading ? (
+                    <div style={{ padding: 30, textAlign: "center", color: C.gray500 }}>Cargando historial...</div>
+                  ) : (smartHistory.data || []).length === 0 ? (
+                    <div style={{ padding: 30, textAlign: "center", color: C.gray500 }}>No se han generado informes inteligentes aún. Ejecute un análisis desde la pestaña Suscriptores.</div>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ background: C.gray50, borderBottom: `2px solid ${C.gray200}` }}>
+                            <th style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700 }}>Fecha</th>
+                            <th style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700 }}>Suscriptor</th>
+                            <th style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700 }}>Asunto</th>
+                            <th style={{ padding: "10px 14px", textAlign: "center", fontWeight: 700 }}>Estado</th>
+                            <th style={{ padding: "10px 14px", textAlign: "center", fontWeight: 700 }}>AI</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(smartHistory.data || []).map((h, i) => (
+                            <tr key={h.id || i} style={{ borderBottom: `1px solid ${C.gray100}` }}>
+                              <td style={{ padding: "10px 14px", fontSize: 12 }}>{fmtDate(h.createdAt || h.sentAt)}</td>
+                              <td style={{ padding: "10px 14px", fontWeight: 600 }}>{h.subscriber?.name || h.recipientEmail || "—"}</td>
+                              <td style={{ padding: "10px 14px", color: C.gray600, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.subject || "—"}</td>
+                              <td style={{ padding: "10px 14px", textAlign: "center" }}>
+                                <span style={{
+                                  padding: "3px 10px", borderRadius: 10, fontSize: 11, fontWeight: 700,
+                                  background: h.status === "sent" ? "#ECFDF5" : h.status === "generated" ? C.bluePale : C.criticalBg,
+                                  color: h.status === "sent" ? "#065F46" : h.status === "generated" ? C.blue : C.critical,
+                                }}>{h.status === "sent" ? "Enviado" : h.status === "generated" ? "Generado" : h.status || "—"}</span>
+                              </td>
+                              <td style={{ padding: "10px 14px", textAlign: "center", fontSize: 11, color: C.gray500 }}>{h.aiModel || h.aiProvider || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </Card>
+              )}
+
+              {/* ── Tab: Config ── */}
+              {smartTab === "config" && (
+                <Card title="Configuración del Motor AI" icon="settings">
+                  <div style={{ fontSize: 13, color: C.gray600, marginBottom: 16 }}>
+                    La configuración AI se gestiona desde <strong>Configuración → Motor de IA</strong>. Aquí puede ver el perfil activo y exportar/importar perfiles de análisis.
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <Btn onClick={async () => {
+                      setSmartMsg(null);
+                      try {
+                        const res = await apiFetch("/smart-notifications/config");
+                        const data = await res.json();
+                        setSmartPreview({ configData: data });
+                        setSmartMsg({ type: "success", text: "Configuración cargada" });
+                      } catch (e) {
+                        setSmartMsg({ type: "error", text: e.message });
+                      }
+                    }}>📋 Ver configuración actual</Btn>
+                    <Btn onClick={async () => {
+                      try {
+                        const res = await apiFetch("/smart-notifications/config/export?format=json");
+                        const data = await res.json();
+                        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url; a.download = "smart-notif-config.json"; a.click();
+                        URL.revokeObjectURL(url);
+                      } catch (e) {
+                        setSmartMsg({ type: "error", text: e.message });
+                      }
+                    }}>💾 Exportar perfil (JSON)</Btn>
+                  </div>
+                  {smartPreview?.configData && (
+                    <div style={{ marginTop: 16, background: C.gray50, padding: 16, borderRadius: 6, fontSize: 12, fontFamily: "monospace", whiteSpace: "pre-wrap", maxHeight: 400, overflow: "auto" }}>
+                      {JSON.stringify(smartPreview.configData, null, 2)}
+                    </div>
+                  )}
+                </Card>
               )}
             </>}
 
