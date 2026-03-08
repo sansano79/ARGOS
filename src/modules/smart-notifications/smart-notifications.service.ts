@@ -1795,16 +1795,80 @@ export class SmartNotificationsService {
                 .join('')
             : '<p>No se identificaron riesgos priorizados.</p>';
 
+        const buildCorrelationCard = (correlation: SmartAnalysisResult['detectedCorrelations'][0]): string => {
+            const riskLevel = correlation.riskLevel || 'medium';
+            const attackPath = correlation.attackPath || '';
+            const steps = attackPath.split(/\s*→\s*/).filter(s => s.trim());
+
+            const headerColors: Record<string, { bg: string; badge: string; bText: string; border: string; icon: string }> = {
+                critical: { bg: '#7F1D1D', badge: '#FCA5A5', bText: '#7F1D1D', border: '#FCA5A5', icon: '🔴' },
+                high:     { bg: '#7C2D12', badge: '#FDBA74', bText: '#7C2D12', border: '#FDBA74', icon: '🟠' },
+                medium:   { bg: '#78350F', badge: '#FDE68A', bText: '#78350F', border: '#FDE68A', icon: '🟡' },
+            };
+            const hc = headerColors[riskLevel] || headerColors['medium'];
+
+            const getStepStyle = (step: string): { bg: string; color: string; icon: string } => {
+                const s = step.toLowerCase();
+                if (s.includes('initial access') || s.includes('network') || s.includes('reconnaissance'))
+                    return { bg: '#DBEAFE', color: '#1D4ED8', icon: '🌐' };
+                if (s.includes('rce') || s.includes('remote code') || s.includes('exploit') || s.includes('injection'))
+                    return { bg: '#FEE2E2', color: '#B91C1C', icon: '💥' };
+                if (s.includes('privilege') || s.includes('escalation') || s.includes('eop') || s.includes('lpe'))
+                    return { bg: '#FEF3C7', color: '#B45309', icon: '⬆️' };
+                if (s.includes('lateral') || s.includes('movement') || s.includes('pivot'))
+                    return { bg: '#EDE9FE', color: '#6D28D9', icon: '↔️' };
+                if (s.includes('persistence') || s.includes('backdoor'))
+                    return { bg: '#F3F4F6', color: '#374151', icon: '🔒' };
+                if (s.includes('exfil') || s.includes('data') || s.includes('extract') || s.includes('collection'))
+                    return { bg: '#D1FAE5', color: '#065F46', icon: '📤' };
+                if (s.includes('dos') || s.includes('denial') || s.includes('disrupt'))
+                    return { bg: '#FFE4E6', color: '#9F1239', icon: '⛔' };
+                return { bg: '#F1F5F9', color: '#475569', icon: '⚡' };
+            };
+
+            const chainNodesHtml = steps.length > 0
+                ? steps.map((step, i) => {
+                    const st = getStepStyle(step);
+                    const isLast = i === steps.length - 1;
+                    return `<span style="display:inline-flex;align-items:center;gap:3px;background:${st.bg};color:${st.color};border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;white-space:nowrap;">${st.icon} ${this.escapeHtml(step.trim())}</span>${!isLast ? '<span style="color:#F59E0B;font-weight:900;font-size:18px;line-height:1;padding:0 4px;">→</span>' : ''}`;
+                }).join('')
+                : `<span style="font-size:12px;color:#6B7280;">${this.escapeHtml(attackPath)}</span>`;
+
+            const cveBadgesHtml = (correlation.involvedCves || [])
+                .map(cve => `<span style="display:inline-block;background:#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;margin:2px;">${this.escapeHtml(cve)}</span>`)
+                .join('');
+
+            return `
+<div style="border:1px solid ${hc.badge};border-radius:10px;margin-bottom:18px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.07);">
+  <!-- Header -->
+  <div style="background:${hc.bg};padding:10px 14px;display:flex;align-items:center;gap:8px;">
+    <span style="font-size:15px;">${hc.icon}</span>
+    <strong style="color:#fff;font-size:13px;flex:1;">${this.escapeHtml(correlation.title || 'Cadena de Ataque')}</strong>
+    <span style="background:${hc.badge};color:${hc.bText};border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700;text-transform:uppercase;">${this.escapeHtml(riskLevel)}</span>
+  </div>
+  <!-- Attack Chain Diagram -->
+  <div style="padding:14px 14px 10px;background:#FAFAFA;border-bottom:1px solid #E5E7EB;">
+    <div style="font-size:10px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">🔗 Ruta de Ataque</div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px;line-height:2.2;">
+      ${chainNodesHtml}
+    </div>
+  </div>
+  <!-- CVEs involucrados -->
+  <div style="padding:10px 14px;border-bottom:1px solid #E5E7EB;background:#fff;">
+    <div style="font-size:10px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">📋 CVEs Involucrados</div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px;">${cveBadgesHtml || '<span style="font-size:12px;color:#9CA3AF;">N/D</span>'}</div>
+  </div>
+  <!-- Descripción -->
+  <div style="padding:10px 14px;background:#fff;">
+    <div style="font-size:10px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">📝 Descripción Técnica</div>
+    <p style="margin:0;font-size:12px;color:#374151;line-height:1.6;">${this.escapeHtml(correlation.description || '')}</p>
+  </div>
+</div>`;
+        };
+
         const correlationsHtml = analysis.detectedCorrelations.length
-            ? analysis.detectedCorrelations
-                .map((correlation) => `
-<div style="border-left:4px solid #F59E0B;background:#FFFBEB;padding:10px 12px;margin-bottom:10px;">
-  <strong>${this.escapeHtml(correlation.title || 'Correlación')}</strong>
-  <p style="margin:6px 0;color:#374151;">${this.escapeHtml(correlation.description || '')}</p>
-  <p style="margin:0;font-size:12px;color:#6B7280;">CVEs: ${this.escapeHtml((correlation.involvedCves || []).join(', ') || 'N/D')}</p>
-</div>`)
-                .join('')
-            : '<p>No se detectaron correlaciones fuertes en esta ventana.</p>';
+            ? analysis.detectedCorrelations.map(c => buildCorrelationCard(c)).join('')
+            : '<p style="color:#6B7280;font-size:13px;">No se detectaron cadenas de ataque en esta ventana.</p>';
 
         const roadmapHtml = analysis.mitigationRoadmap.length
             ? analysis.mitigationRoadmap
