@@ -177,6 +177,41 @@ export class AiService {
         }
     }
 
+    async chatStructuredJson(
+        messages: any[],
+        options?: { model?: string },
+    ) {
+        if (!this.config) {
+            await this.loadConfig();
+            if (!this.config) throw new InternalServerErrorException('AI settings not configured');
+        }
+
+        const config = { ...this.config };
+        if (options?.model) {
+            config.model = options.model;
+        }
+
+        const safeMessages = Array.isArray(messages) ? messages : [];
+
+        const jsonSystemMsg = {
+            role: 'system',
+            content: 'IMPORTANT: Respond ONLY with valid JSON. No markdown, no code fences, no text outside the JSON object.',
+        };
+
+        const finalMessages = [jsonSystemMsg, ...safeMessages];
+
+        try {
+            if (config.provider === 'openai') {
+                return await this.chatOpenAI(finalMessages, config);
+            } else {
+                return await this.chatOllama(finalMessages, config);
+            }
+        } catch (error) {
+            this.logger.error('Error in AI chatStructuredJson', error);
+            throw new InternalServerErrorException('AI structured JSON request failed: ' + error.message);
+        }
+    }
+
     private async chatOpenAI(messages: any[], config: AiConfig) {
         const url = 'https://api.openai.com/v1/chat/completions';
         const payload = {

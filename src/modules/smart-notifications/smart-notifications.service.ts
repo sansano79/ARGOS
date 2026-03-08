@@ -167,10 +167,6 @@ type DefenderActionCatalogItem = {
 export class SmartNotificationsService {
     private readonly logger = new Logger(SmartNotificationsService.name);
     private static readonly CONFIG_SLUG = 'smart-notifications-config';
-    private readonly prismaAny: any;
-    private readonly aiServiceAny: any;
-    private readonly notificationServiceAny: any;
-
     private static readonly DEFAULT_CONFIG: SmartNotificationConfig = {
         lookbackDays: 180,
         maxCandidateVulnerabilities: 150,
@@ -211,16 +207,12 @@ export class SmartNotificationsService {
         private readonly prisma: PrismaService,
         private readonly aiService: AiService,
         private readonly notificationService: NotificationService,
-    ) {
-        this.prismaAny = this.prisma as any;
-        this.aiServiceAny = this.aiService as any;
-        this.notificationServiceAny = this.notificationService as any;
-    }
+    ) { }
 
     async getSubscriberOwnedSystems(subscriberId: number) {
         await this.ensureSubscriberExists(subscriberId);
 
-        const items = await this.prismaAny.subscriberOwnedSystem.findMany({
+        const items = await (this.prisma as any).subscriberOwnedSystem.findMany({
             where: {
                 subscriberUserId: subscriberId,
                 isActive: true,
@@ -259,7 +251,7 @@ export class SmartNotificationsService {
         }
 
         for (const system of normalized) {
-            await this.prismaAny.subscriberOwnedSystem.upsert({
+            await (this.prisma as any).subscriberOwnedSystem.upsert({
                 where: {
                     subscriberUserId_externalId: {
                         subscriberUserId: subscriberId,
@@ -326,7 +318,7 @@ export class SmartNotificationsService {
             );
 
             if (currentIds.size > 0) {
-                await this.prismaAny.subscriberOwnedSystem.updateMany({
+                await (this.prisma as any).subscriberOwnedSystem.updateMany({
                     where: {
                         subscriberUserId: subscriberId,
                         externalId: { notIn: [...currentIds] },
@@ -396,7 +388,7 @@ export class SmartNotificationsService {
             throw new Error('At least one systemExternalId is required');
         }
 
-        const existingSystems = await this.prismaAny.subscriberOwnedSystem.findMany({
+        const existingSystems = await (this.prisma as any).subscriberOwnedSystem.findMany({
             where: {
                 subscriberUserId: subscriberId,
                 externalId: { in: uniqueSystemIds },
@@ -412,7 +404,7 @@ export class SmartNotificationsService {
         const existingIds = new Set(existingSystems.map((item) => item.externalId));
         const missingIds = uniqueSystemIds.filter((id) => !existingIds.has(id));
 
-        const request = await this.prismaAny.defenderActionRequest.create({
+        const request = await (this.prisma as any).defenderActionRequest.create({
             data: {
                 subscriberUserId: subscriberId,
                 actionId: selectedAction.actionId,
@@ -504,6 +496,86 @@ export class SmartNotificationsService {
     async runScheduledWeeklyReports() {
         this.logger.log('Starting scheduled smart weekly notifications');
         await this.runWeeklyForAllSubscribers('cron');
+    }
+
+    async checkAccumulatedRiskThreshold(): Promise<void> {
+        const subscribers = await this.prisma.user.findMany({
+            where: { isActive: true, isSubscriber: true },
+            select: { id: true, name: true },
+        });
+
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+        for (const subscriber of subscribers) {
+            try {
+                // Count recent critical+exploitable vulns matching this subscriber's subscriptions
+                const subscriptions = await this.prisma.userSubscription.findMany({
+                    where: { userId: subscriber.id, isActive: true },
+                    select: { vendor: true, product: true },
+                });
+
+                if (subscriptions.length === 0) continue;
+
+                const recentCriticalVulns = await this.prisma.vulnerability.findMany({
+                    where: {
+                        publishedAt: { gte: sevenDaysAgo },
+                        OR: [
+                            { isKnownExploited: true },
+                            { AND: [{ hasPublicExploit: true }, { cvssV31Score: { gte: 9 } }] },
+                        ],
+                    },
+                    select: {
+                        id: true,
+                        cveId: true,
+                        affectedProducts: true,
+                    },
+                });
+
+                // Filter to only those matching subscriber's subscriptions
+                const normalizedSubs = subscriptions.map((s) => ({
+                    vendor: String(s.vendor || '').trim().toLowerCase(),
+                    product: String(s.product || '').trim().toLowerCase(),
+                }));
+
+                let matchCount = 0;
+                for (const vuln of recentCriticalVulns) {
+                    const products = this.parseAffectedProducts(vuln.affectedProducts);
+                    const matches = products.some((p) =>
+                        normalizedSubs.some((s) => {
+                            const pVendor = String(p.vendor || '').trim().toLowerCase();
+                            const pProduct = String(p.product || '').trim().toLowerCase();
+                            return (!s.vendor || s.vendor === pVendor) && (!s.product || s.product === pProduct);
+                        }),
+                    );
+                    if (matches) matchCount++;
+                }
+
+                if (matchCount < 3) continue;
+
+                // Check last smart report date
+                const lastReport = await (this.prisma as any).smartNotificationReport.findFirst({
+                    where: { subscriberUserId: subscriber.id, status: 'sent' },
+                    orderBy: { sentAt: 'desc' },
+                    select: { sentAt: true },
+                });
+
+                const daysSinceLastReport = lastReport?.sentAt
+                    ? (Date.now() - lastReport.sentAt.getTime()) / (24 * 60 * 60 * 1000)
+                    : Infinity;
+
+                // Trigger if >= 3 critical+exploitable CVEs AND no report in last 3 days
+                if (daysSinceLastReport > 3) {
+                    this.logger.warn(
+                        `Accumulated risk threshold crossed for subscriber=${subscriber.id} (${subscriber.name}): ${matchCount} critical CVEs, ${daysSinceLastReport === Infinity ? 'never reported' : daysSinceLastReport.toFixed(1) + ' days since last report'}. Triggering event-driven smart report.`,
+                    );
+                    await this.runWeeklyForSubscriber(subscriber.id, { trigger: 'manual' });
+                }
+            } catch (error) {
+                this.logger.error(
+                    `Risk threshold check failed for subscriber=${subscriber.id}: ${error instanceof Error ? error.message : 'Unknown'}`,
+                );
+            }
+        }
     }
 
     private async loadSmartConfig(): Promise<SmartNotificationConfig> {
@@ -724,8 +796,18 @@ export class SmartNotificationsService {
 
         const results: WeeklyRunResult[] = [];
         for (const subscriber of subscribers) {
-            const result = await this.runWeeklyForSubscriber(subscriber.id, { trigger });
-            results.push(result);
+            try {
+                const result = await this.runWeeklyForSubscriber(subscriber.id, { trigger });
+                results.push(result);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : 'Unknown error';
+                this.logger.error(`Smart weekly report failed for subscriber=${subscriber.id}: ${message}`);
+                results.push({
+                    subscriberId: subscriber.id,
+                    status: 'failed',
+                    reason: message,
+                } as WeeklyRunResult);
+            }
         }
 
         return {
@@ -763,7 +845,7 @@ export class SmartNotificationsService {
         const effectiveAi = await this.getEffectiveAiSettings(smartConfig);
         const { promptSystem, promptUser } = this.buildCorrelationPrompt(dataset, smartConfig);
 
-        const report = await this.prismaAny.smartNotificationReport.create({
+        const report = await (this.prisma as any).smartNotificationReport.create({
             data: {
                 subscriberUserId: dataset.subscriber.id,
                 periodStart,
@@ -794,7 +876,7 @@ export class SmartNotificationsService {
         });
 
         try {
-            const aiResponse = await this.aiServiceAny.chatStructuredJson([
+            const aiResponse = await this.aiService.chatStructuredJson([
                 { role: 'system', content: promptSystem },
                 { role: 'user', content: promptUser },
             ], { model: effectiveAi.model });
@@ -812,7 +894,7 @@ export class SmartNotificationsService {
                 context,
             );
 
-            await this.prismaAny.smartNotificationReport.update({
+            await (this.prisma as any).smartNotificationReport.update({
                 where: { id: report.id },
                 data: {
                     subject,
@@ -834,7 +916,7 @@ export class SmartNotificationsService {
             const message = error instanceof Error ? error.message : 'Unknown error';
             this.logger.error(`Smart weekly report failed for subscriber=${subscriberId}: ${message}`);
 
-            await this.prismaAny.smartNotificationReport.update({
+            await (this.prisma as any).smartNotificationReport.update({
                 where: { id: report.id },
                 data: {
                     status: 'failed',
@@ -880,20 +962,21 @@ export class SmartNotificationsService {
         let usedFallback = false;
 
         try {
-            const aiResponse = await this.aiServiceAny.chatStructuredJson([
+            const aiResponse = await this.aiService.chatStructuredJson([
                 { role: 'system', content: promptSystem },
                 { role: 'user', content: promptUser },
             ], { model: effectiveAi.model });
             const aiContent = this.extractAiContent(aiResponse);
             analysis = this.parseAnalysisJson(aiContent, dataset, smartConfig);
-        } catch {
+        } catch (aiError) {
+            this.logger.error(`AI analysis failed for preview subscriber=${subscriberId}: ${aiError instanceof Error ? aiError.message : 'Unknown'}`);
             analysis = this.buildFallbackAnalysis(dataset, smartConfig);
             usedFallback = true;
         }
 
         const subject = `${smartConfig.subjectPrefix} — ${dataset.subscriber.name} (${dataset.stats.total} CVEs)`;
         const context = this.buildWeeklyEmailContext(dataset, analysis, smartConfig);
-        const html = await this.notificationServiceAny.renderTemplate('smart-weekly-report', context);
+        const html = await this.notificationService.renderTemplate('smart-weekly-report', context);
 
         return {
             subscriberId,
@@ -938,20 +1021,21 @@ export class SmartNotificationsService {
         let usedFallback = false;
 
         try {
-            const aiResponse = await this.aiServiceAny.chatStructuredJson([
+            const aiResponse = await this.aiService.chatStructuredJson([
                 { role: 'system', content: promptSystem },
                 { role: 'user', content: promptUser },
             ], { model: effectiveAi.model });
             const aiContent = this.extractAiContent(aiResponse);
             analysis = this.parseAnalysisJson(aiContent, dataset, smartConfig);
-        } catch {
+        } catch (aiError) {
+            this.logger.error(`AI analysis failed for test subscriber=${subscriberId}: ${aiError instanceof Error ? aiError.message : 'Unknown'}`);
             analysis = this.buildFallbackAnalysis(dataset, smartConfig);
             usedFallback = true;
         }
 
         const subject = `${smartConfig.subjectPrefix} [TEST] — ${dataset.subscriber.name} (${dataset.stats.total} CVEs)`;
         const context = this.buildWeeklyEmailContext(dataset, analysis, smartConfig);
-        const html = await this.notificationServiceAny.renderTemplate('smart-weekly-report', context);
+        const html = await this.notificationService.renderTemplate('smart-weekly-report', context);
         const sent = await this.notificationService.sendEmail(
             dataset.subscriber.email,
             subject,
@@ -986,7 +1070,7 @@ export class SmartNotificationsService {
             : undefined;
 
         const [items, total] = await Promise.all([
-            this.prismaAny.smartNotificationReport.findMany({
+            (this.prisma as any).smartNotificationReport.findMany({
                 where,
                 include: {
                     subscriber: {
@@ -997,7 +1081,7 @@ export class SmartNotificationsService {
                 take: safeLimit,
                 skip,
             }),
-            this.prismaAny.smartNotificationReport.count({ where }),
+            (this.prisma as any).smartNotificationReport.count({ where }),
         ]);
 
         return {
@@ -1252,7 +1336,7 @@ export class SmartNotificationsService {
 
         if (!subscriber) return null;
 
-        const ownedSystems = await this.prismaAny.subscriberOwnedSystem.findMany({
+        const ownedSystems = await (this.prisma as any).subscriberOwnedSystem.findMany({
             where: {
                 subscriberUserId: subscriber.id,
                 isActive: true,
@@ -1520,24 +1604,57 @@ export class SmartNotificationsService {
         const promptSystem = promptTemplate
             ? this.renderSmartPromptTemplate(promptTemplate, dataset, smartConfig)
             : [
-                `Actúa como ${smartConfig.promptPersona} especializado en exploit chaining.`,
-                'Responde EXCLUSIVAMENTE con JSON válido.',
-                'No incluyas markdown, no incluyas texto fuera del JSON.',
-                'Evalúa criticidad real por combinación de impacto (CVSS) y explotabilidad (KEV/PoC/EPSS).',
-                'Si faltan datos, indícalo con supuestos breves sin inventar hechos.',
+                `Actúa como ${smartConfig.promptPersona} especializado en exploit chaining y análisis de riesgo acumulado.`,
+                'Responde EXCLUSIVAMENTE con JSON válido. No incluyas markdown, no incluyas texto fuera del JSON.',
+                '',
+                'TU TAREA PRINCIPAL es detectar CADENAS DE EXPLOTACIÓN (exploit chains):',
+                '- Busca CVEs que afectan al MISMO sistema/producto y podrían combinarse en un ataque secuencial.',
+                '- Identifica patrones: acceso inicial (ej: Network+RCE) → escalada de privilegios (ej: Local+EoP) → movimiento lateral o exfiltración.',
+                '- Valora si un atacante con acceso a un exploit público (PoC/KEV) podría encadenar con otro CVE del mismo fabricante/producto.',
+                '- Prioriza cadenas donde al menos un eslabón tiene KEV=yes o PoC=yes.',
+                '- Analiza los vectores de ataque (attackVector) para determinar accesibilidad: Network > Adjacent > Local > Physical.',
+                '',
+                'TAREAS SECUNDARIAS:',
+                '- Evalúa riesgo acumulado: si un fabricante/producto tiene >3 CVEs de alto riesgo en la ventana, es señal de alerta sistémica.',
+                '- Detecta patrones recurrentes: si un vendor tiene CVEs del mismo tipo (ej: múltiples RCE, múltiples SQLi), indica tendencia.',
+                '',
+                'CRITERIOS DE PRIORIZACIÓN:',
+                '- Criticidad real = CVSS × explotabilidad (KEV > PoC > EPSS alto > sin exploit conocido).',
+                '- Una CVE CVSS 7.5 con KEV=yes es MÁS urgente que una CVE CVSS 10.0 sin exploit conocido.',
+                '- Vector de ataque Network siempre más accesible que Local.',
+                '- EPSS >= 0.7 indica alta probabilidad de explotación inminente.',
+                '',
+                'Si faltan datos para confirmar una cadena, indícalo como hipótesis con el nivel de confianza.',
                 `Idioma de respuesta: ${smartConfig.promptLanguage === 'en' ? 'English' : 'Español'}.`,
                 smartConfig.promptExtraInstructions ? `Instrucciones extra: ${smartConfig.promptExtraInstructions}` : '',
+                '',
                 'Esquema JSON de salida obligatorio:',
                 '{',
-                '  "executiveSummary": "string",',
+                '  "executiveSummary": "string (2-4 frases, lenguaje ejecutivo, menciona las cadenas detectadas y el riesgo principal)",',
                 '  "top3RealRisk": [',
-                '    {"cveId":"string","reason":"string","priority":"immediate|high|medium","evidence":["string"]}',
+                '    {',
+                '      "cveId": "string",',
+                '      "reason": "string (incluye evidencia de explotabilidad: KEV, PoC, EPSS)",',
+                '      "priority": "immediate|high|medium",',
+                '      "evidence": ["string (datos concretos que sustentan la prioridad)"]',
+                '    }',
                 '  ],',
                 '  "detectedCorrelations": [',
-                '    {"title":"string","description":"string","involvedCves":["string"],"attackPath":"string","riskLevel":"critical|high|medium"}',
+                '    {',
+                '      "title": "string (nombre descriptivo de la cadena o correlación)",',
+                '      "description": "string (paso a paso: cómo un atacante encadenaría estos CVEs)",',
+                '      "involvedCves": ["string"],',
+                '      "attackPath": "string (ej: Initial Access via CVE-X (Network/RCE) → Privilege Escalation via CVE-Y (Local/EoP) → Data Exfiltration)",',
+                '      "riskLevel": "critical|high|medium"',
+                '    }',
                 '  ],',
                 '  "mitigationRoadmap": [',
-                '    {"order":1,"action":"string","why":"string","cves":["string"]}',
+                '    {',
+                '      "order": 1,',
+                '      "action": "string (acción concreta y específica: parchear, aislar, monitorizar...)",',
+                '      "why": "string (justificación técnica de por qué esta acción primero)",',
+                '      "cves": ["string"]',
+                '    }',
                 '  ]',
                 '}',
             ].join('\n');
@@ -1571,7 +1688,10 @@ export class SmartNotificationsService {
         smartConfig: SmartNotificationConfig,
     ): SmartAnalysisResult {
         const fallback = this.buildFallbackAnalysis(dataset, smartConfig);
-        if (!aiContent || !aiContent.trim()) return fallback;
+        if (!aiContent || !aiContent.trim()) {
+            this.logger.warn('AI returned empty content, using fallback analysis');
+            return fallback;
+        }
 
         const attempts: string[] = [aiContent];
         const objectMatch = aiContent.match(/\{[\s\S]*\}/);
@@ -1593,11 +1713,14 @@ export class SmartNotificationsService {
                         mitigationRoadmap: parsed.mitigationRoadmap.slice(0, 10),
                     };
                 }
-            } catch {
-                // keep trying with extracted object / fallback
+            } catch (parseError) {
+                this.logger.warn(
+                    `AI JSON parse attempt failed: ${parseError instanceof Error ? parseError.message : 'Unknown'}. Content length=${attempt.length}`,
+                );
             }
         }
 
+        this.logger.warn('All AI JSON parse attempts failed, using fallback analysis');
         return fallback;
     }
 

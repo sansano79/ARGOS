@@ -519,6 +519,178 @@ export class NotificationService {
         }
     }
 
+    /**
+     * Sends a single consolidated email per subscriber with ALL their CVEs grouped by vendor.
+     * Used instead of sendGroupedCveEmail when we want ONE email per subscriber (not per vendor).
+     */
+    async sendConsolidatedSubscriberEmail(
+        to: string,
+        recipientName: string,
+        vendorGroups: Map<string, Array<{
+            cveId: string;
+            severity: string;
+            cvssScore: any;
+            epssScore: any;
+            hasPublicExploit: boolean;
+            isKnownExploited: boolean;
+            description: string;
+            affectedProducts: any[];
+            references: any[];
+            remediationInfo: any;
+            publishedAt: any;
+        }>>,
+        emailType: 'immediate' | 'digest' = 'immediate',
+    ): Promise<boolean> {
+        if (!this.transporter) {
+            await this.loadConfig();
+            if (!this.transporter) {
+                this.logger.warn('Email sending skipped: SMTP not configured');
+                return false;
+            }
+        }
+
+        try {
+            const cfg = await this.getTemplateConfig();
+            const headerSrc = cfg.headerImageUrl
+                ? (cfg.headerImageUrl.startsWith('data:image/') ? 'cid:occ-header-banner' : this.escapeHtml(cfg.headerImageUrl))
+                : '';
+
+            // Count totals
+            let totalCves = 0;
+            let criticalCount = 0;
+            let highCount = 0;
+            const vendorNames: string[] = [];
+
+            for (const [vendor, vulns] of vendorGroups) {
+                totalCves += vulns.length;
+                vendorNames.push(vendor);
+                for (const v of vulns) {
+                    const sev = (v.severity || '').toUpperCase();
+                    if (sev === 'CRITICAL') criticalCount++;
+                    else if (sev === 'HIGH') highCount++;
+                }
+            }
+
+            // Build vendor sections
+            const vendorSections: string[] = [];
+            for (const [vendor, vulns] of vendorGroups) {
+                const sortedVulns = [...vulns].sort((a, b) => {
+                    const scoreA = Number(a.cvssScore) || 0;
+                    const scoreB = Number(b.cvssScore) || 0;
+                    return scoreB - scoreA;
+                });
+
+                const cveBlocks = sortedVulns.map((vuln) => {
+                    const publishedAt = vuln.publishedAt ? new Date(vuln.publishedAt).toLocaleString('es-ES') : 'N/D';
+                    const exploitProbability = vuln.epssScore != null ? `${(Number(vuln.epssScore) * 100).toFixed(2)}%` : 'N/D';
+                    const affectedProducts = Array.isArray(vuln.affectedProducts) ? vuln.affectedProducts : [];
+                    const references = this.getNotificationReferences(vuln);
+                    const remediation = vuln.remediationInfo || {};
+                    const patchLink = (remediation as any)?.patchUrls?.[0] || '';
+
+                    const affectedHtml = affectedProducts.length > 0
+                        ? `<ul style="margin:8px 0 0 22px;padding:0;">${affectedProducts.slice(0, 10)
+                            .map((p: any) => `<li style="margin:2px 0;">${this.escapeHtml(`${p.vendor || ''}/${p.product || ''}`)}</li>`)
+                            .join('')}</ul>`
+                        : '<p style="margin:8px 0;color:#6B7280;">Sin productos identificados.</p>';
+
+                    const referencesHtml = references.length > 0
+                        ? `<ul style="margin:8px 0 0 22px;padding:0;">${references.slice(0, 5)
+                            .map((r: any) => `<li style="margin:2px 0;"><a href="${this.escapeHtml(r.url || '#')}" style="color:#2563EB;">${this.escapeHtml(r.url || 'Referencia')}</a></li>`)
+                            .join('')}</ul>`
+                        : '';
+
+                    const sevColor = ({ CRITICAL: 'DC2626', HIGH: 'EA580C', MEDIUM: 'CA8A04', LOW: '16A34A' } as Record<string, string>)[(vuln.severity || '').toUpperCase()] || '6B7280';
+                    const exploitBadge = vuln.isKnownExploited
+                        ? '<span style="background:#DC2626;color:#fff;padding:2px 8px;border-radius:4px;font-size:12px;margin-left:8px;">KEV</span>'
+                        : vuln.hasPublicExploit
+                            ? '<span style="background:#EA580C;color:#fff;padding:2px 8px;border-radius:4px;font-size:12px;margin-left:8px;">Exploit público</span>'
+                            : '';
+
+                    return `
+              <div style="border:1px solid #D1D5DB;background:#fff;margin-bottom:12px;">
+                <div style="background:#${sevColor};color:#fff;padding:8px 12px;font-size:20px;font-weight:700;">${this.escapeHtml(vuln.cveId)}${exploitBadge}</div>
+                <table style="width:100%;border-collapse:collapse;">
+                  <tr>
+                    <td style="padding:8px 12px;border:1px solid #E5E7EB;font-weight:700;">CVSS: ${this.escapeHtml(String(vuln.cvssScore ?? 'N/D'))}</td>
+                    <td style="padding:8px 12px;border:1px solid #E5E7EB;font-weight:700;">Severidad: ${this.escapeHtml(vuln.severity || 'N/D')}</td>
+                    <td style="padding:8px 12px;border:1px solid #E5E7EB;font-weight:700;">Publicado: ${this.escapeHtml(publishedAt)}</td>
+                  </tr>
+                </table>
+                ${cfg.showExploitProbability ? `<div style="padding:8px 12px;border:1px solid #E5E7EB;text-align:right;"><span style="background:#D9E16B;padding:4px 8px;border-radius:6px;font-weight:700;font-size:13px;">Prob. Explotación: ${this.escapeHtml(exploitProbability)}</span></div>` : ''}
+                ${cfg.showDescription ? `<div style="padding:10px 12px;border:1px solid #E5E7EB;"><strong>Descripción:</strong><p style="margin:6px 0 0;font-size:14px;">${this.escapeHtml(vuln.description || 'Sin descripción disponible')}</p></div>` : ''}
+                ${cfg.showAffectedSoftware ? `<div style="padding:10px 12px;border:1px solid #E5E7EB;"><strong>Productos Afectados:</strong>${affectedHtml}</div>` : ''}
+                ${cfg.showReferences && references.length > 0 ? `<div style="padding:10px 12px;border:1px solid #E5E7EB;"><strong>Referencias:</strong>${referencesHtml}</div>` : ''}
+                ${cfg.showPatchLink && patchLink ? `<div style="padding:10px 12px;border:1px solid #E5E7EB;"><strong>Parche:</strong> <a href="${this.escapeHtml(patchLink)}" style="color:#2563EB;">${this.escapeHtml(patchLink)}</a></div>` : ''}
+              </div>`;
+                }).join('');
+
+                vendorSections.push(`
+            <div style="margin-bottom:24px;">
+              <h3 style="margin:0 0 12px;font-size:24px;color:#1F2937;border-bottom:2px solid #2563EB;padding-bottom:8px;">${this.escapeHtml(vendor)} (${vulns.length})</h3>
+              ${cveBlocks}
+            </div>`);
+            }
+
+            const typeLabel = emailType === 'digest' ? 'Resumen' : 'Alerta';
+            const severitySummary = [
+                criticalCount > 0 ? `${criticalCount} crítica${criticalCount > 1 ? 's' : ''}` : '',
+                highCount > 0 ? `${highCount} alta${highCount > 1 ? 's' : ''}` : '',
+            ].filter(Boolean).join(' + ') || `${totalCves} vulnerabilidad${totalCves > 1 ? 'es' : ''}`;
+
+            const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#F3F4F6;font-family:Arial,sans-serif;color:#111827;">
+  <div style="max-width:920px;margin:0 auto;padding:16px;">
+    <div style="background:#fff;border:1px solid #D1D5DB;">
+      ${headerSrc ? `<img src="${headerSrc}" alt="Cabecera" style="width:100%;display:block;" />` : ''}
+      <div style="padding:18px 24px;">
+        <h2 style="text-align:center;margin:4px 0 14px;font-size:32px;">${typeLabel} de Vulnerabilidades</h2>
+        <p style="margin:8px 0;color:#111827;font-size:16px;">Hola <strong>${this.escapeHtml(recipientName)}</strong>,</p>
+        <p style="margin:8px 0;color:#4A5568;font-size:14px;line-height:1.6;">
+          Se han identificado <strong>${totalCves}</strong> vulnerabilidad${totalCves > 1 ? 'es' : ''}
+          (${severitySummary}) en ${vendorNames.length} fabricante${vendorNames.length > 1 ? 's' : ''}
+          que requiere${totalCves > 1 ? 'n' : ''} tu atención.
+        </p>
+      </div>
+      <div style="padding:0 20px 20px;">
+        ${vendorSections.join('')}
+      </div>
+    </div>
+    <p style="color:#9CA3AF;font-size:11px;text-align:center;margin:16px 0 0;">
+      Este mensaje ha sido generado automáticamente por el sistema de Gestión de Vulnerabilidades OCC.<br>
+      No respondas a este correo.
+    </p>
+  </div>
+</body>
+</html>`;
+
+            const attachments = await this.getInlineTemplateAttachments('cve-alert');
+            const vendorList = vendorNames.slice(0, 3).join(', ') + (vendorNames.length > 3 ? '...' : '');
+            const subject = emailType === 'digest'
+                ? `📋 Resumen CVE: ${severitySummary} (${vendorList})`
+                : `🛡️ ${severitySummary} — ${vendorList}`;
+
+            const info = await this.transporter.sendMail({
+                from: this.smtpConfig?.from || 'noreply@occ.local',
+                to,
+                subject,
+                html,
+                attachments,
+            });
+
+            const allCveIds = Array.from(vendorGroups.values()).flat().map((v) => v.cveId);
+            await this.logNotification(to, recipientName, subject, html, allCveIds);
+
+            this.logger.log(`Consolidated ${emailType} email sent to ${to} (${totalCves} CVEs, ${vendorNames.length} vendors): ${info.messageId}`);
+            return true;
+        } catch (error) {
+            this.logger.error(`Failed to send consolidated email to ${to}`, error);
+            return false;
+        }
+    }
+
     private async logNotification(
         recipientEmail: string,
         recipientName: string,
@@ -606,6 +778,10 @@ export class NotificationService {
         if (fs.existsSync(distPath)) return distPath;
         // In development, use src/templates
         return path.join(process.cwd(), 'src', 'templates');
+    }
+
+    async renderTemplate(templateName: string, context: any): Promise<string> {
+        return this.loadTemplate(templateName, context);
     }
 
     private async loadTemplate(templateName: string, context: any): Promise<string> {

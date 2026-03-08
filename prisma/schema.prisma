@@ -36,6 +36,11 @@ model User {
   collectorRuns   CollectorRun[]
   subscriptions   UserSubscription[]
   subscriberNotifications VulnerabilityNotification[] @relation("subscriber_notifications")
+  ownedSystems    SubscriberOwnedSystem[] @relation("subscriber_owned_systems")
+  smartReports    SmartNotificationReport[] @relation("smart_notification_reports")
+  defenderActions DefenderActionRequest[] @relation("defender_action_requests")
+  notificationPolicy NotificationPolicy?
+  pendingDigestNotifications PendingDigestNotification[]
 
   @@map("users")
 }
@@ -127,6 +132,7 @@ model Vulnerability {
 
   tags               VulnerabilityTag[]
   notifications      VulnerabilityNotification[]
+  pendingDigestNotifications PendingDigestNotification[]
 
   @@index([cveId])
   @@index([cvssV31Severity])
@@ -339,4 +345,115 @@ model UserSubscription {
   @@index([userId])
   @@index([vendor, product])
   @@map("user_subscriptions")
+}
+
+// ══════════════════════════════════════════════════════════════
+// NOTIFICACIONES INTELIGENTES
+// ══════════════════════════════════════════════════════════════
+
+model SmartNotificationReport {
+  id               Int       @id @default(autoincrement())
+  subscriberUserId Int       @map("subscriber_user_id")
+  periodStart      DateTime  @map("period_start")
+  periodEnd        DateTime  @map("period_end")
+  recipientEmail   String    @map("recipient_email")
+  subject          String?
+  status           String    @default("generated")
+  aiProvider       String?   @map("ai_provider")
+  aiModel          String?   @map("ai_model")
+  inputSnapshot    String?   @map("input_snapshot") @db.LongText
+  analysisJson     String?   @map("analysis_json") @db.LongText
+  sentAt           DateTime? @map("sent_at")
+  errorMessage     String?   @map("error_message") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  subscriber       User      @relation("smart_notification_reports", fields: [subscriberUserId], references: [id], onDelete: Cascade)
+
+  @@index([subscriberUserId])
+  @@index([periodEnd(sort: Desc)])
+  @@index([status])
+  @@map("smart_notification_reports")
+}
+
+model SubscriberOwnedSystem {
+  id               Int       @id @default(autoincrement())
+  subscriberUserId Int       @map("subscriber_user_id")
+  externalId       String    @map("external_id")
+  source           String    @default("manual")
+  hostname         String
+  fqdn             String?
+  platform         String?
+  osVersion        String?   @map("os_version")
+  riskLevel        String?   @map("risk_level")
+  healthStatus     String?   @map("health_status")
+  onboardingStatus String?   @map("onboarding_status")
+  lastSeenAt       DateTime? @map("last_seen_at")
+  isSelected       Boolean   @default(true) @map("is_selected")
+  isActive         Boolean   @default(true) @map("is_active")
+  tags             String?   @db.Text
+  rawData          String?   @map("raw_data") @db.LongText
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  subscriber       User      @relation("subscriber_owned_systems", fields: [subscriberUserId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriberUserId, externalId])
+  @@index([subscriberUserId])
+  @@map("subscriber_owned_systems")
+}
+
+model DefenderActionRequest {
+  id               Int       @id @default(autoincrement())
+  subscriberUserId Int       @map("subscriber_user_id")
+  actionId         String    @map("action_id")
+  actionName       String    @map("action_name")
+  systemExternalIds String   @map("system_external_ids") @db.Text
+  status           String    @default("planned")
+  notes            String?   @db.Text
+  requestedBy      String?   @map("requested_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  subscriber       User      @relation("defender_action_requests", fields: [subscriberUserId], references: [id], onDelete: Cascade)
+
+  @@index([subscriberUserId])
+  @@map("defender_action_requests")
+}
+
+// ══════════════════════════════════════════════════════════════
+// POLÍTICAS DE NOTIFICACIÓN Y DIGEST
+// ══════════════════════════════════════════════════════════════
+
+model NotificationPolicy {
+  id                      Int      @id @default(autoincrement())
+  userId                  Int      @unique @map("user_id")
+  immediateForCritical    Boolean  @default(true) @map("immediate_for_critical")
+  immediateForExploitable Boolean  @default(true) @map("immediate_for_exploitable")
+  digestFrequency         String   @default("daily") @map("digest_frequency")
+  digestHour              Int      @default(8) @map("digest_hour")
+  digestDayOfWeek         Int?     @map("digest_day_of_week")
+  minCvssForImmediate     Float    @default(9.0) @map("min_cvss_for_immediate")
+  isActive                Boolean  @default(true) @map("is_active")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_policies")
+}
+
+model PendingDigestNotification {
+  id              Int      @id @default(autoincrement())
+  userId          Int      @map("user_id")
+  vulnerabilityId Int      @map("vulnerability_id")
+  vendor          String
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vulnerability   Vulnerability @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, vulnerabilityId])
+  @@index([userId])
+  @@map("pending_digest_notifications")
 }

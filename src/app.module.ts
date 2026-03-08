@@ -12,6 +12,7 @@ import { UsersModule } from './modules/users/users.module';
 import { TagsModule } from './modules/tags/tags.module';
 import { ManufacturersModule } from './modules/manufacturers/manufacturers.module';
 import { PasswordResetModule } from './modules/password-reset/password-reset.module';
+import { SmartNotificationsModule } from './modules/smart-notifications/smart-notifications.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { PasswordResetModule } from './modules/password-reset/password-reset.mod
     TagsModule,
     ManufacturersModule,
     PasswordResetModule,
+    SmartNotificationsModule,
   ],
 })
 export class AppModule { }

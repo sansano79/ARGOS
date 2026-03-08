@@ -9,5 +9,6 @@ import { SmartNotificationsService } from './smart-notifications.service';
   imports: [PrismaModule, AiModule, NotificationModule],
   controllers: [SmartNotificationsController],
   providers: [SmartNotificationsService],
+  exports: [SmartNotificationsService],
 })
 export class SmartNotificationsModule {}
