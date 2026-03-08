@@ -560,6 +560,12 @@ export default function VulnDashboard() {
           setMergeForm({ targetName: list[0].name, sourceNames: [list[0].name] });
         }
         setManufacturersLoading(false);
+      } else if (v === "smart-notif") {
+        setSmartLoading(true);
+        apiFetch("/users?role=subscriber").then(r => r.json()).then(d => {
+          const all = Array.isArray(d) ? d : d.data || [];
+          setSmartSubscribers(all.filter(u => u.isSubscriber));
+        }).catch(() => {}).finally(() => setSmartLoading(false));
       } else if (v === "settings") {
         setSmtpLoading(true);
         try {
@@ -2539,9 +2545,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                       setSmartTab(t.id);
                       setSmartPreview(null);
                       setSmartMsg(null);
-                      if (t.id === "subscribers" && smartSubscribers.length === 0) {
+                      if (t.id === "subscribers") {
                         setSmartLoading(true);
-                        apiFetch("/users?role=subscriber").then(r => r.json()).then(d => setSmartSubscribers(Array.isArray(d) ? d : d.data || [])).catch(() => {}).finally(() => setSmartLoading(false));
+                        apiFetch("/users?role=subscriber").then(r => r.json()).then(d => {
+                          const all = Array.isArray(d) ? d : d.data || [];
+                          setSmartSubscribers(all.filter(u => u.isSubscriber));
+                        }).catch(() => {}).finally(() => setSmartLoading(false));
                       }
                       if (t.id === "history") {
                         setSmartLoading(true);
