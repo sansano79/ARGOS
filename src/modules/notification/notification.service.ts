@@ -1,4 +1,5 @@
 import { Injectable, Logger, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as nodemailer from 'nodemailer';
