@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { normalizeName, normalizeProduct } from '../../shared/vendor-normalization';
+import { normalizeName, normalizeProduct, normalizeVendor, VENDOR_ALIASES } from '../../shared/vendor-normalization';
 
 @Injectable()
 export class ManufacturersService {
@@ -240,7 +240,99 @@ export class ManufacturersService {
     return { success: true, target, merged: sourceSet };
   }
 
-  // normalizeName and normalizeProduct imported from shared/vendor-normalization
+  /**
+   * Returns the alias map grouped by canonical name,
+   * plus stats about how many vendors in the catalog could benefit from normalization.
+   */
+  async getAliasesAndStats() {
+    // Group aliases by canonical name
+    const grouped: Record<string, string[]> = {};
+    for (const [alias, canonical] of Object.entries(VENDOR_ALIASES)) {
+      if (!grouped[canonical]) grouped[canonical] = [];
+      grouped[canonical].push(alias);
+    }
+
+    // Get all distinct vendors from the catalog
+    const catalogVendors = await this.prisma.softwareCatalog.findMany({
+      select: { vendor: true },
+      distinct: ['vendor'],
+    });
+
+    const allVendorNames = catalogVendors.map((r) => r.vendor);
+
+    // Detect potential duplicates: vendors whose normalizeVendor() result differs from their name
+    const potentialDuplicates: Array<{ current: string; suggestedCanonical: string }> = [];
+    const canonicalGroups: Record<string, string[]> = {};
+
+    for (const name of allVendorNames) {
+      const normalized = normalizeVendor(name);
+      if (!canonicalGroups[normalized]) canonicalGroups[normalized] = [];
+      canonicalGroups[normalized].push(name);
+      if (normalized !== name) {
+        potentialDuplicates.push({ current: name, suggestedCanonical: normalized });
+      }
+    }
+
+    // Find groups where multiple catalog entries map to same canonical
+    const duplicateGroups = Object.entries(canonicalGroups)
+      .filter(([, names]) => names.length > 1)
+      .map(([canonical, names]) => ({ canonical, variants: names, count: names.length }));
+
+    // Get subscription stats per vendor
+    const subscriptionCounts = await this.prisma.userSubscription.groupBy({
+      by: ['vendor'],
+      _count: { vendor: true },
+      where: { isActive: true },
+    });
+    const subCountMap = new Map(subscriptionCounts.map((r) => [r.vendor, r._count.vendor]));
+
+    // CVE count per vendor (from softwareCatalog perspective)
+    const totalVendors = allVendorNames.length;
+    const totalProducts = await this.prisma.softwareCatalog.count();
+    const totalAliases = Object.keys(VENDOR_ALIASES).length;
+
+    return {
+      aliases: grouped,
+      totalAliases,
+      stats: {
+        totalVendors,
+        totalProducts,
+        potentialDuplicates,
+        duplicateGroups,
+        vendorsWithSubscriptions: subscriptionCounts.map((r) => ({
+          vendor: r.vendor,
+          subscriptionCount: r._count.vendor,
+        })),
+      },
+    };
+  }
+
+  /**
+   * Delete a product from the software catalog.
+   */
+  async deleteProduct(productId: number) {
+    if (!productId) throw new BadRequestException('Product ID is required');
+    await this.prisma.softwareCatalog.delete({ where: { id: productId } });
+    return { success: true };
+  }
+
+  /**
+   * Delete a manufacturer and all its catalog entries.
+   */
+  async deleteManufacturer(name: string) {
+    const normalized = normalizeName(name);
+    if (!normalized) throw new BadRequestException('Manufacturer name is required');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.softwareCatalog.deleteMany({ where: { vendor: normalized } });
+      await (tx as any).manufacturer.updateMany({
+        where: { name: normalized },
+        data: { isActive: false },
+      });
+    });
+
+    return { success: true, name: normalized };
+  }
 
   private parseJsonArray(value: any): string[] {
     try {

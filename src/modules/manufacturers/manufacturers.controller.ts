@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -47,6 +47,25 @@ export class ManufacturersController {
       body?.targetName,
       body?.sourceNames || [],
     );
+  }
+
+  @Get('aliases')
+  async getAliasesAndStats() {
+    return this.manufacturersService.getAliasesAndStats();
+  }
+
+  @Delete('products/:id')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  async deleteProduct(@Param('id') id: string) {
+    return this.manufacturersService.deleteProduct(Number(id));
+  }
+
+  @Delete(':name')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  async deleteManufacturer(@Param('name') name: string) {
+    return this.manufacturersService.deleteManufacturer(name);
   }
 }
 

@@ -9,7 +9,7 @@
  */
 
 // ── Vendor alias map (case-insensitive, trimmed) ──────────────────────
-const VENDOR_ALIASES: Record<string, string> = {
+export const VENDOR_ALIASES: Record<string, string> = {
   'ibm corporation': 'ibm',
   'international business machines': 'ibm',
   'apache software foundation': 'apache',
