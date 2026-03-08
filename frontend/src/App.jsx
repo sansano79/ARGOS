@@ -2601,6 +2601,16 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                     </div>
                   ) : (
                     <div style={{ overflowX: "auto" }}>
+                      {/* Banner de progreso: visible solo cuando hay una operación en curso */}
+                      {smartRunning && smartRunning !== "all" && (
+                        <div style={{ padding: "10px 16px", background: "#EFF6FF", borderBottom: `1px solid #BFDBFE`, display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 16 }}>⏳</span>
+                          <span style={{ fontSize: 12, color: "#1D4ED8", fontWeight: 600 }}>
+                            Procesando únicamente: <strong>{smartSubscribers.find(s => s.id === smartRunning)?.name || `ID ${smartRunning}`}</strong>
+                            <span style={{ fontWeight: 400, marginLeft: 8, color: "#3B82F6" }}>— El resto de botones están bloqueados para evitar ejecuciones paralelas.</span>
+                          </span>
+                        </div>
+                      )}
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                         <thead>
                           <tr style={{ background: C.gray50, borderBottom: `2px solid ${C.gray200}` }}>
@@ -2611,64 +2621,80 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                           </tr>
                         </thead>
                         <tbody>
-                          {smartSubscribers.map(sub => (
-                            <tr key={sub.id} style={{ borderBottom: `1px solid ${C.gray100}` }}>
-                              <td style={{ padding: "10px 14px", fontWeight: 600 }}>{sub.name}</td>
-                              <td style={{ padding: "10px 14px", color: C.gray500 }}>{sub.notificationEmail || sub.email}</td>
-                              <td style={{ padding: "10px 14px", textAlign: "center" }}>
-                                <span style={{ background: C.bluePale, color: C.blue, padding: "2px 10px", borderRadius: 10, fontSize: 12, fontWeight: 600 }}>
-                                  {sub.subscriptions?.length || sub._count?.subscriptions || 0}
-                                </span>
-                              </td>
-                              <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                                  <Btn small onClick={async () => {
-                                    setSmartPreview(null);
-                                    setSmartMsg(null);
-                                    setSmartRunning(sub.id);
-                                    try {
-                                      const res = await apiFetch(`/smart-notifications/weekly/preview/${sub.id}`, { method: "POST" });
-                                      const data = await res.json();
-                                      if (data.error) throw new Error(data.error || data.message);
-                                      setSmartPreview({ subscriberId: sub.id, subscriberName: sub.name, ...data });
-                                    } catch (e) {
-                                      setSmartMsg({ type: "error", text: `Preview ${sub.name}: ${e.message}` });
-                                    } finally { setSmartRunning(null); }
-                                  }} disabled={!!smartRunning}>
-                                    {smartRunning === sub.id ? "⏳" : "👁️"} Preview
-                                  </Btn>
-                                  <Btn small primary onClick={async () => {
-                                    setSmartMsg(null);
-                                    setSmartRunning(sub.id);
-                                    try {
-                                      const res = await apiFetch(`/smart-notifications/weekly/run/${sub.id}`, { method: "POST" });
-                                      const data = await res.json();
-                                      if (data.error) throw new Error(data.error || data.message);
-                                      setSmartMsg({ type: "success", text: `${sub.name}: ${data.status || "completado"} — ${data.emailSent ? "email enviado ✓" : "email no enviado"}` });
-                                    } catch (e) {
-                                      setSmartMsg({ type: "error", text: `${sub.name}: ${e.message}` });
-                                    } finally { setSmartRunning(null); }
-                                  }} disabled={!!smartRunning}>
-                                    ▶ Ejecutar
-                                  </Btn>
-                                  <Btn small danger onClick={async () => {
-                                    setSmartMsg(null);
-                                    setSmartRunning(sub.id);
-                                    try {
-                                      const res = await apiFetch(`/smart-notifications/weekly/test/${sub.id}`, { method: "POST" });
-                                      const data = await res.json();
-                                      if (data.error) throw new Error(data.error || data.message);
-                                      setSmartMsg({ type: "success", text: `Test ${sub.name}: email enviado ✓` });
-                                    } catch (e) {
-                                      setSmartMsg({ type: "error", text: `Test ${sub.name}: ${e.message}` });
-                                    } finally { setSmartRunning(null); }
-                                  }} disabled={!!smartRunning}>
-                                    📧 Test
-                                  </Btn>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
+                          {smartSubscribers.map(sub => {
+                            const isThisRunning = smartRunning === sub.id;
+                            const isOtherRunning = !!smartRunning && !isThisRunning;
+                            return (
+                              <tr key={sub.id} style={{
+                                borderBottom: `1px solid ${C.gray100}`,
+                                background: isThisRunning ? "#EFF6FF" : "inherit",
+                                opacity: isOtherRunning ? 0.55 : 1,
+                                transition: "background 0.2s, opacity 0.2s",
+                              }}>
+                                <td style={{ padding: "10px 14px", fontWeight: 600 }}>
+                                  {isThisRunning && <span style={{ marginRight: 6, fontSize: 14 }}>⏳</span>}
+                                  {sub.name}
+                                </td>
+                                <td style={{ padding: "10px 14px", color: C.gray500 }}>{sub.notificationEmail || sub.email}</td>
+                                <td style={{ padding: "10px 14px", textAlign: "center" }}>
+                                  <span style={{ background: C.bluePale, color: C.blue, padding: "2px 10px", borderRadius: 10, fontSize: 12, fontWeight: 600 }}>
+                                    {sub.subscriptions?.length || sub._count?.subscriptions || 0}
+                                  </span>
+                                </td>
+                                <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                                  {isThisRunning ? (
+                                    <span style={{ fontSize: 12, color: "#1D4ED8", fontWeight: 600 }}>Analizando con IA...</span>
+                                  ) : (
+                                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                                      <Btn small onClick={async () => {
+                                        setSmartPreview(null);
+                                        setSmartMsg(null);
+                                        setSmartRunning(sub.id);
+                                        try {
+                                          const res = await apiFetch(`/smart-notifications/weekly/preview/${sub.id}`, { method: "POST" });
+                                          const data = await res.json();
+                                          if (data.error) throw new Error(data.error || data.message);
+                                          setSmartPreview({ subscriberId: sub.id, subscriberName: sub.name, ...data });
+                                        } catch (e) {
+                                          setSmartMsg({ type: "error", text: `Preview ${sub.name}: ${e.message}` });
+                                        } finally { setSmartRunning(null); }
+                                      }} disabled={!!smartRunning}>
+                                        👁️ Preview
+                                      </Btn>
+                                      <Btn small primary onClick={async () => {
+                                        setSmartMsg(null);
+                                        setSmartRunning(sub.id);
+                                        try {
+                                          const res = await apiFetch(`/smart-notifications/weekly/run/${sub.id}`, { method: "POST" });
+                                          const data = await res.json();
+                                          if (data.error) throw new Error(data.error || data.message);
+                                          setSmartMsg({ type: "success", text: `${sub.name}: ${data.status || "completado"} — ${data.emailSent ? "email enviado ✓" : "email no enviado"}` });
+                                        } catch (e) {
+                                          setSmartMsg({ type: "error", text: `${sub.name}: ${e.message}` });
+                                        } finally { setSmartRunning(null); }
+                                      }} disabled={!!smartRunning}>
+                                        ▶ Ejecutar
+                                      </Btn>
+                                      <Btn small danger onClick={async () => {
+                                        setSmartMsg(null);
+                                        setSmartRunning(sub.id);
+                                        try {
+                                          const res = await apiFetch(`/smart-notifications/weekly/test/${sub.id}`, { method: "POST" });
+                                          const data = await res.json();
+                                          if (data.error) throw new Error(data.error || data.message);
+                                          setSmartMsg({ type: "success", text: `Test ${sub.name}: email enviado ✓` });
+                                        } catch (e) {
+                                          setSmartMsg({ type: "error", text: `Test ${sub.name}: ${e.message}` });
+                                        } finally { setSmartRunning(null); }
+                                      }} disabled={!!smartRunning}>
+                                        📧 Test
+                                      </Btn>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
