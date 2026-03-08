@@ -14,6 +14,9 @@ RUN npx prisma generate
 COPY . .
 RUN npm run build
 
+# Compile seed.ts to seed.js for database seeding
+RUN npx tsc prisma/seed.ts --target ES2020 --module commonjs --lib es2020 --skipLibCheck --esModuleInterop --resolveJsonModule --outDir prisma --declaration false 2>&1 || true
+
 # NestJS with rootDir includes compiles to dist/src/
 # Verify it exists
 RUN ls dist/src/main.js
