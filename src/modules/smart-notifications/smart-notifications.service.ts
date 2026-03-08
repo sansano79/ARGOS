@@ -1328,14 +1328,28 @@ export class SmartNotificationsService {
                 name: true,
                 email: true,
                 notificationEmail: true,
-                subscriptions: {
-                    where: { isActive: true },
-                    select: { vendor: true, product: true, versions: true },
-                },
             },
         });
 
         if (!subscriber) return null;
+
+        // Separately fetch subscriptions to ensure proper retrieval
+        const userSubscriptions = await this.prisma.userSubscription.findMany({
+            where: {
+                userId: subscriber.id,
+                isActive: true,
+            },
+            select: {
+                id: true,
+                vendor: true,
+                product: true,
+                versions: true,
+            },
+        });
+
+        this.logger.debug(
+            `Subscriber ${subscriber.id} (${subscriber.name}) has ${userSubscriptions.length} active subscriptions`
+        );
 
         const ownedSystems = await (this.prisma as any).subscriberOwnedSystem.findMany({
             where: {
@@ -1353,7 +1367,7 @@ export class SmartNotificationsService {
             orderBy: [{ isSelected: 'desc' }, { hostname: 'asc' }],
         });
 
-        const normalizedSubscriptions = (subscriber.subscriptions || []).map((subscription) => ({
+        const normalizedSubscriptions = (userSubscriptions || []).map((subscription) => ({
             vendor: normalizeName(subscription.vendor),
             product: normalizeName(subscription.product),
             versions: this.parseJsonArray(subscription.versions || '[]').map((version) => version.toLowerCase()),
