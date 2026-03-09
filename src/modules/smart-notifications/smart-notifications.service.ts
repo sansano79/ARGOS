@@ -885,6 +885,27 @@ export class SmartNotificationsService {
             const aiContent = this.extractAiContent(aiResponse);
             const analysis = this.parseAnalysisJson(aiContent, dataset, smartConfig);
 
+            // Skip email if no correlations detected
+            if (analysis.detectedCorrelations.length === 0) {
+                this.logger.log(
+                    `No correlations detected for subscriber=${subscriberId} (${dataset.subscriber.name}). Skipping email.`,
+                );
+                await (this.prisma as any).smartNotificationReport.update({
+                    where: { id: report.id },
+                    data: {
+                        status: 'no_correlations',
+                        analysisJson: JSON.stringify(analysis),
+                    },
+                });
+                return {
+                    subscriberId,
+                    reportId: report.id,
+                    status: 'skipped',
+                    reason: 'No correlations detected — email not sent',
+                    totalVulnerabilities: dataset.vulnerabilities.length,
+                } as WeeklyRunResult;
+            }
+
             const subject = `${smartConfig.subjectPrefix} — ${dataset.subscriber.name} (${dataset.stats.total} CVEs)`;
             const context = this.buildWeeklyEmailContext(dataset, analysis, smartConfig);
 
@@ -1466,9 +1487,23 @@ export class SmartNotificationsService {
             );
         }
 
+        // Filter out CVEs the subscriber has already marked as patched
+        const patchedCves = await (this.prisma as any).subscriberPatchedCve.findMany({
+            where: { userId: subscriber.id },
+            select: { cveId: true },
+        });
+        const patchedCveIds = new Set<string>(patchedCves.map((p: any) => p.cveId));
+
         const vulnerabilities = [...vulnerabilityMap.values()]
+            .filter((v) => !patchedCveIds.has(v.cveId))
             .sort((a, b) => b.realRiskScore - a.realRiskScore)
             .slice(0, smartConfig.maxCandidateVulnerabilities);
+
+        if (patchedCveIds.size > 0) {
+            this.logger.debug(
+                `Subscriber ${subscriber.id}: excluded ${patchedCveIds.size} patched CVEs from dataset`,
+            );
+        }
 
         const groupedAssetsMap = new Map<string, { vendor: string; product: string; cveIds: Set<string> }>();
         for (const vulnerability of vulnerabilities) {

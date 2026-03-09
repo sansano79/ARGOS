@@ -326,8 +326,17 @@ export default function VulnDashboard() {
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [notifContactsLoading, setNotifContactsLoading] = useState(false);
 
+  // Notifications tabs
+  const [notifTab, setNotifTab] = useState("template"); // template | smart-config | history
+
+  // Smart Notifications Config (in Comunicaciones)
+  const [smartNConfig, setSmartNConfig] = useState(null);
+  const [smartNConfigLoading, setSmartNConfigLoading] = useState(false);
+  const [smartNConfigSaving, setSmartNConfigSaving] = useState(false);
+  const [smartNConfigMsg, setSmartNConfigMsg] = useState(null);
+
   // Smart Notifications
-  const [smartTab, setSmartTab] = useState("subscribers"); // subscribers | history | config
+  const [smartTab, setSmartTab] = useState("subscribers"); // subscribers | history
   const [smartSubscribers, setSmartSubscribers] = useState([]);
   const [smartHistory, setSmartHistory] = useState({ data: [], total: 0 });
   const [smartLoading, setSmartLoading] = useState(false);
@@ -612,11 +621,13 @@ export default function VulnDashboard() {
         setAiConfigLoading(false);
       } else if (v === "notifications") {
         setTemplateLoading(true);
-        const [historyRes, templateRes, templatesRes, vulnsRes] = await Promise.allSettled([
+        setSmartNConfigLoading(true);
+        const [historyRes, templateRes, templatesRes, vulnsRes, smartCfgRes] = await Promise.allSettled([
           apiFetch("/notifications/history").then(r => r.json()),
           apiFetch("/notifications/template-config").then(r => r.json()),
           apiFetch("/notifications/template-configs").then(r => r.json()),
           apiFetch("/vulnerabilities?limit=300").then(r => r.json()),
+          apiFetch("/smart-notifications/config").then(r => r.json()),
         ]);
         if (historyRes.status === "fulfilled") {
           setNotifHistory(historyRes.value?.data || []);
@@ -634,7 +645,11 @@ export default function VulnDashboard() {
         if (vulnsRes.status === "fulfilled") {
           setVulns(Array.isArray(vulnsRes.value?.data) ? vulnsRes.value.data : []);
         }
+        if (smartCfgRes.status === "fulfilled" && smartCfgRes.value) {
+          setSmartNConfig(smartCfgRes.value);
+        }
         setTemplateLoading(false);
+        setSmartNConfigLoading(false);
       }
     } catch (e) {
       setSmtpLoading(false);
