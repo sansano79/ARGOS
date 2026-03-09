@@ -822,72 +822,243 @@ export class SmartNotificationsService {
     }
 
     async runWeeklyForSubscriber(subscriberId: number, options?: { trigger?: 'manual' | 'cron' }) {
-        const trigger = options?.trigger || 'manual';
-        const smartConfig = await this.loadSmartConfig();
-        const { periodStart, periodEnd } = this.getLookbackWindow(smartConfig.lookbackDays);
+        try {
+            const trigger = options?.trigger || 'manual';
+            const smartConfig = await this.loadSmartConfig();
+            const { periodStart, periodEnd } = this.getLookbackWindow(smartConfig.lookbackDays);
 
-        const dataset = await this.buildSubscriberDataset(subscriberId, periodStart, periodEnd, smartConfig);
-        if (!dataset) {
+            const dataset = await this.buildSubscriberDataset(subscriberId, periodStart, periodEnd, smartConfig);
+            if (!dataset) {
+                return {
+                    subscriberId,
+                    status: 'failed',
+                    reason: 'Subscriber not found or inactive',
+                } as WeeklyRunResult;
+            }
+
+            if (dataset.vulnerabilities.length === 0) {
+                return {
+                    subscriberId,
+                    status: 'skipped',
+                    reason: `No matching vulnerabilities in ${smartConfig.lookbackDays}-day window`,
+                } as WeeklyRunResult;
+            }
+
+            const effectiveAi = await this.getEffectiveAiSettings(smartConfig);
+            const { promptSystem, promptUser } = this.buildCorrelationPrompt(dataset, smartConfig);
+
+            const report = await (this.prisma as any).smartNotificationReport.create({
+                data: {
+                    subscriberUserId: dataset.subscriber.id,
+                    periodStart,
+                    periodEnd,
+                    recipientEmail: dataset.subscriber.email,
+                    status: 'generated',
+                    aiProvider: effectiveAi.provider,
+                    aiModel: effectiveAi.model,
+                    inputSnapshot: JSON.stringify({
+                        trigger,
+                        configProfile: smartConfig,
+                        stats: dataset.stats,
+                        ownedSystems: dataset.ownedSystems,
+                        groupedAssets: dataset.groupedAssets,
+                        vulnerabilities: dataset.vulnerabilities.map((v) => ({
+                            cveId: v.cveId,
+                            attackVector: v.attackVector,
+                            cvssV31Score: v.cvssV31Score,
+                            cvssV31Severity: v.cvssV31Severity,
+                            epssScore: v.epssScore,
+                            hasPublicExploit: v.hasPublicExploit,
+                            isKnownExploited: v.isKnownExploited,
+                            sources: v.sources,
+                            affectedProducts: v.affectedProducts,
+                        })),
+                    }),
+                },
+            });
+
+            try {
+                const aiResponse = await this.aiService.chatStructuredJson([
+                    { role: 'system', content: promptSystem },
+                    { role: 'user', content: promptUser },
+                ], { model: effectiveAi.model });
+
+                const aiContent = this.extractAiContent(aiResponse);
+                const analysis = this.parseAnalysisJson(aiContent, dataset, smartConfig);
+
+                const subject = `${smartConfig.subjectPrefix} — ${dataset.subscriber.name} (${dataset.stats.total} CVEs)`;
+                const context = this.buildWeeklyEmailContext(dataset, analysis, smartConfig);
+
+                const sent = await this.notificationService.sendEmail(
+                    dataset.subscriber.email,
+                    subject,
+                    'smart-weekly-report',
+                    context,
+                );
+
+                await (this.prisma as any).smartNotificationReport.update({
+                    where: { id: report.id },
+                    data: {
+                        subject,
+                        status: sent ? 'sent' : 'failed',
+                        sentAt: sent ? new Date() : null,
+                        analysisJson: JSON.stringify(analysis),
+                        errorMessage: sent ? null : 'SMTP send failed',
+                    },
+                });
+
+                return {
+                    subscriberId,
+                    reportId: report.id,
+                    status: sent ? 'sent' : 'failed',
+                    reason: sent ? undefined : 'SMTP send failed',
+                    totalVulnerabilities: dataset.vulnerabilities.length,
+                    emailSent: !!sent,
+                } as WeeklyRunResult;
+            } catch (error) {
+                const message = error instanceof Error ? error.message : 'Unknown error';
+                this.logger.error(`Smart weekly report failed for subscriber=${subscriberId}: ${message}`);
+
+                await (this.prisma as any).smartNotificationReport.update({
+                    where: { id: report.id },
+                    data: {
+                        status: 'failed',
+                        errorMessage: message,
+                    },
+                });
+
+                return {
+                    subscriberId,
+                    reportId: report.id,
+                    status: 'failed',
+                    reason: message,
+                } as WeeklyRunResult;
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            this.logger.error(`runWeeklyForSubscriber failed for subscriber=${subscriberId}: ${message}`, error instanceof Error ? error.stack : '');
             return {
                 subscriberId,
                 status: 'failed',
-                reason: 'Subscriber not found or inactive',
+                reason: `Error: ${message}`,
             } as WeeklyRunResult;
         }
+    }
 
-        if (dataset.vulnerabilities.length === 0) {
-            return {
-                subscriberId,
-                status: 'skipped',
-                reason: `No matching vulnerabilities in ${smartConfig.lookbackDays}-day window`,
-            } as WeeklyRunResult;
-        }
-
-        const effectiveAi = await this.getEffectiveAiSettings(smartConfig);
-        const { promptSystem, promptUser } = this.buildCorrelationPrompt(dataset, smartConfig);
-
-        const report = await (this.prisma as any).smartNotificationReport.create({
-            data: {
-                subscriberUserId: dataset.subscriber.id,
-                periodStart,
-                periodEnd,
-                recipientEmail: dataset.subscriber.email,
-                status: 'generated',
-                aiProvider: effectiveAi.provider,
-                aiModel: effectiveAi.model,
-                inputSnapshot: JSON.stringify({
-                    trigger,
-                    configProfile: smartConfig,
-                    stats: dataset.stats,
-                    ownedSystems: dataset.ownedSystems,
-                    groupedAssets: dataset.groupedAssets,
-                    vulnerabilities: dataset.vulnerabilities.map((v) => ({
-                        cveId: v.cveId,
-                        attackVector: v.attackVector,
-                        cvssV31Score: v.cvssV31Score,
-                        cvssV31Severity: v.cvssV31Severity,
-                        epssScore: v.epssScore,
-                        hasPublicExploit: v.hasPublicExploit,
-                        isKnownExploited: v.isKnownExploited,
-                        sources: v.sources,
-                        affectedProducts: v.affectedProducts,
-                    })),
-                }),
-            },
-        });
-
+    async previewWeeklyForSubscriber(subscriberId: number) {
         try {
-            const aiResponse = await this.aiService.chatStructuredJson([
-                { role: 'system', content: promptSystem },
-                { role: 'user', content: promptUser },
-            ], { model: effectiveAi.model });
+            const smartConfig = await this.loadSmartConfig();
+            const { periodStart, periodEnd } = this.getLookbackWindow(smartConfig.lookbackDays);
+            const dataset = await this.buildSubscriberDataset(subscriberId, periodStart, periodEnd, smartConfig);
 
-            const aiContent = this.extractAiContent(aiResponse);
-            const analysis = this.parseAnalysisJson(aiContent, dataset, smartConfig);
+            if (!dataset) {
+                return {
+                    subscriberId,
+                    status: 'failed',
+                    reason: 'Subscriber not found or inactive',
+                };
+            }
+
+            if (dataset.vulnerabilities.length === 0) {
+                return {
+                    subscriberId,
+                    status: 'skipped',
+                    reason: `No matching vulnerabilities in ${smartConfig.lookbackDays}-day window`,
+                    datasetStats: dataset.stats,
+                };
+            }
+
+            const effectiveAi = await this.getEffectiveAiSettings(smartConfig);
+            const { promptSystem, promptUser } = this.buildCorrelationPrompt(dataset, smartConfig);
+
+            let analysis: SmartAnalysisResult;
+            let usedFallback = false;
+
+            try {
+                const aiResponse = await this.aiService.chatStructuredJson([
+                    { role: 'system', content: promptSystem },
+                    { role: 'user', content: promptUser },
+                ], { model: effectiveAi.model });
+                const aiContent = this.extractAiContent(aiResponse);
+                analysis = this.parseAnalysisJson(aiContent, dataset, smartConfig);
+            } catch (aiError) {
+                this.logger.error(`AI analysis failed for preview subscriber=${subscriberId}: ${aiError instanceof Error ? aiError.message : 'Unknown'}`);
+                analysis = this.buildFallbackAnalysis(dataset, smartConfig);
+                usedFallback = true;
+            }
 
             const subject = `${smartConfig.subjectPrefix} — ${dataset.subscriber.name} (${dataset.stats.total} CVEs)`;
             const context = this.buildWeeklyEmailContext(dataset, analysis, smartConfig);
+            const html = await this.notificationService.renderTemplate('smart-weekly-report', context);
 
+            return {
+                subscriberId,
+                status: 'preview',
+                subject,
+                usedFallback,
+                aiProvider: effectiveAi.provider,
+                aiModel: effectiveAi.model,
+                configProfile: smartConfig,
+                datasetStats: dataset.stats,
+                analysis,
+                html,
+            };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            this.logger.error(`Preview failed for subscriber=${subscriberId}: ${message}`, error instanceof Error ? error.stack : '');
+            return {
+                subscriberId,
+                status: 'failed',
+                reason: `Error generating preview: ${message}`,
+            };
+        }
+    }
+
+    async testWeeklyForSubscriber(subscriberId: number) {
+        try {
+            const smartConfig = await this.loadSmartConfig();
+            const { periodStart, periodEnd } = this.getLookbackWindow(smartConfig.lookbackDays);
+            const dataset = await this.buildSubscriberDataset(subscriberId, periodStart, periodEnd, smartConfig);
+
+            if (!dataset) {
+                return {
+                    subscriberId,
+                    status: 'failed',
+                    reason: 'Subscriber not found or inactive',
+                };
+            }
+
+            if (dataset.vulnerabilities.length === 0) {
+                return {
+                    subscriberId,
+                    status: 'skipped',
+                    reason: `No matching vulnerabilities in ${smartConfig.lookbackDays}-day window`,
+                    datasetStats: dataset.stats,
+                };
+            }
+
+            const effectiveAi = await this.getEffectiveAiSettings(smartConfig);
+            const { promptSystem, promptUser } = this.buildCorrelationPrompt(dataset, smartConfig);
+
+            let analysis: SmartAnalysisResult;
+            let usedFallback = false;
+
+            try {
+                const aiResponse = await this.aiService.chatStructuredJson([
+                    { role: 'system', content: promptSystem },
+                    { role: 'user', content: promptUser },
+                ], { model: effectiveAi.model });
+                const aiContent = this.extractAiContent(aiResponse);
+                analysis = this.parseAnalysisJson(aiContent, dataset, smartConfig);
+            } catch (aiError) {
+                this.logger.error(`AI analysis failed for test subscriber=${subscriberId}: ${aiError instanceof Error ? aiError.message : 'Unknown'}`);
+                analysis = this.buildFallbackAnalysis(dataset, smartConfig);
+                usedFallback = true;
+            }
+
+            const subject = `${smartConfig.subjectPrefix} [TEST] — ${dataset.subscriber.name} (${dataset.stats.total} CVEs)`;
+            const context = this.buildWeeklyEmailContext(dataset, analysis, smartConfig);
+            const html = await this.notificationService.renderTemplate('smart-weekly-report', context);
             const sent = await this.notificationService.sendEmail(
                 dataset.subscriber.email,
                 subject,
@@ -895,170 +1066,30 @@ export class SmartNotificationsService {
                 context,
             );
 
-            await (this.prisma as any).smartNotificationReport.update({
-                where: { id: report.id },
-                data: {
-                    subject,
-                    status: sent ? 'sent' : 'failed',
-                    sentAt: sent ? new Date() : null,
-                    analysisJson: JSON.stringify(analysis),
-                    errorMessage: sent ? null : 'SMTP send failed',
-                },
-            });
-
             return {
                 subscriberId,
-                reportId: report.id,
                 status: sent ? 'sent' : 'failed',
                 reason: sent ? undefined : 'SMTP send failed',
-                totalVulnerabilities: dataset.vulnerabilities.length,
-            } as WeeklyRunResult;
+                isTest: true,
+                usedFallback,
+                aiProvider: effectiveAi.provider,
+                aiModel: effectiveAi.model,
+                recipientEmail: dataset.subscriber.email,
+                subject,
+                configProfile: smartConfig,
+                datasetStats: dataset.stats,
+                analysis,
+                html,
+            };
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
-            this.logger.error(`Smart weekly report failed for subscriber=${subscriberId}: ${message}`);
-
-            await (this.prisma as any).smartNotificationReport.update({
-                where: { id: report.id },
-                data: {
-                    status: 'failed',
-                    errorMessage: message,
-                },
-            });
-
-            return {
-                subscriberId,
-                reportId: report.id,
-                status: 'failed',
-                reason: message,
-            } as WeeklyRunResult;
-        }
-    }
-
-    async previewWeeklyForSubscriber(subscriberId: number) {
-        const smartConfig = await this.loadSmartConfig();
-        const { periodStart, periodEnd } = this.getLookbackWindow(smartConfig.lookbackDays);
-        const dataset = await this.buildSubscriberDataset(subscriberId, periodStart, periodEnd, smartConfig);
-
-        if (!dataset) {
+            this.logger.error(`Test failed for subscriber=${subscriberId}: ${message}`, error instanceof Error ? error.stack : '');
             return {
                 subscriberId,
                 status: 'failed',
-                reason: 'Subscriber not found or inactive',
+                reason: `Error generating test: ${message}`,
             };
         }
-
-        if (dataset.vulnerabilities.length === 0) {
-            return {
-                subscriberId,
-                status: 'skipped',
-                reason: `No matching vulnerabilities in ${smartConfig.lookbackDays}-day window`,
-                datasetStats: dataset.stats,
-            };
-        }
-
-        const effectiveAi = await this.getEffectiveAiSettings(smartConfig);
-        const { promptSystem, promptUser } = this.buildCorrelationPrompt(dataset, smartConfig);
-
-        let analysis: SmartAnalysisResult;
-        let usedFallback = false;
-
-        try {
-            const aiResponse = await this.aiService.chatStructuredJson([
-                { role: 'system', content: promptSystem },
-                { role: 'user', content: promptUser },
-            ], { model: effectiveAi.model });
-            const aiContent = this.extractAiContent(aiResponse);
-            analysis = this.parseAnalysisJson(aiContent, dataset, smartConfig);
-        } catch (aiError) {
-            this.logger.error(`AI analysis failed for preview subscriber=${subscriberId}: ${aiError instanceof Error ? aiError.message : 'Unknown'}`);
-            analysis = this.buildFallbackAnalysis(dataset, smartConfig);
-            usedFallback = true;
-        }
-
-        const subject = `${smartConfig.subjectPrefix} — ${dataset.subscriber.name} (${dataset.stats.total} CVEs)`;
-        const context = this.buildWeeklyEmailContext(dataset, analysis, smartConfig);
-        const html = await this.notificationService.renderTemplate('smart-weekly-report', context);
-
-        return {
-            subscriberId,
-            status: 'preview',
-            subject,
-            usedFallback,
-            aiProvider: effectiveAi.provider,
-            aiModel: effectiveAi.model,
-            configProfile: smartConfig,
-            datasetStats: dataset.stats,
-            analysis,
-            html,
-        };
-    }
-
-    async testWeeklyForSubscriber(subscriberId: number) {
-        const smartConfig = await this.loadSmartConfig();
-        const { periodStart, periodEnd } = this.getLookbackWindow(smartConfig.lookbackDays);
-        const dataset = await this.buildSubscriberDataset(subscriberId, periodStart, periodEnd, smartConfig);
-
-        if (!dataset) {
-            return {
-                subscriberId,
-                status: 'failed',
-                reason: 'Subscriber not found or inactive',
-            };
-        }
-
-        if (dataset.vulnerabilities.length === 0) {
-            return {
-                subscriberId,
-                status: 'skipped',
-                reason: `No matching vulnerabilities in ${smartConfig.lookbackDays}-day window`,
-                datasetStats: dataset.stats,
-            };
-        }
-
-        const effectiveAi = await this.getEffectiveAiSettings(smartConfig);
-        const { promptSystem, promptUser } = this.buildCorrelationPrompt(dataset, smartConfig);
-
-        let analysis: SmartAnalysisResult;
-        let usedFallback = false;
-
-        try {
-            const aiResponse = await this.aiService.chatStructuredJson([
-                { role: 'system', content: promptSystem },
-                { role: 'user', content: promptUser },
-            ], { model: effectiveAi.model });
-            const aiContent = this.extractAiContent(aiResponse);
-            analysis = this.parseAnalysisJson(aiContent, dataset, smartConfig);
-        } catch (aiError) {
-            this.logger.error(`AI analysis failed for test subscriber=${subscriberId}: ${aiError instanceof Error ? aiError.message : 'Unknown'}`);
-            analysis = this.buildFallbackAnalysis(dataset, smartConfig);
-            usedFallback = true;
-        }
-
-        const subject = `${smartConfig.subjectPrefix} [TEST] — ${dataset.subscriber.name} (${dataset.stats.total} CVEs)`;
-        const context = this.buildWeeklyEmailContext(dataset, analysis, smartConfig);
-        const html = await this.notificationService.renderTemplate('smart-weekly-report', context);
-        const sent = await this.notificationService.sendEmail(
-            dataset.subscriber.email,
-            subject,
-            'smart-weekly-report',
-            context,
-        );
-
-        return {
-            subscriberId,
-            status: sent ? 'sent' : 'failed',
-            reason: sent ? undefined : 'SMTP send failed',
-            isTest: true,
-            usedFallback,
-            aiProvider: effectiveAi.provider,
-            aiModel: effectiveAi.model,
-            recipientEmail: dataset.subscriber.email,
-            subject,
-            configProfile: smartConfig,
-            datasetStats: dataset.stats,
-            analysis,
-            html,
-        };
     }
 
     async getWeeklyHistory(page = 1, limit = 20, subscriberId?: number) {

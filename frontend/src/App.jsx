@@ -2561,7 +2561,10 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                   setSmartMsg(null);
                   try {
                     const res = await apiFetch("/smart-notifications/weekly/run-all", { method: "POST" });
-                    const data = await res.json();
+                    const raw = await res.text();
+                    let data;
+                    try { data = JSON.parse(raw); } catch { throw new Error(!res.ok ? `HTTP ${res.status}: ${raw.slice(0, 120)}` : "La respuesta del servidor no es JSON válido"); }
+                    if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
                     const ok = (data.results || []).filter(r => r.status === "sent").length;
                     const fail = (data.results || []).filter(r => r.status === "failed").length;
                     setSmartMsg({ type: "success", text: `Ejecución completada: ${ok} enviados, ${fail} fallidos de ${data.results?.length || 0} suscriptores` });
@@ -2619,8 +2622,11 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                                     setSmartRunning(sub.id);
                                     try {
                                       const res = await apiFetch(`/smart-notifications/weekly/preview/${sub.id}`, { method: "POST" });
-                                      const data = await res.json();
-                                      if (data.error) throw new Error(data.error || data.message);
+                                      const raw = await res.text();
+                                      let data;
+                                      try { data = JSON.parse(raw); } catch { throw new Error(!res.ok ? `HTTP ${res.status}: ${raw.slice(0, 120)}` : "La respuesta del servidor no es JSON válido"); }
+                                      if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+                                      if (data.status === "failed") throw new Error(data.reason || "Error desconocido");
                                       setSmartPreview({ subscriberId: sub.id, subscriberName: sub.name, ...data });
                                     } catch (e) {
                                       setSmartMsg({ type: "error", text: `Preview ${sub.name}: ${e.message}` });
@@ -2633,9 +2639,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                                     setSmartRunning(sub.id);
                                     try {
                                       const res = await apiFetch(`/smart-notifications/weekly/run/${sub.id}`, { method: "POST" });
-                                      const data = await res.json();
-                                      if (data.error) throw new Error(data.error || data.message);
-                                      setSmartMsg({ type: "success", text: `${sub.name}: ${data.status || "completado"} — ${data.emailSent ? "email enviado ✓" : "email no enviado"}` });
+                                      const raw = await res.text();
+                                      let data;
+                                      try { data = JSON.parse(raw); } catch { throw new Error(!res.ok ? `HTTP ${res.status}: ${raw.slice(0, 120)}` : "La respuesta del servidor no es JSON válido"); }
+                                      if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+                                      if (data.status === "failed") setSmartMsg({ type: "error", text: `${sub.name}: ${data.reason || "Error"}` });
+                                      else setSmartMsg({ type: "success", text: `${sub.name}: ${data.status || "completado"} — ${data.emailSent ? "email enviado ✓" : "email no enviado"}` });
                                     } catch (e) {
                                       setSmartMsg({ type: "error", text: `${sub.name}: ${e.message}` });
                                     } finally { setSmartRunning(null); }
@@ -2647,9 +2656,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                                     setSmartRunning(sub.id);
                                     try {
                                       const res = await apiFetch(`/smart-notifications/weekly/test/${sub.id}`, { method: "POST" });
-                                      const data = await res.json();
-                                      if (data.error) throw new Error(data.error || data.message);
-                                      setSmartMsg({ type: "success", text: `Test ${sub.name}: email enviado ✓` });
+                                      const raw = await res.text();
+                                      let data;
+                                      try { data = JSON.parse(raw); } catch { throw new Error(!res.ok ? `HTTP ${res.status}: ${raw.slice(0, 120)}` : "La respuesta del servidor no es JSON válido"); }
+                                      if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+                                      if (data.status === "failed") setSmartMsg({ type: "error", text: `Test ${sub.name}: ${data.reason || "Error"}` });
+                                      else setSmartMsg({ type: "success", text: `Test ${sub.name}: email enviado ✓` });
                                     } catch (e) {
                                       setSmartMsg({ type: "error", text: `Test ${sub.name}: ${e.message}` });
                                     } finally { setSmartRunning(null); }

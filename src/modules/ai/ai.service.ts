@@ -2,7 +2,8 @@ import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
-import { lastValueFrom } from 'rxjs';
+import { lastValueFrom, timeout, catchError } from 'rxjs';
+import { TimeoutError } from 'rxjs';
 
 interface AiConfig {
     provider: 'openai' | 'ollama';
@@ -23,6 +24,7 @@ export class AiService {
     private readonly logger = new Logger(AiService.name);
     private config: AiConfig | null = null;
     private static readonly DEFAULT_OLLAMA_MODEL = 'krith/qwen2.5-32b-instruct:IQ1_M';
+    private static readonly AI_TIMEOUT_MS = 30_000; // 30 seconds
 
     constructor(
         private prisma: PrismaService,
@@ -223,7 +225,11 @@ export class AiService {
             'Content-Type': 'application/json',
         };
 
-        const response = await lastValueFrom(this.httpService.post(url, payload, { headers }));
+        const response = await lastValueFrom(
+            this.httpService.post(url, payload, { headers, timeout: AiService.AI_TIMEOUT_MS }).pipe(
+                timeout(AiService.AI_TIMEOUT_MS),
+            ),
+        );
         return response.data.choices[0].message;
     }
 
@@ -231,6 +237,17 @@ export class AiService {
         const baseUrl = config.baseUrl || 'http://localhost:11434';
         const url = `${baseUrl}/api/chat`;
         let model = (config.model || '').trim();
+
+        // Quick connectivity check (2s timeout) before attempting a long chat
+        try {
+            await lastValueFrom(
+                this.httpService.get(`${baseUrl}/api/tags`, { timeout: 2000 }).pipe(timeout(2500)),
+            );
+        } catch {
+            throw new InternalServerErrorException(
+                `Ollama no disponible en ${baseUrl}. Verifique que el servicio está corriendo.`,
+            );
+        }
 
         if (!model) {
             model = await this.getFirstOllamaModel(baseUrl);
@@ -243,7 +260,11 @@ export class AiService {
                 messages,
                 stream: false,
             };
-            return lastValueFrom(this.httpService.post(url, payload));
+            return lastValueFrom(
+                this.httpService.post(url, payload, { timeout: AiService.AI_TIMEOUT_MS }).pipe(
+                    timeout(AiService.AI_TIMEOUT_MS + 5000),
+                ),
+            );
         };
 
         try {
@@ -265,7 +286,9 @@ export class AiService {
 
     private async getFirstOllamaModel(baseUrl: string): Promise<string> {
         const tagsUrl = `${baseUrl}/api/tags`;
-        const response = await lastValueFrom(this.httpService.get(tagsUrl));
+        const response = await lastValueFrom(
+            this.httpService.get(tagsUrl, { timeout: 5000 }).pipe(timeout(5000)),
+        );
         const models = Array.isArray(response?.data?.models) ? response.data.models : [];
         const first = models[0]?.name || models[0]?.model;
         if (!first) {
