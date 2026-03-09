@@ -18,13 +18,20 @@ async function bootstrap() {
   }
 
   // Security
-  // Swagger UI necesita scripts inline y recursos externos que Helmet bloquea por defecto.
-  // Aplicamos Helmet de forma condicional: sin CSP en /api/docs, con CSP completo en el resto.
+  // En producción usamos Helmet completo. En desarrollo/LAN desactivamos HSTS para
+  // evitar que el navegador fuerce HTTPS (lo que rompería los recursos estáticos de Swagger).
+  const isProduction = process.env.NODE_ENV === 'production';
+  const helmetOptions = {
+    hsts: isProduction, // Solo forzar HTTPS en producción
+    contentSecurityPolicy: isProduction, // CSP completa solo en producción
+  };
+
   app.use((req, res, next) => {
     if (req.path.startsWith('/api/docs')) {
-      return helmet.default({ contentSecurityPolicy: false })(req, res, next);
+      // Para Swagger: nunca CSP ni HSTS, independientemente del entorno
+      return helmet.default({ contentSecurityPolicy: false, hsts: false })(req, res, next);
     }
-    return helmet.default()(req, res, next);
+    return helmet.default(helmetOptions)(req, res, next);
   });
   const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
   const allowedOrigins = corsOrigin
