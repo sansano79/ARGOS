@@ -62,7 +62,7 @@ async function bootstrap() {
     SwaggerModule.setup('docs', app, document);
   }
 
-  const port = process.env.APP_PORT || 3000;
+  const port = process.env.API_PORT || process.env.APP_PORT || 3000;
   await app.listen(port, '0.0.0.0');
   logger.log(`🚀 Servicios OCC API running on http://0.0.0.0:${port}`);
   if (enableSwagger) {
