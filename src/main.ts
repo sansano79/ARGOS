@@ -18,7 +18,14 @@ async function bootstrap() {
   }
 
   // Security
-  app.use(helmet.default());
+  // Swagger UI necesita scripts inline y recursos externos que Helmet bloquea por defecto.
+  // Aplicamos Helmet de forma condicional: sin CSP en /api/docs, con CSP completo en el resto.
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api/docs')) {
+      return helmet.default({ contentSecurityPolicy: false })(req, res, next);
+    }
+    return helmet.default()(req, res, next);
+  });
   const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
   const allowedOrigins = corsOrigin
     .split(',')
