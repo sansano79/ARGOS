@@ -2370,160 +2370,379 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
               })}
             </>}
 
-            {/* ═══ NOTIFICATIONS HISTORY ═══ */}
+            {/* ═══ COMUNICACIONES (NOTIFICATIONS) ═══ */}
             {view === "notifications" && <>
               <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Comunicaciones</h1>
-              <Card title="Plantilla de Notificación de Vulnerabilidades" icon="mail" style={{ marginBottom: 16 }}>
-                {templateLoading ? (
-                  <div style={{ padding: 20, textAlign: "center", color: C.gray500 }}>Cargando plantilla...</div>
-                ) : (
-                  <>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto", gap: 8, alignItems: "end", marginBottom: 12 }}>
-                      <div>
-                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Plantillas guardadas</label>
-                        <select value={selectedTemplateId} onChange={e => loadTemplateById(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
-                          <option value="">(Nueva plantilla)</option>
-                          {templateList.map(t => (
-                            <option key={t.id} value={String(t.id)}>
-                              {t.name}{t.isActive ? " (activa)" : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Nombre de plantilla</label>
-                        <Input value={templateName} onChange={setTemplateName} placeholder="Ej: Comunicados críticos" />
-                      </div>
-                      <Btn onClick={() => {
-                        setSelectedTemplateId("");
-                        setTemplateName("Plantilla CVE");
-                        setTemplateConfig({
-                          headerImageUrl: "",
-                          introMessage: "La Oficina de Ciberseguridad Corporativa informa de la publicación de nuevas Vulnerabilidades del Fabricante {{fabricante}} en los siguientes CVE con una estimación de Impacto CVSS superior a 7.5 sobre 10.\n\nSe recomienda proceder a la identificación de los activos afectados y ejecutar las correspondientes tareas de mitigación y actuación recomendadas por el fabricante.\n\nImportante: La lista de versiones afectadas que aparecen en este comunicado ha sido simplificada, por favor, consulte la lista Oficial del fabricante en los enlaces que aparecen en el apartado de referencias.",
-                          showExploitProbability: true,
-                          showExploitExists: true,
-                          showAffectedSoftware: true,
-                          showDescription: true,
-                          showReferences: true,
-                          showPatchLink: true,
-                        });
-                      }}>Nueva</Btn>
-                      <Btn onClick={activateTemplate} disabled={!selectedTemplateId}>Activar</Btn>
-                    </div>
 
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Encabezado (imagen)</label>
-                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={e => onTemplateHeaderUpload(e.target.files?.[0])}
-                          style={{ fontSize: 12 }}
-                        />
-                        {templateConfig.headerImageUrl && (
-                          <Btn small onClick={() => setTemplateConfig({ ...templateConfig, headerImageUrl: "" })}>Quitar imagen</Btn>
-                        )}
-                      </div>
-                      {templateConfig.headerImageUrl && (
-                        <img src={templateConfig.headerImageUrl} alt="Cabecera plantilla" style={{ maxWidth: "100%", maxHeight: 130, marginTop: 8, borderRadius: 6, border: `1px solid ${C.gray200}` }} />
-                      )}
-                    </div>
+              {/* Tabs */}
+              <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+                {[
+                  { id: "template", label: "Plantilla CVE" },
+                  { id: "smart-config", label: "Notif. Inteligentes" },
+                  { id: "history", label: "Historial" },
+                ].map(t => (
+                  <button key={t.id} onClick={() => setNotifTab(t.id)} style={{
+                    padding: "8px 18px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none",
+                    background: notifTab === t.id ? C.navy : C.gray100, color: notifTab === t.id ? "#fff" : C.gray600,
+                    cursor: "pointer", transition: "all 0.15s",
+                  }}>{t.label}</button>
+                ))}
+              </div>
 
-                    <div style={{ background: C.gray50, border: `1px solid ${C.gray200}`, borderRadius: 6, padding: "10px 12px", fontSize: 11, color: C.gray600, marginBottom: 12 }}>
-                      El fabricante se incorpora automáticamente desde la vulnerabilidad (vendor detectado en software afectado). Puedes usar <code>{"{{fabricante}}"}</code> en el mensaje.
-                    </div>
-
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Mensaje inicial</label>
-                      <textarea
-                        value={templateConfig.introMessage}
-                        onChange={e => setTemplateConfig({ ...templateConfig, introMessage: e.target.value })}
-                        rows={6}
-                        style={{ width: "100%", padding: "10px 12px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }}
-                      />
-                    </div>
-
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: C.gray600, marginBottom: 6 }}>Bloques por vulnerabilidad</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                        {[
-                          ["showExploitProbability", "Posibilidad de explotación"],
-                          ["showExploitExists", "Existencia de exploit (sí/no)"],
-                          ["showAffectedSoftware", "Listado de software afectado"],
-                          ["showDescription", "Descripción de la vulnerabilidad"],
-                          ["showReferences", "Enlaces de información"],
-                          ["showPatchLink", "Enlace del parche"],
-                        ].map(([key, label]) => (
-                          <label key={key} style={{ fontSize: 12, color: C.gray700, display: "flex", alignItems: "center", gap: 6 }}>
-                            <input
-                              type="checkbox"
-                              checked={!!templateConfig[key]}
-                              onChange={e => setTemplateConfig({ ...templateConfig, [key]: e.target.checked })}
-                            />
-                            {label}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                      <Btn onClick={() => loadData("notifications")}>Recargar</Btn>
-                      <Btn primary onClick={saveTemplateConfig} disabled={templateSaving}>
-                        {templateSaving ? "Guardando..." : "Guardar plantilla"}
-                      </Btn>
-                    </div>
-
-                    <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${C.gray100}` }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end", marginBottom: 10 }}>
+              {/* ── Tab: Plantilla CVE ── */}
+              {notifTab === "template" && (
+                <Card title="Plantilla de Notificación de Vulnerabilidades" icon="mail" style={{ marginBottom: 16 }}>
+                  {templateLoading ? (
+                    <div style={{ padding: 20, textAlign: "center", color: C.gray500 }}>Cargando plantilla...</div>
+                  ) : (
+                    <>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto", gap: 8, alignItems: "end", marginBottom: 12 }}>
                         <div>
-                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Vulnerabilidad para vista previa</label>
-                          <select value={previewVulnId} onChange={e => setPreviewVulnId(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
-                            <option value="">Selecciona un CVE...</option>
-                            {vulns.map(v => (
-                              <option key={v.id} value={String(v.id)}>{v.cveId} ({v.cvssV31Severity || "N/A"})</option>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Plantillas guardadas</label>
+                          <select value={selectedTemplateId} onChange={e => loadTemplateById(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
+                            <option value="">(Nueva plantilla)</option>
+                            {templateList.map(t => (
+                              <option key={t.id} value={String(t.id)}>
+                                {t.name}{t.isActive ? " (activa)" : ""}
+                              </option>
                             ))}
                           </select>
                         </div>
-                        <Btn primary onClick={generateTemplatePreview} disabled={!previewVulnId || templatePreviewLoading}>
-                          {templatePreviewLoading ? "Generando..." : "Generar vista previa"}
-                        </Btn>
-                      </div>
-                      {templatePreviewMeta.cveId && (
-                        <div style={{ fontSize: 11, color: C.gray600, marginBottom: 8 }}>
-                          Vista previa para <strong>{templatePreviewMeta.cveId}</strong> · Fabricante detectado: <strong>{templatePreviewMeta.manufacturer || "N/D"}</strong>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Nombre de plantilla</label>
+                          <Input value={templateName} onChange={setTemplateName} placeholder="Ej: Comunicados críticos" />
                         </div>
-                      )}
-                      <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, overflow: "hidden", background: "#fff" }}>
-                        {templatePreviewHtml ? (
-                          <iframe title="Preview plantilla" srcDoc={templatePreviewHtml} style={{ width: "100%", height: 520, border: 0 }} />
-                        ) : (
-                          <div style={{ padding: 16, fontSize: 12, color: C.gray500 }}>Genera una vista previa para revisar la plantilla antes de enviar.</div>
+                        <Btn onClick={() => {
+                          setSelectedTemplateId("");
+                          setTemplateName("Plantilla CVE");
+                          setTemplateConfig({
+                            headerImageUrl: "",
+                            introMessage: "La Oficina de Ciberseguridad Corporativa informa de la publicación de nuevas Vulnerabilidades del Fabricante {{fabricante}} en los siguientes CVE con una estimación de Impacto CVSS superior a 7.5 sobre 10.\n\nSe recomienda proceder a la identificación de los activos afectados y ejecutar las correspondientes tareas de mitigación y actuación recomendadas por el fabricante.\n\nImportante: La lista de versiones afectadas que aparecen en este comunicado ha sido simplificada, por favor, consulte la lista Oficial del fabricante en los enlaces que aparecen en el apartado de referencias.",
+                            showExploitProbability: true,
+                            showExploitExists: true,
+                            showAffectedSoftware: true,
+                            showDescription: true,
+                            showReferences: true,
+                            showPatchLink: true,
+                          });
+                        }}>Nueva</Btn>
+                        <Btn onClick={activateTemplate} disabled={!selectedTemplateId}>Activar</Btn>
+                      </div>
+
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Encabezado (imagen)</label>
+                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={e => onTemplateHeaderUpload(e.target.files?.[0])}
+                            style={{ fontSize: 12 }}
+                          />
+                          {templateConfig.headerImageUrl && (
+                            <Btn small onClick={() => setTemplateConfig({ ...templateConfig, headerImageUrl: "" })}>Quitar imagen</Btn>
+                          )}
+                        </div>
+                        {templateConfig.headerImageUrl && (
+                          <img src={templateConfig.headerImageUrl} alt="Cabecera plantilla" style={{ maxWidth: "100%", maxHeight: 130, marginTop: 8, borderRadius: 6, border: `1px solid ${C.gray200}` }} />
                         )}
                       </div>
+
+                      <div style={{ background: C.gray50, border: `1px solid ${C.gray200}`, borderRadius: 6, padding: "10px 12px", fontSize: 11, color: C.gray600, marginBottom: 12 }}>
+                        El fabricante se incorpora automáticamente desde la vulnerabilidad (vendor detectado en software afectado). Puedes usar <code>{"{{fabricante}}"}</code> en el mensaje.
+                      </div>
+
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Mensaje inicial</label>
+                        <textarea
+                          value={templateConfig.introMessage}
+                          onChange={e => setTemplateConfig({ ...templateConfig, introMessage: e.target.value })}
+                          rows={6}
+                          style={{ width: "100%", padding: "10px 12px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }}
+                        />
+                      </div>
+
+                      <div style={{ marginBottom: 14 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: C.gray600, marginBottom: 6 }}>Bloques por vulnerabilidad</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                          {[
+                            ["showExploitProbability", "Posibilidad de explotación"],
+                            ["showExploitExists", "Existencia de exploit (sí/no)"],
+                            ["showAffectedSoftware", "Listado de software afectado"],
+                            ["showDescription", "Descripción de la vulnerabilidad"],
+                            ["showReferences", "Enlaces de información"],
+                            ["showPatchLink", "Enlace del parche"],
+                          ].map(([key, label]) => (
+                            <label key={key} style={{ fontSize: 12, color: C.gray700, display: "flex", alignItems: "center", gap: 6 }}>
+                              <input
+                                type="checkbox"
+                                checked={!!templateConfig[key]}
+                                onChange={e => setTemplateConfig({ ...templateConfig, [key]: e.target.checked })}
+                              />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                        <Btn onClick={() => loadData("notifications")}>Recargar</Btn>
+                        <Btn primary onClick={saveTemplateConfig} disabled={templateSaving}>
+                          {templateSaving ? "Guardando..." : "Guardar plantilla"}
+                        </Btn>
+                      </div>
+
+                      <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${C.gray100}` }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end", marginBottom: 10 }}>
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Vulnerabilidad para vista previa</label>
+                            <select value={previewVulnId} onChange={e => setPreviewVulnId(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
+                              <option value="">Selecciona un CVE...</option>
+                              {vulns.map(v => (
+                                <option key={v.id} value={String(v.id)}>{v.cveId} ({v.cvssV31Severity || "N/A"})</option>
+                              ))}
+                            </select>
+                          </div>
+                          <Btn primary onClick={generateTemplatePreview} disabled={!previewVulnId || templatePreviewLoading}>
+                            {templatePreviewLoading ? "Generando..." : "Generar vista previa"}
+                          </Btn>
+                        </div>
+                        {templatePreviewMeta.cveId && (
+                          <div style={{ fontSize: 11, color: C.gray600, marginBottom: 8 }}>
+                            Vista previa para <strong>{templatePreviewMeta.cveId}</strong> · Fabricante detectado: <strong>{templatePreviewMeta.manufacturer || "N/D"}</strong>
+                          </div>
+                        )}
+                        <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, overflow: "hidden", background: "#fff" }}>
+                          {templatePreviewHtml ? (
+                            <iframe title="Preview plantilla" srcDoc={templatePreviewHtml} style={{ width: "100%", height: 520, border: 0 }} />
+                          ) : (
+                            <div style={{ padding: 16, fontSize: 12, color: C.gray500 }}>Genera una vista previa para revisar la plantilla antes de enviar.</div>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </Card>
+              )}
+
+              {/* ── Tab: Notif. Inteligentes Config ── */}
+              {notifTab === "smart-config" && (
+                <>
+                  {smartNConfigMsg && (
+                    <div style={{ padding: "10px 14px", borderRadius: 6, marginBottom: 14, fontSize: 12, fontWeight: 600, background: smartNConfigMsg.type === "error" ? C.criticalBg : "#ECFDF5", color: smartNConfigMsg.type === "error" ? C.critical : "#065F46", border: `1px solid ${smartNConfigMsg.type === "error" ? "#FECACA" : "#A7F3D0"}` }}>
+                      {smartNConfigMsg.text}
+                      <button onClick={() => setSmartNConfigMsg(null)} style={{ float: "right", background: "none", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 14, lineHeight: 1 }}>×</button>
                     </div>
-                  </>
-                )}
-              </Card>
-              <Card title="Historial de Notificaciones" icon="mail" noPad>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead><tr style={{ background: C.gray50 }}>
-                    {["Fecha", "Destinatario", "Asunto", "Template", "Estado"].map(h => (
-                      <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", borderBottom: `2px solid ${C.gray200}` }}>{h}</th>
-                    ))}
-                  </tr></thead>
-                  <tbody>{notifHistory.length === 0 ? (
-                    <tr><td colSpan={5} style={{ padding: 30, textAlign: "center", color: C.gray400, fontSize: 12 }}>No hay notificaciones enviadas aún</td></tr>
-                  ) : notifHistory.map(n => (
-                    <tr key={n.id} className="rh" style={{ cursor: "pointer" }} onClick={() => viewNotification(n.id)}>
-                      <td style={{ padding: "8px 12px", fontSize: 10, fontFamily: "monospace" }}>{fmtDate(n.sentAt)}</td>
-                      <td style={{ padding: "8px 12px", fontSize: 11 }}>{n.to}</td>
-                      <td style={{ padding: "8px 12px", fontSize: 11, fontWeight: 500 }}>{n.subject}</td>
-                      <td style={{ padding: "8px 12px" }}><span style={{ padding: "2px 8px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: C.bluePale, color: C.blue }}>{n.template || "custom"}</span></td>
-                      <td style={{ padding: "8px 12px" }}><span style={{ color: n.status === "sent" ? C.low : C.critical, fontWeight: 600, fontSize: 10 }}>{n.status === "sent" ? "✓ Enviado" : "✗ Error"}</span></td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              </Card>
+                  )}
+                  {smartNConfigLoading || !smartNConfig ? (
+                    <Card title="Configuración de Notificaciones Inteligentes" icon="brain">
+                      <div style={{ padding: 20, textAlign: "center", color: C.gray500 }}>Cargando configuración...</div>
+                    </Card>
+                  ) : (
+                    <>
+                      {/* Card: Parámetros de Análisis */}
+                      <Card title="Parámetros de Análisis" icon="activity" style={{ marginBottom: 14 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
+                          {[
+                            ["lookbackDays", "Días de retrospectiva", "number"],
+                            ["maxCandidateVulnerabilities", "Máx. vulnerabilidades candidatas", "number"],
+                            ["minCvssForCandidates", "CVSS mínimo", "number"],
+                            ["minEpssForCandidates", "EPSS mínimo", "number"],
+                          ].map(([key, label, type]) => (
+                            <div key={key}>
+                              <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>{label}</label>
+                              <input type={type} value={smartNConfig[key] ?? ""} onChange={e => setSmartNConfig({ ...smartNConfig, [key]: type === "number" ? parseFloat(e.target.value) || 0 : e.target.value })} style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }} />
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: C.gray600, marginBottom: 6 }}>Umbrales EPSS</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                          {[
+                            ["epssHighThreshold", "Umbral EPSS Alto"],
+                            ["epssMediumThreshold", "Umbral EPSS Medio"],
+                          ].map(([key, label]) => (
+                            <div key={key}>
+                              <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>{label}</label>
+                              <input type="number" step="0.01" value={smartNConfig[key] ?? ""} onChange={e => setSmartNConfig({ ...smartNConfig, [key]: parseFloat(e.target.value) || 0 })} style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }} />
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: C.gray600, marginBottom: 6 }}>Boosts de Puntuación</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
+                          {[
+                            ["knownExploitedBoost", "Known Exploited"],
+                            ["publicExploitBoost", "Public Exploit"],
+                            ["epssHighBoost", "EPSS Alto"],
+                            ["epssMediumBoost", "EPSS Medio"],
+                          ].map(([key, label]) => (
+                            <div key={key}>
+                              <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>{label}</label>
+                              <input type="number" step="0.1" value={smartNConfig[key] ?? ""} onChange={e => setSmartNConfig({ ...smartNConfig, [key]: parseFloat(e.target.value) || 0 })} style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }} />
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                          {[
+                            ["topRiskCount", "Top Risk Count", "number"],
+                            ["technicalTableLimit", "Límite tabla técnica", "number"],
+                          ].map(([key, label, type]) => (
+                            <div key={key}>
+                              <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>{label}</label>
+                              <input type={type} value={smartNConfig[key] ?? ""} onChange={e => setSmartNConfig({ ...smartNConfig, [key]: parseInt(e.target.value) || 0 })} style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }} />
+                            </div>
+                          ))}
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Incluir tabla técnica</label>
+                            <label style={{ fontSize: 12, color: C.gray700, display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                              <input type="checkbox" checked={!!smartNConfig.includeTechnicalTable} onChange={e => setSmartNConfig({ ...smartNConfig, includeTechnicalTable: e.target.checked })} />
+                              Activar
+                            </label>
+                          </div>
+                        </div>
+                      </Card>
+
+                      {/* Card: Configuración IA */}
+                      <Card title="Configuración IA" icon="brain" style={{ marginBottom: 14 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Persona del prompt</label>
+                            <input value={smartNConfig.promptPersona || ""} onChange={e => setSmartNConfig({ ...smartNConfig, promptPersona: e.target.value })} style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Idioma del prompt</label>
+                            <select value={smartNConfig.promptLanguage || "es"} onChange={e => setSmartNConfig({ ...smartNConfig, promptLanguage: e.target.value })} style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", boxSizing: "border-box" }}>
+                              <option value="es">Español</option>
+                              <option value="en">English</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div style={{ marginBottom: 14 }}>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Override modelo AI (dejar vacío para usar el global)</label>
+                          <input value={smartNConfig.aiModelOverride || ""} onChange={e => setSmartNConfig({ ...smartNConfig, aiModelOverride: e.target.value })} placeholder="ej: gpt-4, qwen2.5-32b..." style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Instrucciones extra para el prompt</label>
+                          <textarea value={smartNConfig.promptExtraInstructions || ""} onChange={e => setSmartNConfig({ ...smartNConfig, promptExtraInstructions: e.target.value })} rows={4} placeholder="Instrucciones adicionales que se añadirán al prompt del análisis AI..." style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+                        </div>
+                      </Card>
+
+                      {/* Card: Email */}
+                      <Card title="Configuración del Email" icon="mail" style={{ marginBottom: 14 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Prefijo del asunto</label>
+                            <input value={smartNConfig.subjectPrefix || ""} onChange={e => setSmartNConfig({ ...smartNConfig, subjectPrefix: e.target.value })} style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Título del email</label>
+                            <input value={smartNConfig.emailTitle || ""} onChange={e => setSmartNConfig({ ...smartNConfig, emailTitle: e.target.value })} style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }} />
+                          </div>
+                        </div>
+                        <div style={{ marginBottom: 14 }}>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Texto introductorio</label>
+                          <textarea value={smartNConfig.introText || ""} onChange={e => setSmartNConfig({ ...smartNConfig, introText: e.target.value })} rows={3} style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Texto del pie</label>
+                          <textarea value={smartNConfig.footerText || ""} onChange={e => setSmartNConfig({ ...smartNConfig, footerText: e.target.value })} rows={2} style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+                        </div>
+                      </Card>
+
+                      {/* Card: Títulos de Secciones */}
+                      <Card title="Títulos de Secciones" icon="edit" style={{ marginBottom: 14 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                          {[
+                            ["sectionExecutiveTitle", "Resumen Ejecutivo"],
+                            ["sectionTopRiskTitle", "Top Riesgo Real"],
+                            ["sectionCorrelationsTitle", "Correlaciones Detectadas"],
+                            ["sectionRoadmapTitle", "Hoja de Ruta de Mitigación"],
+                            ["sectionTechnicalTitle", "Base Técnica Analizada"],
+                          ].map(([key, placeholder]) => (
+                            <div key={key}>
+                              <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>{placeholder}</label>
+                              <input value={smartNConfig[key] || ""} onChange={e => setSmartNConfig({ ...smartNConfig, [key]: e.target.value })} placeholder={placeholder} style={{ width: "100%", padding: "8px 10px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }} />
+                            </div>
+                          ))}
+                        </div>
+                      </Card>
+
+                      {/* Card: Visibilidad de Secciones */}
+                      <Card title="Visibilidad de Secciones" icon="check" style={{ marginBottom: 14 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                          {[
+                            ["showExecutiveSection", "Resumen Ejecutivo"],
+                            ["showStatsSection", "Estadísticas"],
+                            ["showTopRiskSection", "Top Riesgo Real"],
+                            ["showCorrelationsSection", "Correlaciones"],
+                            ["showRoadmapSection", "Hoja de Ruta"],
+                            ["showTechnicalSection", "Tabla Técnica"],
+                          ].map(([key, label]) => (
+                            <label key={key} style={{ fontSize: 12, color: C.gray700, display: "flex", alignItems: "center", gap: 6 }}>
+                              <input type="checkbox" checked={!!smartNConfig[key]} onChange={e => setSmartNConfig({ ...smartNConfig, [key]: e.target.checked })} />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                      </Card>
+
+                      {/* Actions */}
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                        <Btn onClick={async () => {
+                          setSmartNConfigLoading(true);
+                          try {
+                            const res = await apiFetch("/smart-notifications/config");
+                            const data = await res.json();
+                            setSmartNConfig(data);
+                            setSmartNConfigMsg({ type: "success", text: "Configuración recargada" });
+                          } catch (e) {
+                            setSmartNConfigMsg({ type: "error", text: e.message });
+                          } finally { setSmartNConfigLoading(false); }
+                          setTimeout(() => setSmartNConfigMsg(null), 3000);
+                        }}>Recargar</Btn>
+                        <Btn primary onClick={async () => {
+                          setSmartNConfigSaving(true);
+                          try {
+                            const res = await apiFetch("/smart-notifications/config", { method: "POST", body: JSON.stringify(smartNConfig) });
+                            if (!res.ok) throw new Error("Error guardando configuración");
+                            const data = await res.json();
+                            setSmartNConfig(data);
+                            setSmartNConfigMsg({ type: "success", text: "Configuración guardada correctamente" });
+                          } catch (e) {
+                            setSmartNConfigMsg({ type: "error", text: e.message });
+                          } finally { setSmartNConfigSaving(false); }
+                          setTimeout(() => setSmartNConfigMsg(null), 4000);
+                        }} disabled={smartNConfigSaving}>
+                          {smartNConfigSaving ? "Guardando..." : "Guardar configuración"}
+                        </Btn>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+
+              {/* ── Tab: Historial ── */}
+              {notifTab === "history" && (
+                <Card title="Historial de Notificaciones" icon="mail" noPad>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead><tr style={{ background: C.gray50 }}>
+                      {["Fecha", "Destinatario", "Asunto", "Template", "Estado"].map(h => (
+                        <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", borderBottom: `2px solid ${C.gray200}` }}>{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>{notifHistory.length === 0 ? (
+                      <tr><td colSpan={5} style={{ padding: 30, textAlign: "center", color: C.gray400, fontSize: 12 }}>No hay notificaciones enviadas aún</td></tr>
+                    ) : notifHistory.map(n => (
+                      <tr key={n.id} className="rh" style={{ cursor: "pointer" }} onClick={() => viewNotification(n.id)}>
+                        <td style={{ padding: "8px 12px", fontSize: 10, fontFamily: "monospace" }}>{fmtDate(n.sentAt)}</td>
+                        <td style={{ padding: "8px 12px", fontSize: 11 }}>{n.to}</td>
+                        <td style={{ padding: "8px 12px", fontSize: 11, fontWeight: 500 }}>{n.subject}</td>
+                        <td style={{ padding: "8px 12px" }}><span style={{ padding: "2px 8px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: C.bluePale, color: C.blue }}>{n.template || "custom"}</span></td>
+                        <td style={{ padding: "8px 12px" }}><span style={{ color: n.status === "sent" ? C.low : C.critical, fontWeight: 600, fontSize: 10 }}>{n.status === "sent" ? "✓ Enviado" : "✗ Error"}</span></td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </Card>
+              )}
+
               {notifDetail && (
                 <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setNotifDetail(null)}>
                   <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 560, maxHeight: "80vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
@@ -2554,7 +2773,6 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                   {[
                     { id: "subscribers", label: "Suscriptores" },
                     { id: "history", label: "Historial" },
-                    { id: "config", label: "Configuración AI" },
                   ].map(t => (
                     <button key={t.id} onClick={() => {
                       setSmartTab(t.id);
@@ -2782,45 +3000,6 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 </Card>
               )}
 
-              {/* ── Tab: Config ── */}
-              {smartTab === "config" && (
-                <Card title="Configuración del Motor AI" icon="settings">
-                  <div style={{ fontSize: 13, color: C.gray600, marginBottom: 16 }}>
-                    La configuración AI se gestiona desde <strong>Configuración → Motor de IA</strong>. Aquí puede ver el perfil activo y exportar/importar perfiles de análisis.
-                  </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <Btn onClick={async () => {
-                      setSmartMsg(null);
-                      try {
-                        const res = await apiFetch("/smart-notifications/config");
-                        const data = await res.json();
-                        setSmartPreview({ configData: data });
-                        setSmartMsg({ type: "success", text: "Configuración cargada" });
-                      } catch (e) {
-                        setSmartMsg({ type: "error", text: e.message });
-                      }
-                    }}>📋 Ver configuración actual</Btn>
-                    <Btn onClick={async () => {
-                      try {
-                        const res = await apiFetch("/smart-notifications/config/export?format=json");
-                        const data = await res.json();
-                        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement("a");
-                        a.href = url; a.download = "smart-notif-config.json"; a.click();
-                        URL.revokeObjectURL(url);
-                      } catch (e) {
-                        setSmartMsg({ type: "error", text: e.message });
-                      }
-                    }}>💾 Exportar perfil (JSON)</Btn>
-                  </div>
-                  {smartPreview?.configData && (
-                    <div style={{ marginTop: 16, background: C.gray50, padding: 16, borderRadius: 6, fontSize: 12, fontFamily: "monospace", whiteSpace: "pre-wrap", maxHeight: 400, overflow: "auto" }}>
-                      {JSON.stringify(smartPreview.configData, null, 2)}
-                    </div>
-                  )}
-                </Card>
-              )}
             </>}
 
             {/* ═══ REPORTS ═══ */}
