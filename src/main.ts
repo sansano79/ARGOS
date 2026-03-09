@@ -44,10 +44,8 @@ async function bootstrap() {
     }),
   );
 
-  // API prefix
-  app.setGlobalPrefix('api');
-
-  // Swagger (Enabled if ENABLE_SWAGGER is true or if in dev mode)
+  // Swagger: debe configurarse ANTES de setGlobalPrefix para evitar conflictos de rutas
+  // La ruta 'api/docs' es absoluta y no se ve afectada por el prefijo global
   const enableSwagger = process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV !== 'production';
 
   if (enableSwagger) {
@@ -58,9 +56,11 @@ async function bootstrap() {
       .addBearerAuth()
       .build();
     const document = SwaggerModule.createDocument(app, config);
-    // Al usar 'docs' con setGlobalPrefix('api'), la URL será /api/docs
-    SwaggerModule.setup('docs', app, document);
+    SwaggerModule.setup('api/docs', app, document);
   }
+
+  // API prefix (se aplica DESPUÉS de Swagger para no afectar su ruta)
+  app.setGlobalPrefix('api');
 
   const port = process.env.API_PORT || process.env.APP_PORT || 3000;
   await app.listen(port, '0.0.0.0');
