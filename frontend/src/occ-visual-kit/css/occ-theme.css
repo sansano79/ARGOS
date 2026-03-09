@@ -1,0 +1,89 @@
+:root {
+  --occ-primary: #135bec;
+  --occ-primary-hover: #0e4ccc;
+  --occ-bg-page: #f1f5f9;
+  --occ-bg-panel: #ffffff;
+  --occ-bg-sidebar: #020824;
+  --occ-text-primary: #0f172a;
+  --occ-text-muted: #64748b;
+  --occ-border: #cbd5e1;
+  --occ-success: #16a34a;
+  --occ-warning: #d97706;
+  --occ-danger: #dc2626;
+  --occ-radius-sm: 0.5rem;
+  --occ-radius-md: 0.75rem;
+  --occ-radius-lg: 1rem;
+  --occ-radius-xl: 1.25rem;
+  --occ-radius-hero: 2.2rem;
+  --occ-shadow-panel: 0 4px 16px rgba(15, 23, 42, 0.08);
+  --occ-shadow-hero: 0 8px 20px rgba(2, 6, 23, 0.28);
+  --occ-font-sans: Inter, sans-serif;
+  --occ-hero-image: url("../assets/banner_occ_corporate.png");
+  --occ-hero-overlay: linear-gradient(to right, rgba(0, 7, 30, 0.34), rgba(0, 6, 28, 0.05) 55%, rgba(0, 7, 30, 0.16));
+}
+
+html,
+body {
+  font-family: var(--occ-font-sans);
+  background: var(--occ-bg-page);
+  color: var(--occ-text-primary);
+}
+
+body {
+  margin: 0;
+}
+
+.occ-panel {
+  background: var(--occ-bg-panel);
+  border: 1px solid var(--occ-border);
+  border-radius: var(--occ-radius-xl);
+  box-shadow: var(--occ-shadow-panel);
+}
+
+.occ-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+}
+
+.occ-badge.success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.occ-badge.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.occ-badge.danger {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.occ-hero {
+  color: #ffffff;
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--occ-radius-hero);
+  box-shadow: var(--occ-shadow-hero);
+  min-height: 18rem;
+  background-color: #00132b;
+}
+
+.occ-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--occ-hero-image) center / cover no-repeat;
+}
+
+.occ-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--occ-hero-overlay);
+}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import occLogo from "./occ-visual-kit/assets/occ-favicon.svg";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const API_BASE = "/api";
@@ -121,7 +122,7 @@ const SevBadge = ({ s, small }) => (
 );
 
 const Metric = ({ icon, label, value, sub, color = C.navy }) => (
-  <div style={{ background: "#fff", borderRadius: 8, padding: "18px 20px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
+  <div className="occ-panel" style={{ background: "#fff", borderRadius: 18, padding: "18px 20px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
     <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: color }} />
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
       <span style={{ fontSize: 11, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.8px" }}>{label}</span>
@@ -168,7 +169,7 @@ const Input = ({ value, onChange, placeholder, icon, style: s = {} }) => (
 );
 
 const Card = ({ title, icon, action, children, noPad, style: s = {} }) => (
-  <div style={{ background: "#fff", borderRadius: 8, border: `1px solid ${C.gray200}`, overflow: "hidden", ...s }}>
+  <div className="occ-panel" style={{ background: "#fff", borderRadius: 18, border: `1px solid ${C.gray200}`, overflow: "hidden", ...s }}>
     {title && (
       <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.gray100}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -180,6 +181,13 @@ const Card = ({ title, icon, action, children, noPad, style: s = {} }) => (
     )}
     {noPad ? children : <div style={{ padding: 20 }}>{children}</div>}
   </div>
+);
+
+const VisualBanner = () => (
+  <section
+    className="occ-hero occ-hero-clean occ-page-banner"
+    aria-label="Banner institucional OCC"
+  />
 );
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -1363,6 +1371,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
   const nav = isViewer
     ? allNav.filter((n) => viewerAllowedViews.includes(n.id))
     : allNav;
+  const currentSection = nav.find((n) => n.id === view)?.label || "Panel";
   const backfillMetrics = parseMaybeJsonObject(backfillStatus?.job?.metrics);
 
   useEffect(() => {
@@ -1374,11 +1383,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
   return (
     !isLoggedIn ? (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${C.navyDeep} 0%, ${C.navy} 50%, ${C.blue} 100%)`, fontFamily: "'Inter', sans-serif" }}>
-        <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');`}</style>
-        <div style={{ background: "#fff", borderRadius: 16, padding: "40px 36px", width: 380, boxShadow: "0 25px 60px rgba(0,0,0,0.3)" }}>
+      <div className="occ-login-shell" style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "var(--occ-font-sans)" }}>
+        <div className="occ-login-card occ-panel" style={{ background: "#fff", borderRadius: 24, padding: "40px 36px", width: 380 }}>
           <div style={{ textAlign: "center", marginBottom: 28 }}>
-            <div style={{ width: 56, height: 56, background: C.navy, borderRadius: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 900, fontSize: 16, fontFamily: "'JetBrains Mono', monospace", marginBottom: 12 }}>OCC</div>
+            <div style={{ width: 64, height: 64, background: "linear-gradient(135deg, var(--occ-primary) 0%, #3d8bff 100%)", borderRadius: 18, display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 12, padding: 12 }}>
+              <img src={occLogo} alt="OCC" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+            </div>
             <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Servicios OCC</h1>
             <p style={{ fontSize: 11, color: C.gray500, margin: 0, letterSpacing: 1, textTransform: "uppercase" }}>Oficina de Ciberseguridad Corporativa</p>
           </div>
@@ -1453,9 +1463,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         </div>
       </div>
     ) : (
-      <div style={{ display: "flex", minHeight: "100vh", background: C.gray50, fontFamily: "'Inter', -apple-system, sans-serif" }}>
+      <div className="occ-app-shell" style={{ display: "flex", minHeight: "100vh", background: "var(--occ-bg-page)", fontFamily: "var(--occ-font-sans)" }}>
         <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap');
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
         @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
         @keyframes spin { to{transform:rotate(360deg)} }
@@ -1468,15 +1477,17 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
       `}</style>
 
         {/* ── SIDEBAR ── */}
-        <nav style={{ width: sw, background: `linear-gradient(180deg, ${C.navyDeep} 0%, ${C.navyDark} 100%)`, color: "#fff", position: "fixed", top: 0, left: 0, height: "100vh", zIndex: 100, transition: "width 0.2s ease", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ padding: collapsed ? "16px 12px" : "16px 18px", borderBottom: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, background: C.blue, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 10, flexShrink: 0, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.5px" }}>OCC</div>
-            {!collapsed && <div><div style={{ fontSize: 13, fontWeight: 700 }}>Servicios OCC</div><div style={{ fontSize: 8, color: C.gray500, letterSpacing: "1.5px", textTransform: "uppercase" }}>Oficina Ciberseguridad</div></div>}
+        <nav className="occ-sidebar" style={{ width: sw, position: "fixed", top: 0, left: 0, height: "100vh", zIndex: 100, transition: "width 0.2s ease", overflow: "hidden" }}>
+          <div className="occ-brand" style={{ padding: collapsed ? "16px 12px" : "18px", borderBottom: "1px solid rgba(255,255,255,0.07)", justifyContent: collapsed ? "center" : "flex-start" }}>
+            <div className="occ-brand-logo" style={{ width: 40, height: 40, borderRadius: 12, flexShrink: 0, padding: 8 }}>
+              <img src={occLogo} alt="OCC" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+            </div>
+            {!collapsed && <div><div style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>Servicios OCC</div><div className="occ-brand-subtitle">Oficina de Ciberseguridad Corporativa</div></div>}
           </div>
           <div style={{ flex: 1, padding: "12px 0", overflowY: "auto" }}>
             {!collapsed && <div style={{ padding: "4px 18px 8px", fontSize: 8, fontWeight: 700, color: C.gray500, letterSpacing: "2px", textTransform: "uppercase" }}>Módulos</div>}
             {nav.map(n => (
-              <div key={n.id} onClick={() => setView(n.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: collapsed ? "10px 18px" : "9px 18px", cursor: "pointer", color: view === n.id ? "#fff" : C.gray500, background: view === n.id ? "rgba(59,108,181,0.15)" : "transparent", borderLeft: view === n.id ? `3px solid ${C.blue}` : "3px solid transparent", transition: "all 0.12s" }} onMouseEnter={e => { if (view !== n.id) e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }} onMouseLeave={e => { if (view !== n.id) e.currentTarget.style.background = "transparent"; }}>
+              <div className="occ-sidebar-nav-item" key={n.id} onClick={() => setView(n.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: collapsed ? "10px 18px" : "11px 18px", cursor: "pointer", color: view === n.id ? "#fff" : C.gray500, background: view === n.id ? "rgba(19,91,236,0.18)" : "transparent", borderLeft: view === n.id ? `3px solid var(--occ-primary)` : "3px solid transparent", transition: "all 0.12s" }} onMouseLeave={e => { if (view !== n.id) e.currentTarget.style.background = "transparent"; }}>
                 <I name={n.icon} size={17} color={view === n.id ? C.blueLight : C.gray500} />
                 {!collapsed && <span style={{ fontSize: 12, fontWeight: view === n.id ? 600 : 400 }}>{n.label}</span>}
               </div>
@@ -1491,12 +1502,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         </nav>
 
         {/* ── MAIN ── */}
-        <main style={{ flex: 1, marginLeft: sw, transition: "margin-left 0.2s ease", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+        <main className="occ-app-main" style={{ flex: 1, marginLeft: sw, transition: "margin-left 0.2s ease", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
           {/* Header */}
-          <header style={{ height: 52, background: "#fff", borderBottom: `1px solid ${C.gray200}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 22px", position: "sticky", top: 0, zIndex: 50 }}>
+          <header className="occ-topbar" style={{ height: 60, borderBottom: `1px solid ${C.gray200}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 22px", position: "sticky", top: 0, zIndex: 50 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.gray500 }}>
               <span>OCC</span><span style={{ color: C.gray300 }}>/</span>
-              <span style={{ color: C.text, fontWeight: 600 }}>{nav.find(n => n.id === view)?.label}</span>
+              <span style={{ color: C.text, fontWeight: 600 }}>{currentSection}</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <span style={{ fontSize: 10, color: C.gray400, fontFamily: "monospace" }}>
@@ -1508,6 +1519,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
           </header>
 
           <div style={{ padding: 22, flex: 1 }} className="fade" key={view}>
+            <VisualBanner />
 
             {/* ═══ OVERVIEW ═══ */}
             {view === "overview" && <>

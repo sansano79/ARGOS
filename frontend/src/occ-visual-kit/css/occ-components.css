@@ -1,0 +1,134 @@
+.occ-sidebar {
+  width: 18rem;
+  background: var(--occ-bg-sidebar);
+  color: #ffffff;
+  border-right: 1px solid #1e293b;
+  display: flex;
+  flex-direction: column;
+}
+
+.occ-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.5rem;
+}
+
+.occ-brand-logo {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.75rem;
+  background: var(--occ-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.occ-brand-title {
+  margin: 0;
+  color: #ffffff;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.05;
+}
+
+.occ-brand-subtitle {
+  margin: 0.2rem 0 0;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+}
+
+.occ-hero-content {
+  position: relative;
+  z-index: 1;
+  padding: 2.5rem 3rem;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.occ-hero-title {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 4rem);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+}
+
+.occ-hero-subtitle {
+  margin: 0.35rem 0 0;
+  font-size: clamp(1rem, 2vw, 1.75rem);
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.occ-hero-brand {
+  position: absolute;
+  right: 2.5rem;
+  bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  z-index: 1;
+}
+
+.occ-hero-brand-word {
+  color: #ffffff;
+  font-weight: 500;
+  letter-spacing: 0.32em;
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.occ-hero-brand-orb {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 999px;
+  background: linear-gradient(to bottom right, #67e8f9, #3b82f6, #1d4ed8);
+  box-shadow: 0 0 22px rgba(56, 189, 248, 0.72);
+}
+
+.occ-button-primary {
+  border: 0;
+  border-radius: var(--occ-radius-md);
+  background: var(--occ-primary);
+  color: #ffffff;
+  font-weight: 600;
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+}
+
+.occ-button-primary:hover {
+  background: var(--occ-primary-hover);
+}
+
+.occ-input,
+.occ-select {
+  width: 100%;
+  border: 1px solid var(--occ-border);
+  border-radius: var(--occ-radius-md);
+  background: #ffffff;
+  color: var(--occ-text-primary);
+  padding: 0.65rem 0.85rem;
+}
+
+@media (max-width: 900px) {
+  .occ-hero {
+    min-height: 11rem;
+    border-radius: 1.4rem;
+  }
+
+  .occ-hero-content {
+    padding: 1.2rem 1rem;
+  }
+
+  .occ-hero-brand {
+    display: none;
+  }
+}
