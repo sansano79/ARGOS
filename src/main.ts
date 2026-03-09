@@ -47,10 +47,9 @@ async function bootstrap() {
   // API prefix
   app.setGlobalPrefix('api');
 
-  // Swagger (disabled by default in production)
-  const enableSwagger =
-    process.env.ENABLE_SWAGGER === 'true' ||
-    (process.env.NODE_ENV !== 'production' && process.env.ENABLE_SWAGGER !== 'false');
+  // Swagger (Enabled if ENABLE_SWAGGER is true or if in dev mode)
+  const enableSwagger = process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV !== 'production';
+
   if (enableSwagger) {
     const config = new DocumentBuilder()
       .setTitle('Servicios OCC — Vulnerability Collector')
@@ -59,7 +58,8 @@ async function bootstrap() {
       .addBearerAuth()
       .build();
     const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('api/docs', app, document);
+    // Al usar 'docs' con setGlobalPrefix('api'), la URL será /api/docs
+    SwaggerModule.setup('docs', app, document);
   }
 
   const port = process.env.APP_PORT || 3000;

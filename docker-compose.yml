@@ -50,6 +50,7 @@ services:
       NVD_API_KEY: ${NVD_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       BYPASS_AUTH: ${BYPASS_AUTH:-false}
+      ENABLE_SWAGGER: ${ENABLE_SWAGGER:-true}
     ports:
       - "${API_PORT:-3000}:3000"
     volumes:
