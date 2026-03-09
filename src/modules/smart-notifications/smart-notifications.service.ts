@@ -987,27 +987,6 @@ export class SmartNotificationsService {
                 usedFallback = true;
             }
 
-            // Skip email if no correlations detected
-            if (analysis.detectedCorrelations.length === 0) {
-                this.logger.log(
-                    `No correlations detected for subscriber=${subscriberId} (${dataset.subscriber.name}). Skipping email.`,
-                );
-                await (this.prisma as any).smartNotificationReport.update({
-                    where: { id: report.id },
-                    data: {
-                        status: 'no_correlations',
-                        analysisJson: JSON.stringify(analysis),
-                    },
-                });
-                return {
-                    subscriberId,
-                    reportId: report.id,
-                    status: 'skipped',
-                    reason: 'No correlations detected — email not sent',
-                    totalVulnerabilities: dataset.vulnerabilities.length,
-                } as WeeklyRunResult;
-            }
-
             const subject = `${smartConfig.subjectPrefix} — ${dataset.subscriber.name} (${dataset.stats.total} CVEs)`;
             const context = this.buildWeeklyEmailContext(dataset, analysis, smartConfig);
             const html = await this.notificationService.renderTemplate('smart-weekly-report', context);
