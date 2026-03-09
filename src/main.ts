@@ -19,12 +19,14 @@ async function bootstrap() {
 
   // Security
   app.use(helmet.default());
-  const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+  const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
+  const allowedOrigins = corsOrigin
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
+
   app.enableCors({
-    origin: allowedOrigins,
+    origin: corsOrigin === '*' ? true : allowedOrigins,
     credentials: true,
   });
 
@@ -61,10 +63,10 @@ async function bootstrap() {
   }
 
   const port = process.env.APP_PORT || 3000;
-  await app.listen(port);
-  logger.log(`🚀 Servicios OCC API running on http://localhost:${port}`);
+  await app.listen(port, '0.0.0.0');
+  logger.log(`🚀 Servicios OCC API running on http://0.0.0.0:${port}`);
   if (enableSwagger) {
-    logger.log(`📚 Swagger docs: http://localhost:${port}/api/docs`);
+    logger.log(`📚 Swagger docs: http://0.0.0.0:${port}/api/docs`);
   } else {
     logger.log('📚 Swagger docs disabled');
   }
