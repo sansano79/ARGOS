@@ -13,6 +13,7 @@ import { TagsModule } from './modules/tags/tags.module';
 import { ManufacturersModule } from './modules/manufacturers/manufacturers.module';
 import { PasswordResetModule } from './modules/password-reset/password-reset.module';
 import { SmartNotificationsModule } from './modules/smart-notifications/smart-notifications.module';
+import { SubscriberPortalModule } from './modules/subscriber-portal/subscriber-portal.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { SmartNotificationsModule } from './modules/smart-notifications/smart-no
     ManufacturersModule,
     PasswordResetModule,
     SmartNotificationsModule,
+    SubscriberPortalModule,
   ],
 })
 export class AppModule { }

@@ -78,6 +78,50 @@ async function main() {
   });
 
   console.log('  ✔ API configurations created');
+
+  // Test subscriber for AI smart notifications testing
+  console.log('\n🧪 Creating test subscriber for AI testing...');
+  const catalogRows = await prisma.softwareCatalog.findMany({
+    select: { vendor: true, product: true, versions: true },
+  });
+
+  if (catalogRows.length > 0) {
+    const testSubscriber = await prisma.user.upsert({
+      where: { email: 'test-subscriber@servicios-occ.local' },
+      update: {
+        name: 'Test Subscriber (ALL Products)',
+        isSubscriber: true,
+        isActive: true,
+        notificationEmail: 'test-subscriber@servicios-occ.local',
+      },
+      create: {
+        email: 'test-subscriber@servicios-occ.local',
+        name: 'Test Subscriber (ALL Products)',
+        role: 'SUBSCRIBER',
+        canLogin: false,
+        isSubscriber: true,
+        isActive: true,
+        notificationEmail: 'test-subscriber@servicios-occ.local',
+        notes: 'Test subscriber auto-generated. Subscribed to ALL products in the catalog for AI smart notification testing.',
+      },
+    });
+
+    // Delete existing subscriptions and create new ones for all products
+    await prisma.userSubscription.deleteMany({ where: { userId: testSubscriber.id } });
+    await prisma.userSubscription.createMany({
+      data: catalogRows.map((row) => ({
+        userId: testSubscriber.id,
+        vendor: row.vendor,
+        product: row.product,
+        versions: row.versions,
+        isActive: true,
+      })),
+      skipDuplicates: true,
+    });
+
+    console.log(`  ✔ Test subscriber: ${testSubscriber.name} (${catalogRows.length} subscriptions)`);
+  }
+
   console.log('🌱 Seed completed!');
 }
 

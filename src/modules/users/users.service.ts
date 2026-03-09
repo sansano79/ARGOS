@@ -127,7 +127,7 @@ export class UsersService {
 
         const canLogin = data.canLogin !== false;
         const isSubscriber = data.isSubscriber === true;
-        const role = canLogin ? (data.role || 'USER') : 'SUBSCRIBER';
+        const role = isSubscriber ? 'SUBSCRIBER' : (canLogin ? (data.role || 'USER') : 'SUBSCRIBER');
         const subscriptionItems = this.normalizeSubscriptions(data.subscriptions || []);
         const notificationEmail = isSubscriber ? (data.notificationEmail || data.email) : null;
 
@@ -203,7 +203,7 @@ export class UsersService {
 
         const canLogin = data.canLogin ?? existing.canLogin;
         const isSubscriber = data.isSubscriber ?? existing.isSubscriber;
-        const role = data.role ?? (canLogin ? existing.role : 'SUBSCRIBER');
+        const role = isSubscriber ? 'SUBSCRIBER' : (data.role ?? (canLogin ? existing.role : 'SUBSCRIBER'));
         const userEmail = data.email ?? existing.email;
         const notificationEmail = isSubscriber
             ? (data.notificationEmail || existing.notificationEmail || userEmail)
@@ -213,7 +213,7 @@ export class UsersService {
         const updateData: any = {};
         if (data.email) updateData.email = data.email;
         if (data.name) updateData.name = data.name;
-        updateData.role = canLogin ? role : 'SUBSCRIBER';
+        updateData.role = role;
         updateData.canLogin = canLogin;
         updateData.isSubscriber = isSubscriber;
         updateData.notificationEmail = notificationEmail;

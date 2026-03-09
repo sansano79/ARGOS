@@ -41,6 +41,7 @@ model User {
   defenderActions DefenderActionRequest[] @relation("defender_action_requests")
   notificationPolicy NotificationPolicy?
   pendingDigestNotifications PendingDigestNotification[]
+  patchedCves     SubscriberPatchedCve[]
 
   @@map("users")
 }
@@ -404,6 +405,23 @@ model DefenderActionRequest {
 
   @@index([subscriberUserId])
   @@map("defender_action_requests")
+}
+
+model SubscriberPatchedCve {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  cveId     String   @map("cve_id")
+  patchedAt DateTime @default(now()) @map("patched_at")
+  notes     String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cveId])
+  @@index([userId])
+  @@index([cveId])
+  @@map("subscriber_patched_cves")
 }
 
 // ══════════════════════════════════════════════════════════════
