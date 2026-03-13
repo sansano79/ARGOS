@@ -13,35 +13,35 @@ datasource db {
 // ══════════════════════════════════════════════════════════════
 
 model User {
-  id              Int       @id @default(autoincrement())
-  email           String    @unique
-  passwordHash    String?   @map("password_hash")
-  name            String
-  role            String    @default("USER")
-  canLogin        Boolean   @default(true) @map("can_login")
-  isSubscriber    Boolean   @default(false) @map("is_subscriber")
-  notificationEmail String? @map("notification_email")
-  contactPerson   String?   @map("contact_person")
-  department      String?
-  phone           String?
-  notes           String?   @db.Text
-  isActive        Boolean   @default(true) @map("is_active")
-  lastLoginAt     DateTime? @map("last_login_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id                Int       @id @default(autoincrement())
+  email             String    @unique
+  passwordHash      String?   @map("password_hash")
+  name              String
+  role              String    @default("USER")
+  canLogin          Boolean   @default(true) @map("can_login")
+  isSubscriber      Boolean   @default(false) @map("is_subscriber")
+  notificationEmail String?   @map("notification_email")
+  contactPerson     String?   @map("contact_person")
+  department        String?
+  phone             String?
+  notes             String?   @db.Text
+  isActive          Boolean   @default(true) @map("is_active")
+  lastLoginAt       DateTime? @map("last_login_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  sessions        UserSession[]
-  reports         VulnerabilityReport[]
-  apiConfigs      ApiConfiguration[]
-  collectorRuns   CollectorRun[]
-  subscriptions   UserSubscription[]
-  subscriberNotifications VulnerabilityNotification[] @relation("subscriber_notifications")
-  ownedSystems    SubscriberOwnedSystem[] @relation("subscriber_owned_systems")
-  smartReports    SmartNotificationReport[] @relation("smart_notification_reports")
-  defenderActions DefenderActionRequest[] @relation("defender_action_requests")
-  notificationPolicy NotificationPolicy?
+  sessions                   UserSession[]
+  reports                    VulnerabilityReport[]
+  apiConfigs                 ApiConfiguration[]
+  collectorRuns              CollectorRun[]
+  subscriptions              UserSubscription[]
+  subscriberNotifications    VulnerabilityNotification[] @relation("subscriber_notifications")
+  ownedSystems               SubscriberOwnedSystem[]     @relation("subscriber_owned_systems")
+  smartReports               SmartNotificationReport[]   @relation("smart_notification_reports")
+  defenderActions            DefenderActionRequest[]     @relation("defender_action_requests")
+  notificationPolicy         NotificationPolicy?
   pendingDigestNotifications PendingDigestNotification[]
-  patchedCves     SubscriberPatchedCve[]
+  patchedCves                SubscriberPatchedCve[]
 
   @@map("users")
 }
@@ -98,42 +98,71 @@ model PasswordReset {
 // ══════════════════════════════════════════════════════════════
 
 model Vulnerability {
-  id                 Int      @id @default(autoincrement())
-  cveId              String   @unique @map("cve_id")
+  id    Int    @id @default(autoincrement())
+  cveId String @unique @map("cve_id")
 
-  description        String?  @db.MediumText
-  publishedAt        DateTime @map("published_at")
-  lastModifiedAt     DateTime? @map("last_modified_at")
+  description    String?   @db.MediumText
+  publishedAt    DateTime  @map("published_at")
+  lastModifiedAt DateTime? @map("last_modified_at")
 
-  cvssV31Score       Float?   @map("cvss_v31_score")
-  cvssV31Vector      String?  @map("cvss_v31_vector")
-  cvssV31Severity    String?  @map("cvss_v31_severity")
-  epssScore          Float?   @map("epss_score")
-  epssPercentile     Float?   @map("epss_percentile")
+  cvssV31Score    Float?  @map("cvss_v31_score")
+  cvssV31Vector   String? @map("cvss_v31_vector")
+  cvssV31Severity String? @map("cvss_v31_severity")
+  epssScore       Float?  @map("epss_score")
+  epssPercentile  Float?  @map("epss_percentile")
 
-  isKnownExploited   Boolean  @default(false) @map("is_known_exploited")
-  kevDateAdded       DateTime? @map("kev_date_added")
-  kevDueDate         DateTime? @map("kev_due_date")
-  hasPublicExploit   Boolean  @default(false) @map("has_public_exploit")
-  exploitReferences  String?  @map("exploit_references") @db.LongText
-  references         String?  @db.LongText
+  isKnownExploited  Boolean   @default(false) @map("is_known_exploited")
+  kevDateAdded      DateTime? @map("kev_date_added")
+  kevDueDate        DateTime? @map("kev_due_date")
+  hasPublicExploit  Boolean   @default(false) @map("has_public_exploit")
+  exploitReferences String?   @map("exploit_references") @db.LongText
+  references        String?   @db.LongText
 
-  affectedProducts   String?  @map("affected_products") @db.LongText
-  remediationInfo    String?  @map("remediation_info")  @db.LongText
+  affectedProducts     String? @map("affected_products") @db.LongText
+  remediationInfo      String? @map("remediation_info") @db.LongText
+  operationalRiskScore Float?  @map("operational_risk_score")
+  operationalRiskTier  String? @map("operational_risk_tier")
+  riskSignals          String? @map("risk_signals") @db.LongText
+  dataConfidence       Float?  @map("data_confidence")
 
-  source             String   @default("nvd")
-  rawData            String?  @map("raw_data") @db.LongText
+  exploitStatus        String?   @map("exploit_status")
+  exploitConfidence    Float?    @map("exploit_confidence")
+  exploitFirstSeenAt   DateTime? @map("exploit_first_seen_at")
+  exploitLastCheckedAt DateTime? @map("exploit_last_checked_at")
 
-  processingStatus   String   @default("new") @map("processing_status")
-  firstSeenAt        DateTime @default(now()) @map("first_seen_at")
-  enrichedAt         DateTime? @map("enriched_at")
+  primaryVendor            String? @map("primary_vendor")
+  primaryProduct           String? @map("primary_product")
+  affectedProductsDetailed String? @map("affected_products_detailed") @db.LongText
+  affectedCpes             String? @map("affected_cpes") @db.LongText
 
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  patchAvailable         Boolean? @map("patch_available")
+  patchPriority          String?  @map("patch_priority")
+  fixedVersions          String?  @map("fixed_versions") @db.LongText
+  workarounds            String?  @map("workarounds") @db.LongText
+  detectionOpportunities String?  @map("detection_opportunities") @db.LongText
 
-  tags               VulnerabilityTag[]
-  notifications      VulnerabilityNotification[]
-  pendingDigestNotifications PendingDigestNotification[]
+  sourceCount          Int       @default(1) @map("source_count")
+  sourcesPresent       String?   @map("sources_present") @db.LongText
+  canonicalSource      String?   @map("canonical_source")
+  recordStatus         String?   @map("record_status")
+  lastChangeDetectedAt DateTime? @map("last_change_detected_at")
+
+  source  String  @default("nvd")
+  rawData String? @map("raw_data") @db.LongText
+
+  processingStatus String    @default("new") @map("processing_status")
+  firstSeenAt      DateTime  @default(now()) @map("first_seen_at")
+  enrichedAt       DateTime? @map("enriched_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tags                        VulnerabilityTag[]
+  notifications               VulnerabilityNotification[]
+  pendingDigestNotifications  PendingDigestNotification[]
+  changeEvents                VulnerabilityChangeEvent[]
+  sourceRecords               VulnerabilitySourceRecord[]
+  vulnerabilityProductImpacts VulnerabilityProductImpact[]
 
   @@index([cveId])
   @@index([cvssV31Severity])
@@ -142,7 +171,215 @@ model Vulnerability {
   @@index([processingStatus])
   @@index([epssScore(sort: Desc)])
   @@index([firstSeenAt(sort: Desc)])
+  @@index([operationalRiskScore])
+  @@index([operationalRiskTier])
+  @@index([primaryVendor])
+  @@index([primaryProduct])
+  @@index([exploitStatus])
+  @@index([recordStatus])
+  @@index([lastChangeDetectedAt])
   @@map("vulnerabilities")
+}
+
+model VulnerabilityChangeEvent {
+  id              Int      @id @default(autoincrement())
+  vulnerabilityId Int      @map("vulnerability_id")
+  cveId           String   @map("cve_id")
+  source          String
+  changeType      String   @map("change_type")
+  fieldName       String   @map("field_name")
+  oldValue        String?  @map("old_value") @db.LongText
+  newValue        String?  @map("new_value") @db.LongText
+  isSignificant   Boolean  @default(false) @map("is_significant")
+  summary         String?  @db.Text
+  detectedAt      DateTime @default(now()) @map("detected_at")
+
+  vulnerability Vulnerability @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
+
+  @@index([vulnerabilityId, detectedAt(sort: Desc)])
+  @@index([cveId, detectedAt(sort: Desc)])
+  @@index([changeType])
+  @@index([isSignificant, detectedAt(sort: Desc)])
+  @@map("vulnerability_change_events")
+}
+
+model VulnerabilitySourceRecord {
+  id                Int       @id @default(autoincrement())
+  vulnerabilityId   Int       @map("vulnerability_id")
+  cveId             String    @map("cve_id")
+  sourceName        String    @map("source_name")
+  sourceRecordId    String?   @map("source_record_id")
+  sourceUrl         String?   @map("source_url")
+  sourcePublishedAt DateTime? @map("source_published_at")
+  sourceModifiedAt  DateTime? @map("source_modified_at")
+  confidence        Float?    @map("confidence")
+  rawPayload        String?   @map("raw_payload") @db.LongText
+  normalizedData    String?   @map("normalized_data") @db.LongText
+  firstSeenAt       DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt        DateTime  @default(now()) @map("last_seen_at")
+  isCanonical       Boolean   @default(false) @map("is_canonical")
+
+  vulnerability Vulnerability @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
+
+  @@unique([cveId, sourceName])
+  @@index([vulnerabilityId])
+  @@index([sourceName, lastSeenAt(sort: Desc)])
+  @@map("vulnerability_source_records")
+}
+
+model CollectorSourceHealth {
+  id             Int      @id @default(autoincrement())
+  source         String
+  runDate        DateTime @default(now()) @map("run_date")
+  fetchStatus    String   @map("fetch_status")
+  itemsFetched   Int      @default(0) @map("items_fetched")
+  itemsProcessed Int      @default(0) @map("items_processed")
+  itemsErrored   Int      @default(0) @map("items_errored")
+  durationMs     Int?     @map("duration_ms")
+  anomalyFlags   String?  @map("anomaly_flags") @db.LongText
+  errorMessage   String?  @map("error_message") @db.Text
+
+  @@index([source, runDate(sort: Desc)])
+  @@map("collector_source_health")
+}
+
+model ProductAsset {
+  id            Int       @id @default(autoincrement())
+  name          String
+  slug          String    @unique
+  owner         String?
+  environment   String?
+  criticality   String?
+  productType   String    @default("unknown") @map("product_type")
+  source        String    @default("manual")
+  version       String?
+  repositoryUrl String?   @map("repository_url")
+  isActive      Boolean   @default(true) @map("is_active")
+  lastSeenAt    DateTime? @map("last_seen_at")
+  metadata      String?   @db.LongText
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  dependencyImports    DependencyEvidenceImport[]
+  dependencyInventory  ProductDependencyInventory[]
+  vulnerabilityImpacts VulnerabilityProductImpact[]
+
+  @@index([name])
+  @@index([slug])
+  @@index([environment])
+  @@index([criticality])
+  @@index([productType])
+  @@index([isActive])
+  @@map("product_assets")
+}
+
+model DependencyEvidenceImport {
+  id                Int      @id @default(autoincrement())
+  productAssetId    Int      @map("product_asset_id")
+  importType        String   @map("import_type")
+  importStatus      String   @default("pending") @map("import_status")
+  importedAt        DateTime @default(now()) @map("imported_at")
+  checksum          String?
+  sourceName        String?  @map("source_name")
+  sourcePath        String?  @map("source_path")
+  rawPayload        String?  @map("raw_payload") @db.LongText
+  normalizedSummary String?  @map("normalized_summary") @db.LongText
+  errorMessage      String?  @map("error_message") @db.Text
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  productAsset ProductAsset                 @relation(fields: [productAssetId], references: [id], onDelete: Cascade)
+  dependencies ProductDependencyInventory[]
+
+  @@index([productAssetId])
+  @@index([importType])
+  @@index([importStatus])
+  @@index([importedAt(sort: Desc)])
+  @@map("dependency_evidence_imports")
+}
+
+model ProductDependencyInventory {
+  id                         Int      @id @default(autoincrement())
+  productAssetId             Int      @map("product_asset_id")
+  dependencyEvidenceImportId Int?     @map("dependency_evidence_import_id")
+  componentName              String   @map("component_name")
+  componentVendor            String?  @map("component_vendor")
+  componentVersion           String?  @map("component_version")
+  componentType              String   @default("unknown") @map("component_type")
+  ecosystem                  String   @default("unknown")
+  purl                       String?
+  cpe                        String?
+  evidenceSource             String   @map("evidence_source")
+  evidencePath               String?  @map("evidence_path")
+  directDependency           Boolean? @map("direct_dependency")
+  devDependency              Boolean? @map("dev_dependency")
+  reachable                  Boolean?
+  confidence                 Float?
+  firstSeenAt                DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt                 DateTime @default(now()) @map("last_seen_at")
+  rawEvidence                String?  @map("raw_evidence") @db.LongText
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
+
+  productAsset             ProductAsset                 @relation(fields: [productAssetId], references: [id], onDelete: Cascade)
+  dependencyEvidenceImport DependencyEvidenceImport?    @relation(fields: [dependencyEvidenceImportId], references: [id], onDelete: SetNull)
+  vulnerabilityImpacts     VulnerabilityProductImpact[]
+
+  @@index([productAssetId])
+  @@index([dependencyEvidenceImportId])
+  @@index([componentName])
+  @@index([componentVendor])
+  @@index([componentVersion])
+  @@index([componentType])
+  @@index([ecosystem])
+  @@index([purl])
+  @@index([cpe])
+  @@index([evidenceSource])
+  @@index([lastSeenAt(sort: Desc)])
+  @@map("product_dependency_inventory")
+}
+
+model VulnerabilityProductImpact {
+  id                      Int       @id @default(autoincrement())
+  vulnerabilityId         Int       @map("vulnerability_id")
+  cveId                   String    @map("cve_id")
+  productAssetId          Int       @map("product_asset_id")
+  dependencyInventoryId   Int?      @map("dependency_inventory_id")
+  impactType              String    @map("impact_type")
+  impactStatus            String    @default("open") @map("impact_status")
+  confidence              Float?
+  evidenceSource          String    @map("evidence_source")
+  evidenceSummary         String?   @map("evidence_summary") @db.Text
+  matchedComponentName    String?   @map("matched_component_name")
+  matchedComponentVendor  String?   @map("matched_component_vendor")
+  matchedComponentVersion String?   @map("matched_component_version")
+  fixedVersion            String?   @map("fixed_version")
+  isDirectDependency      Boolean?  @map("is_direct_dependency")
+  isRuntimeRelevant       Boolean?  @map("is_runtime_relevant")
+  reachable               Boolean?
+  notes                   String?   @db.Text
+  firstDetectedAt         DateTime  @default(now()) @map("first_detected_at")
+  lastValidatedAt         DateTime? @map("last_validated_at")
+  resolvedAt              DateTime? @map("resolved_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  vulnerability       Vulnerability               @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
+  productAsset        ProductAsset                @relation(fields: [productAssetId], references: [id], onDelete: Cascade)
+  dependencyInventory ProductDependencyInventory? @relation(fields: [dependencyInventoryId], references: [id], onDelete: SetNull)
+
+  @@unique([vulnerabilityId, productAssetId, dependencyInventoryId])
+  @@index([vulnerabilityId])
+  @@index([cveId])
+  @@index([productAssetId])
+  @@index([dependencyInventoryId])
+  @@index([impactType])
+  @@index([impactStatus])
+  @@index([confidence])
+  @@index([evidenceSource])
+  @@index([firstDetectedAt(sort: Desc)])
+  @@index([lastValidatedAt(sort: Desc)])
+  @@map("vulnerability_product_impacts")
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -161,8 +398,8 @@ model VulnerabilityReport {
   filePath       String?  @map("file_path")
   generatedBy    Int?     @map("generated_by")
 
-  user           User?    @relation(fields: [generatedBy], references: [id])
-  createdAt      DateTime @default(now()) @map("created_at")
+  user      User?    @relation(fields: [generatedBy], references: [id])
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@map("vulnerability_reports")
 }
@@ -172,21 +409,21 @@ model VulnerabilityReport {
 // ══════════════════════════════════════════════════════════════
 
 model CollectorRun {
-  id           Int       @id @default(autoincrement())
-  startedAt    DateTime  @default(now()) @map("started_at")
-  finishedAt   DateTime? @map("finished_at")
-  source       String
-  cvesFetched  Int       @default(0) @map("cves_fetched")
-  cvesNew      Int       @default(0) @map("cves_new")
-  cvesUpdated  Int       @default(0) @map("cves_updated")
-  manufacturersNew Int   @default(0) @map("manufacturers_new")
-  productsNew  Int       @default(0) @map("products_new")
-  status       String
-  errorMessage String?   @map("error_message")
-  durationMs   Int?      @map("duration_ms")
-  triggeredBy  Int?      @map("triggered_by")
+  id               Int       @id @default(autoincrement())
+  startedAt        DateTime  @default(now()) @map("started_at")
+  finishedAt       DateTime? @map("finished_at")
+  source           String
+  cvesFetched      Int       @default(0) @map("cves_fetched")
+  cvesNew          Int       @default(0) @map("cves_new")
+  cvesUpdated      Int       @default(0) @map("cves_updated")
+  manufacturersNew Int       @default(0) @map("manufacturers_new")
+  productsNew      Int       @default(0) @map("products_new")
+  status           String
+  errorMessage     String?   @map("error_message")
+  durationMs       Int?      @map("duration_ms")
+  triggeredBy      Int?      @map("triggered_by")
 
-  user         User?     @relation(fields: [triggeredBy], references: [id])
+  user User? @relation(fields: [triggeredBy], references: [id])
 
   @@index([startedAt(sort: Desc)])
   @@map("collector_runs")
@@ -197,20 +434,20 @@ model CollectorRun {
 // ══════════════════════════════════════════════════════════════
 
 model ApiConfiguration {
-  id                Int       @id @default(autoincrement())
-  name              String
-  slug              String    @unique
-  provider          String
-  apiKeyEncrypted   String?   @map("api_key_encrypted")
-  endpointUrl       String?   @map("endpoint_url")
-  settings          String?   @db.LongText
-  isActive          Boolean   @default(true) @map("is_active")
-  lastUsedAt        DateTime? @map("last_used_at")
-  createdBy         Int?      @map("created_by")
+  id              Int       @id @default(autoincrement())
+  name            String
+  slug            String    @unique
+  provider        String
+  apiKeyEncrypted String?   @map("api_key_encrypted")
+  endpointUrl     String?   @map("endpoint_url")
+  settings        String?   @db.LongText
+  isActive        Boolean   @default(true) @map("is_active")
+  lastUsedAt      DateTime? @map("last_used_at")
+  createdBy       Int?      @map("created_by")
 
-  user              User?     @relation(fields: [createdBy], references: [id])
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  user      User?    @relation(fields: [createdBy], references: [id])
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([provider])
   @@map("api_configurations")
@@ -232,7 +469,7 @@ model NotificationLog {
   recipientEmail String   @map("recipient_email")
   recipientName  String?  @map("recipient_name")
   subject        String
-  htmlContent    String   @db.Text @map("html_content")
+  htmlContent    String   @map("html_content") @db.Text
   cveIds         String   @default("[]") @map("cve_ids")
   status         String   @default("sent")
   sentAt         DateTime @default(now()) @map("sent_at")
@@ -246,10 +483,10 @@ model NotificationLog {
 // ══════════════════════════════════════════════════════════════
 
 model VulnerabilityTag {
-  id              Int               @id @default(autoincrement())
-  name            String            @unique
-  color           String            @default("#3B6CB5")
-  isAutoGenerated Boolean           @default(false) @map("is_auto_generated")
+  id              Int     @id @default(autoincrement())
+  name            String  @unique
+  color           String  @default("#3B6CB5")
+  isAutoGenerated Boolean @default(false) @map("is_auto_generated")
 
   vulnerabilities Vulnerability[]
 
@@ -261,19 +498,19 @@ model VulnerabilityTag {
 // ══════════════════════════════════════════════════════════════
 
 model VulnerabilityNotification {
-  id              Int      @id @default(autoincrement())
-  vulnerabilityId Int      @map("vulnerability_id")
-  contactId       Int?     @map("contact_id")
-  subscriberUserId Int?    @map("subscriber_user_id")
-  recipientEmail  String   @map("recipient_email")
-  recipientName   String?  @map("recipient_name")
-  sentAt          DateTime @default(now()) @map("sent_at")
-  status          String   @default("sent")
-  notificationLogId Int?   @map("notification_log_id")
+  id                Int      @id @default(autoincrement())
+  vulnerabilityId   Int      @map("vulnerability_id")
+  contactId         Int?     @map("contact_id")
+  subscriberUserId  Int?     @map("subscriber_user_id")
+  recipientEmail    String   @map("recipient_email")
+  recipientName     String?  @map("recipient_name")
+  sentAt            DateTime @default(now()) @map("sent_at")
+  status            String   @default("sent")
+  notificationLogId Int?     @map("notification_log_id")
 
-  vulnerability   Vulnerability @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
+  vulnerability  Vulnerability @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
   // contact relation removed — contactId kept for historical data
-  subscriberUser  User?         @relation("subscriber_notifications", fields: [subscriberUserId], references: [id], onDelete: SetNull)
+  subscriberUser User?         @relation("subscriber_notifications", fields: [subscriberUserId], references: [id], onDelete: SetNull)
 
   @@index([vulnerabilityId])
   @@index([contactId])
@@ -287,12 +524,12 @@ model VulnerabilityNotification {
 // ══════════════════════════════════════════════════════════════
 
 model SoftwareCatalog {
-  id          Int      @id @default(autoincrement())
-  vendor      String
-  product     String
-  versions    String?  @db.Text
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id        Int      @id @default(autoincrement())
+  vendor    String
+  product   String
+  versions  String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([vendor, product])
   @@index([vendor])
@@ -325,7 +562,7 @@ model UserSubscription {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, vendor, product])
   @@index([userId])
@@ -354,7 +591,7 @@ model SmartNotificationReport {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  subscriber       User      @relation("smart_notification_reports", fields: [subscriberUserId], references: [id], onDelete: Cascade)
+  subscriber User @relation("smart_notification_reports", fields: [subscriberUserId], references: [id], onDelete: Cascade)
 
   @@index([subscriberUserId])
   @@index([periodEnd(sort: Desc)])
@@ -382,7 +619,7 @@ model SubscriberOwnedSystem {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  subscriber       User      @relation("subscriber_owned_systems", fields: [subscriberUserId], references: [id], onDelete: Cascade)
+  subscriber User @relation("subscriber_owned_systems", fields: [subscriberUserId], references: [id], onDelete: Cascade)
 
   @@unique([subscriberUserId, externalId])
   @@index([subscriberUserId])
@@ -390,18 +627,18 @@ model SubscriberOwnedSystem {
 }
 
 model DefenderActionRequest {
-  id               Int       @id @default(autoincrement())
-  subscriberUserId Int       @map("subscriber_user_id")
-  actionId         String    @map("action_id")
-  actionName       String    @map("action_name")
+  id                Int      @id @default(autoincrement())
+  subscriberUserId  Int      @map("subscriber_user_id")
+  actionId          String   @map("action_id")
+  actionName        String   @map("action_name")
   systemExternalIds String   @map("system_external_ids") @db.Text
-  status           String    @default("planned")
-  notes            String?   @db.Text
-  requestedBy      String?   @map("requested_by")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  status            String   @default("planned")
+  notes             String?  @db.Text
+  requestedBy       String?  @map("requested_by")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
-  subscriber       User      @relation("defender_action_requests", fields: [subscriberUserId], references: [id], onDelete: Cascade)
+  subscriber User @relation("defender_action_requests", fields: [subscriberUserId], references: [id], onDelete: Cascade)
 
   @@index([subscriberUserId])
   @@map("defender_action_requests")
@@ -441,7 +678,7 @@ model NotificationPolicy {
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
 
-  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notification_policies")
 }
@@ -453,8 +690,8 @@ model PendingDigestNotification {
   vendor          String
   createdAt       DateTime @default(now()) @map("created_at")
 
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  vulnerability   Vulnerability @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vulnerability Vulnerability @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
 
   @@unique([userId, vulnerabilityId])
   @@index([userId])

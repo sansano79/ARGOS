@@ -14,6 +14,7 @@ import { ManufacturersModule } from './modules/manufacturers/manufacturers.modul
 import { PasswordResetModule } from './modules/password-reset/password-reset.module';
 import { SmartNotificationsModule } from './modules/smart-notifications/smart-notifications.module';
 import { SubscriberPortalModule } from './modules/subscriber-portal/subscriber-portal.module';
+import { ProductAssetsModule } from './modules/product-assets/product-assets.module';
 
 @Module({
   imports: [
@@ -34,7 +35,7 @@ import { SubscriberPortalModule } from './modules/subscriber-portal/subscriber-p
     PasswordResetModule,
     SmartNotificationsModule,
     SubscriberPortalModule,
+    ProductAssetsModule,
   ],
 })
 export class AppModule { }
-

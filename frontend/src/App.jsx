@@ -75,6 +75,7 @@ const timeAgo = (d) => { if (!d) return "-"; const s = Math.floor((Date.now() - 
 const fmtDate = (d) => d ? new Date(d).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";
 const fmtEpss = (e) => e != null ? `${(parseFloat(e) * 100).toFixed(1)}%` : "-";
 const fmtScore = (s) => s != null ? parseFloat(s).toFixed(1) : "-";
+const fmtRiskScore = (s) => s != null ? `${Math.round(parseFloat(s))}` : "-";
 const fmtMs = (ms) => ms ? `${(ms / 1000).toFixed(1)}s` : "-";
 const parseMaybeJsonObject = (value) => {
   if (!value) return {};
@@ -83,6 +84,192 @@ const parseMaybeJsonObject = (value) => {
     try { return JSON.parse(value); } catch { return {}; }
   }
   return {};
+};
+const ensureArray = (value) => Array.isArray(value) ? value : value == null ? [] : [value];
+const hasValue = (value) => {
+  if (value == null) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return true;
+};
+const normalizeFieldValue = (value) => {
+  if (value == null) return null;
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try { return JSON.parse(trimmed); } catch { return value; }
+};
+const normalizeFieldList = (value) => {
+  const normalized = normalizeFieldValue(value);
+  if (normalized == null) return [];
+  return Array.isArray(normalized) ? normalized.filter((item) => hasValue(item)) : [normalized];
+};
+const yesNoUnknown = (value) => value === true ? "Sí" : value === false ? "No" : "No informado";
+const fmtConfidence = (value) => value != null ? `${Math.round(parseFloat(value) * 100)}%` : "No informado";
+const describePatchStatus = (value) => value === true ? "Parche disponible" : value === false ? "Sin parche confirmado" : "Estado de parche no informado";
+const toSentence = (value) => String(value || "").replaceAll("_", " ").trim();
+const summarizeTextValue = (value) => {
+  if (value == null) return "-";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try { return JSON.stringify(value); } catch { return String(value); }
+};
+const riskTierMeta = (tier) => ({
+  informational: { label: "Informational", bg: C.gray100, color: C.gray600, border: C.gray300 },
+  monitor: { label: "Monitor", bg: C.infoBg, color: C.info, border: "#BFDBFE" },
+  elevated: { label: "Elevated", bg: C.mediumBg, color: C.medium, border: "#FDE68A" },
+  high: { label: "High", bg: C.highBg, color: C.high, border: "#FED7AA" },
+  urgent: { label: "Urgent", bg: "#FDECEC", color: "#C2410C", border: "#FCA5A5" },
+  emergency: { label: "Emergency", bg: C.criticalBg, color: C.critical, border: "#FCA5A5" },
+}[String(tier || "").toLowerCase()] || { label: tier || "N/A", bg: C.gray100, color: C.gray600, border: C.gray300 });
+const exploitStatusMeta = (status) => ({
+  none: { label: "Sin evidencia", bg: C.gray100, color: C.gray600, border: C.gray300 },
+  mention: { label: "Mención", bg: C.infoBg, color: C.info, border: "#BFDBFE" },
+  poc: { label: "PoC", bg: C.highBg, color: C.high, border: "#FED7AA" },
+  reliable_poc: { label: "PoC fiable", bg: "#FFF1E8", color: "#C2410C", border: "#FDBA74" },
+  active_exploitation: { label: "Explotación activa", bg: C.criticalBg, color: C.critical, border: "#FCA5A5" },
+}[String(status || "").toLowerCase()] || { label: status || "N/A", bg: C.gray100, color: C.gray600, border: C.gray300 });
+const recordStatusMeta = (status) => ({
+  published_basic: { label: "Base NVD", bg: C.gray100, color: C.gray600 },
+  enriched_partial: { label: "Enriquecido parcial", bg: C.infoBg, color: C.info },
+  enriched_full: { label: "Enriquecido completo", bg: C.lowBg, color: C.low },
+}[String(status || "").toLowerCase()] || { label: status || "N/A", bg: C.gray100, color: C.gray600 });
+const componentTypeMeta = (type) => ({
+  application: { label: "Aplicación", bg: C.gray50, color: C.gray700, border: C.gray300 },
+  library: { label: "Librería", bg: C.bluePale, color: C.navy, border: C.gray200 },
+  framework: { label: "Framework", bg: C.infoBg, color: C.info, border: "#BFDBFE" },
+  "os-package": { label: "Paquete SO", bg: C.mediumBg, color: C.medium, border: "#FDE68A" },
+  "platform-context": { label: "Contexto / plataforma", bg: C.gray100, color: C.gray600, border: C.gray300 },
+  unknown: { label: "Tipo no inferido", bg: C.gray100, color: C.gray500, border: C.gray300 },
+}[String(type || "").toLowerCase()] || { label: toSentence(type || "unknown"), bg: C.gray100, color: C.gray600, border: C.gray300 });
+const isUrgentRisk = (tier) => ["urgent", "emergency"].includes(String(tier || "").toLowerCase());
+const hasUnknownPatch = (v) => v?.patchAvailable === false || (!v?.patchAvailable && !(ensureArray(v?.fixedVersions).length));
+const getRowPriorityStyle = (v) => {
+  if (String(v?.exploitStatus || "").toLowerCase() === "active_exploitation" || v?.isKnownExploited) {
+    return { background: C.criticalBg, borderLeft: `4px solid ${C.critical}` };
+  }
+  if (isUrgentRisk(v?.operationalRiskTier)) {
+    return { background: "#FFF8F1", borderLeft: `4px solid ${C.high}` };
+  }
+  if (hasUnknownPatch(v)) {
+    return { background: "#FFFDF7", borderLeft: `4px solid ${C.medium}` };
+  }
+  return { background: "#fff", borderLeft: "4px solid transparent" };
+};
+const getChangeTypeLabel = (type) => ({
+  nvd_ingestion: "Ingesta NVD",
+  kev_enrichment: "KEV",
+  epss_enrichment: "EPSS",
+  exploit_enrichment: "Exploit",
+}[type] || toSentence(type));
+const normalizeSemanticToken = (value) => String(value || "")
+  .trim()
+  .toLowerCase()
+  .replace(/[_\s-]+/g, " ");
+const CONTEXT_TAG_PRIORITY = {
+  "supply chain": 0,
+  "github actions": 1,
+  workflow: 2,
+  "ci cd": 3,
+};
+const productEntityKey = (value) => {
+  const vendor = String(value?.vendor || "").trim().toLowerCase();
+  const product = String(value?.product || "").trim().toLowerCase();
+  return vendor && product ? `${vendor}::${product}` : "";
+};
+const getPreferredAffectedProducts = (v) => {
+  const detailed = normalizeFieldList(v?.affectedProductsDetailed);
+  if (detailed.length > 0) return detailed;
+  return normalizeFieldList(v?.affectedProducts);
+};
+const getOperationalAffectedPairs = (v) => {
+  const semantic = getSemanticSummary(v);
+  const pairs = [];
+  const seen = new Set();
+  const pushPair = (vendor, product) => {
+    const normalizedVendor = String(vendor || "").trim();
+    const normalizedProduct = String(product || "").trim();
+    if (!normalizedVendor || !normalizedProduct) return;
+    const key = `${normalizedVendor.toLowerCase()}::${normalizedProduct.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    pairs.push({ vendor: normalizedVendor, product: normalizedProduct });
+  };
+
+  if (semantic.hasReliablePrimaryEntity && semantic.semanticPrimaryProduct) {
+    pushPair(semantic.semanticPrimaryVendor, semantic.semanticPrimaryProduct);
+  }
+
+  getPreferredAffectedProducts(v).forEach((product) => {
+    if (product && typeof product === "object") {
+      pushPair(product.vendor, product.product);
+    }
+  });
+
+  return pairs;
+};
+const sortContextTags = (tags) => normalizeFieldList(tags).sort((a, b) => {
+  const aa = normalizeSemanticToken(a);
+  const bb = normalizeSemanticToken(b);
+  const pa = CONTEXT_TAG_PRIORITY[aa] ?? 99;
+  const pb = CONTEXT_TAG_PRIORITY[bb] ?? 99;
+  if (pa !== pb) return pa - pb;
+  return aa.localeCompare(bb, "es");
+});
+const getSemanticSummary = (v) => {
+  const contextTags = normalizeFieldList(v?.contextTags);
+  const semanticPrimaryVendor = String(v?.semanticPrimaryVendor || "").trim();
+  const semanticPrimaryProduct = String(v?.semanticPrimaryProduct || "").trim();
+  const componentType = String(v?.componentType || v?.semanticComponentType || "unknown").toLowerCase();
+  const hasReasonablyUsefulPrimary =
+    semanticPrimaryProduct.length > 0 &&
+    componentType !== "platform-context";
+  const hasReliablePrimaryEntity =
+    v?.hasReliablePrimaryEntity === true ||
+    (semanticPrimaryVendor.length > 0 && semanticPrimaryProduct.length > 0) ||
+    hasReasonablyUsefulPrimary;
+  const displayTitle = hasReliablePrimaryEntity
+    ? [semanticPrimaryVendor, semanticPrimaryProduct].filter(Boolean).join(" / ") || semanticPrimaryProduct
+    : "Clasificación pendiente";
+
+  return {
+    semanticPrimaryVendor: semanticPrimaryVendor || null,
+    semanticPrimaryProduct: semanticPrimaryProduct || null,
+    componentType,
+    contextTags,
+    hasReliablePrimaryEntity,
+    displayTitle,
+    displaySubtitle: hasReliablePrimaryEntity
+      ? componentTypeMeta(componentType).label
+      : contextTags.length > 0
+        ? `Contexto: ${contextTags.slice(0, 3).join(", ")}`
+        : "Se evita mostrar un vendor/producto engañoso",
+  };
+};
+const getDisplayContextTags = ({ contextTags, riskSignals = [], tags = [] }) => {
+  const blocked = new Set([
+    ...normalizeFieldList(riskSignals).map((item) => normalizeSemanticToken(item)),
+    ...ensureArray(tags).map((tag) => normalizeSemanticToken(tag?.name || tag)),
+  ]);
+
+  return sortContextTags(normalizeFieldList(contextTags).filter((tag) => {
+    const normalized = normalizeSemanticToken(tag);
+    return normalized && !blocked.has(normalized);
+  }));
+};
+const splitDisplayProducts = (products, semantic) => {
+  const primaryKey = semantic.hasReliablePrimaryEntity
+    ? `${String(semantic.semanticPrimaryVendor || "").trim().toLowerCase()}::${String(semantic.semanticPrimaryProduct || "").trim().toLowerCase()}`
+    : "";
+  const normalized = normalizeFieldList(products);
+  if (!primaryKey) {
+    return { primaryProducts: [], otherProducts: normalized };
+  }
+
+  const primaryProducts = normalized.filter((item) => productEntityKey(item) === primaryKey);
+  const otherProducts = normalized.filter((item) => productEntityKey(item) !== primaryKey);
+  return { primaryProducts, otherProducts };
 };
 
 // ─── SVG Icons ───────────────────────────────────────────────────────────────
@@ -120,6 +307,90 @@ const I = ({ name, size = 18, color = "currentColor" }) => {
 const SevBadge = ({ s, small }) => (
   <span style={{ display: "inline-flex", padding: small ? "1px 6px" : "2px 10px", borderRadius: 3, fontSize: small ? 9 : 10, fontWeight: 700, background: sevColor(s), color: "#fff", letterSpacing: "0.5px", fontFamily: "'JetBrains Mono', monospace" }}>{s}</span>
 );
+
+const SoftBadge = ({ label, bg = C.gray100, color = C.gray700, border = C.gray300, small }) => (
+  <span style={{
+    display: "inline-flex",
+    alignItems: "center",
+    padding: small ? "2px 7px" : "4px 9px",
+    borderRadius: 999,
+    fontSize: small ? 10 : 11,
+    fontWeight: 700,
+    background: bg,
+    color,
+    border: `1px solid ${border}`,
+    lineHeight: 1.1,
+  }}>{label}</span>
+);
+
+const RiskTierBadge = ({ tier, small }) => {
+  const meta = riskTierMeta(tier);
+  return <SoftBadge label={meta.label} bg={meta.bg} color={meta.color} border={meta.border} small={small} />;
+};
+
+const ExploitStatusBadge = ({ status, small }) => {
+  const meta = exploitStatusMeta(status);
+  return <SoftBadge label={meta.label} bg={meta.bg} color={meta.color} border={meta.border} small={small} />;
+};
+
+const RecordStatusBadge = ({ status, small }) => {
+  const meta = recordStatusMeta(status);
+  return <SoftBadge label={meta.label} bg={meta.bg} color={meta.color} border={meta.bg} small={small} />;
+};
+
+const ComponentTypeBadge = ({ type, small }) => {
+  const meta = componentTypeMeta(type);
+  return <SoftBadge label={meta.label} bg={meta.bg} color={meta.color} border={meta.border} small={small} />;
+};
+
+const SignalPill = ({ signal }) => (
+  <span style={{ display: "inline-flex", padding: "4px 9px", borderRadius: 999, fontSize: 10, fontWeight: 700, background: C.bluePale, color: C.navy, border: `1px solid ${C.gray200}` }}>
+    {toSentence(signal)}
+  </span>
+);
+
+const ContextTagPill = ({ tag, small }) => (
+  <SoftBadge
+    label={toSentence(tag)}
+    bg={C.gray50}
+    color={C.gray700}
+    border={C.gray300}
+    small={small}
+  />
+);
+
+const SemanticCompactAffected = ({
+  vuln,
+  small = false,
+  contextLimit = 2,
+  pendingLabel = "Clasificación pendiente",
+  showPendingNote = true,
+}) => {
+  const semantic = getSemanticSummary(vuln);
+  const contextTags = getDisplayContextTags({
+    contextTags: semantic.contextTags,
+    riskSignals: vuln?.riskSignals,
+    tags: vuln?.tags,
+  }).slice(0, contextLimit);
+  const title = semantic.hasReliablePrimaryEntity ? semantic.displayTitle : pendingLabel;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: small ? 4 : 6 }}>
+      <div style={{ fontSize: small ? 11 : 12, fontWeight: 700, color: semantic.hasReliablePrimaryEntity ? C.text : C.gray600, lineHeight: 1.35 }}>
+        {title}
+      </div>
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+        <ComponentTypeBadge type={semantic.componentType} small={small} />
+        {contextTags.map((tag) => <ContextTagPill key={tag} tag={tag} small={small} />)}
+      </div>
+      {!semantic.hasReliablePrimaryEntity && showPendingNote && (
+        <div style={{ fontSize: small ? 10 : 11, color: C.gray500, lineHeight: 1.4 }}>
+          {semantic.displaySubtitle}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const Metric = ({ icon, label, value, sub, color = C.navy }) => (
   <div className="occ-panel" style={{ background: "#fff", borderRadius: 18, padding: "18px 20px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
@@ -182,6 +453,161 @@ const Card = ({ title, icon, action, children, noPad, style: s = {} }) => (
     {noPad ? children : <div style={{ padding: 20 }}>{children}</div>}
   </div>
 );
+
+const DetailBlock = ({ title, icon, children, style = {} }) => (
+  <Card title={title} icon={icon} style={style}>
+    {children}
+  </Card>
+);
+
+const DetailList = ({ items, empty = "Sin datos disponibles" }) => {
+  const values = ensureArray(items).filter((item) => hasValue(item));
+  if (values.length === 0) return <div style={{ fontSize: 12, color: C.gray500 }}>{empty}</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {values.map((item, idx) => {
+        if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
+          return <div key={idx} style={{ fontSize: 12, color: C.gray700, lineHeight: 1.5 }}>{String(item)}</div>;
+        }
+        return (
+          <div key={idx} style={{ fontSize: 11, color: C.gray700, background: C.gray50, border: `1px solid ${C.gray200}`, borderRadius: 8, padding: "8px 10px" }}>
+            <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "inherit" }}>{JSON.stringify(item, null, 2)}</pre>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const KV = ({ label, value, tone }) => (
+  <div style={{ padding: "10px 12px", borderRadius: 10, background: tone || C.gray50, border: `1px solid ${C.gray200}` }}>
+    <div style={{ fontSize: 10, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 4 }}>{label}</div>
+    <div style={{ fontSize: 12, color: C.gray700, fontWeight: 600, lineHeight: 1.4 }}>{value}</div>
+  </div>
+);
+
+const RichValue = ({ value, empty = "Sin datos disponibles" }) => {
+  const normalized = normalizeFieldValue(value);
+  if (!hasValue(normalized)) return <div style={{ fontSize: 12, color: C.gray500 }}>{empty}</div>;
+
+  if (Array.isArray(normalized)) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {normalized.map((item, idx) => {
+          if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
+            return <div key={idx} style={{ fontSize: 12, color: C.gray700, lineHeight: 1.5 }}>{String(item)}</div>;
+          }
+          const entries = Object.entries(item || {}).filter(([, itemValue]) => hasValue(itemValue));
+          return (
+            <div key={idx} style={{ padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.gray200}`, background: C.gray50 }}>
+              {entries.length === 0 ? (
+                <div style={{ fontSize: 12, color: C.gray500 }}>Sin datos disponibles</div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+                  {entries.map(([key, itemValue]) => (
+                    <KV key={key} label={toSentence(key)} value={summarizeTextValue(itemValue)} />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (typeof normalized === "object") {
+    const entries = Object.entries(normalized).filter(([, itemValue]) => hasValue(itemValue));
+    if (entries.length === 0) return <div style={{ fontSize: 12, color: C.gray500 }}>{empty}</div>;
+    return (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+        {entries.map(([key, itemValue]) => (
+          <KV key={key} label={toSentence(key)} value={summarizeTextValue(itemValue)} />
+        ))}
+      </div>
+    );
+  }
+
+  return <div style={{ fontSize: 12, color: C.gray700, whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.6 }}>{String(normalized)}</div>;
+};
+
+const LinkList = ({ items, empty = "Sin referencias disponibles", accent = C.gray200 }) => {
+  const links = normalizeFieldList(items).map((item, idx) => {
+    if (typeof item === "string") return { id: `${item}-${idx}`, label: item, url: item };
+    if (item && typeof item === "object" && item.url) {
+      return {
+        id: `${item.url}-${idx}`,
+        label: item.source || item.name || item.type || `Referencia ${idx + 1}`,
+        url: item.url,
+      };
+    }
+    return null;
+  }).filter(Boolean);
+
+  if (links.length === 0) return <div style={{ fontSize: 12, color: C.gray500 }}>{empty}</div>;
+
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+      {links.map((link) => (
+        <a
+          key={link.id}
+          href={link.url}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "8px 12px",
+            borderRadius: 8,
+            border: `1px solid ${accent}`,
+            background: "#fff",
+            textDecoration: "none",
+            color: C.navy,
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          <span>{link.label}</span>
+          <I name="link" size={12} color={C.gray500} />
+        </a>
+      ))}
+    </div>
+  );
+};
+
+const ProductDetailList = ({ items, primaryKey = "" }) => {
+  const products = normalizeFieldList(items);
+  if (products.length === 0) return <div style={{ fontSize: 12, color: C.gray500 }}>Sin detalle de productos afectados</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {products.map((product, idx) => {
+        if (typeof product === "string") {
+          return <div key={idx} style={{ fontSize: 12, color: C.gray700 }}>{product}</div>;
+        }
+
+        return (
+          <div key={idx} style={{ padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.gray200}`, background: "#fff" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: C.navy }}>{product.vendor || "Vendor no informado"}</span>
+              <span style={{ fontSize: 12, color: C.gray500 }}>/</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{product.product || "Producto no informado"}</span>
+              {primaryKey && productEntityKey(product) === primaryKey && <SoftBadge label="Principal" small bg={C.white} color={C.navy} border={C.gray300} />}
+              {hasValue(product.version) && <SoftBadge label={`Versión ${product.version}`} small />}
+              {hasValue(product.versionRange) && <SoftBadge label={String(product.versionRange)} small bg={C.gray50} color={C.gray700} border={C.gray300} />}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {hasValue(product.cpe) && <SoftBadge label={String(product.cpe)} small bg={C.bluePale} color={C.navy} border={C.gray200} />}
+              {hasValue(product.source) && <SoftBadge label={`Fuente ${product.source}`} small bg={C.gray50} color={C.gray700} border={C.gray300} />}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 const VisualBanner = () => (
   <section
@@ -282,6 +708,11 @@ export default function VulnDashboard() {
   const [searchExploit, setSearchExploit] = useState("all");
   const [searchSeverity, setSearchSeverity] = useState("");
   const [sevFilter, setSevFilter] = useState("");
+  const [riskTierFilter, setRiskTierFilter] = useState("");
+  const [exploitStatusFilter, setExploitStatusFilter] = useState("");
+  const [vendorFilter, setVendorFilter] = useState("");
+  const [productFilter, setProductFilter] = useState("");
+  const [changedSinceHoursFilter, setChangedSinceHoursFilter] = useState("");
   const [selectedVuln, setSelectedVuln] = useState(null);
 
   // Contacts CRUD
@@ -519,7 +950,20 @@ export default function VulnDashboard() {
       if (v === "overview") {
         const r = await apiFetch("/vulnerabilities/dashboard"); setDash(await r.json());
       } else if (v === "vulns" || v === "exploited") {
-        const q = v === "exploited" ? "?exploited=true&limit=100" : `?dashboardDefault=true&limit=100${sevFilter ? `&severity=${sevFilter}` : ''}`;
+        const params = new URLSearchParams();
+        params.set("limit", "100");
+        if (v === "exploited") {
+          params.set("exploited", "true");
+        } else {
+          params.set("dashboardDefault", "true");
+          if (sevFilter) params.set("severity", sevFilter);
+          if (riskTierFilter) params.set("riskTier", riskTierFilter);
+          if (exploitStatusFilter) params.set("exploitStatus", exploitStatusFilter);
+          if (vendorFilter.trim()) params.set("vendor", vendorFilter.trim().toLowerCase());
+          if (productFilter.trim()) params.set("product", productFilter.trim().toLowerCase());
+          if (changedSinceHoursFilter) params.set("changedSinceHours", changedSinceHoursFilter);
+        }
+        const q = `?${params.toString()}`;
         const r = await apiFetch(`/vulnerabilities${q}`); const d = await r.json(); setVulns(d.data || []); setVulnsTotal(d.total || 0);
       } else if (v === "contacts") {
         const r = await apiFetch("/users"); const allUsers = await r.json();
@@ -645,7 +1089,7 @@ export default function VulnDashboard() {
       setManufacturersLoading(false);
       console.error("Load error:", e.message);
     }
-  }, [sevFilter, backfillJobId]);
+  }, [sevFilter, riskTierFilter, exploitStatusFilter, vendorFilter, productFilter, changedSinceHoursFilter, backfillJobId]);
 
   useEffect(() => { if (isLoggedIn) loadData(view); }, [view, isLoggedIn, loadData]);
 
@@ -737,19 +1181,27 @@ export default function VulnDashboard() {
     const q = searchQ.trim().toLowerCase();
     let textMatch = true;
     if (q) {
+      const semantic = getSemanticSummary(v);
+      const semanticTerms = [
+        semantic.semanticPrimaryVendor,
+        semantic.semanticPrimaryProduct,
+        semantic.componentType,
+        ...semantic.contextTags,
+      ].filter(Boolean).map((value) => String(value).toLowerCase());
+      const affectedProductTerms = getOperationalAffectedPairs(v).map(
+        (product) => `${product.vendor} ${product.product}`.toLowerCase(),
+      );
       if (searchType === "cve") {
         textMatch = v.cveId.toLowerCase().includes(q);
       } else if (searchType === "product") {
-        textMatch = (v.affectedProducts || []).some(
-          p => `${p.vendor}/${p.product}`.toLowerCase().includes(q) ||
-            p.vendor?.toLowerCase().includes(q) ||
-            p.product?.toLowerCase().includes(q),
-        );
+        textMatch = semanticTerms.some((value) => value.includes(q)) ||
+          affectedProductTerms.some((value) => value.includes(q));
       } else {
         textMatch =
           v.cveId.toLowerCase().includes(q) ||
           (v.description || "").toLowerCase().includes(q) ||
-          (v.affectedProducts || []).some(p => `${p.vendor} ${p.product}`.toLowerCase().includes(q));
+          semanticTerms.some((value) => value.includes(q)) ||
+          affectedProductTerms.some((value) => value.includes(q));
       }
     }
 
@@ -775,7 +1227,7 @@ export default function VulnDashboard() {
   // Find contacts (subscribers) affected by a CVE
   const getAffectedContacts = (vuln) => {
     if (!vuln) return [];
-    const prods = (vuln.affectedProducts || []).map(p => `${p.vendor}/${p.product}`.toLowerCase());
+    const prods = getOperationalAffectedPairs(vuln).map((product) => `${product.vendor}/${product.product}`.toLowerCase());
     return contacts.filter(c => (c.subscriptions || []).some(s => prods.includes(`${s.vendor}/${s.product}`.toLowerCase())));
   };
 
@@ -824,8 +1276,12 @@ Usa únicamente datos técnicos de vulnerabilidades y no incluyas datos de usuar
 
   const analyzeVulnerabilityWithAi = async (v) => {
     if (!v) return;
+    const semantic = getSemanticSummary(v);
+    const affectedLabel = semantic.hasReliablePrimaryEntity
+      ? semantic.displayTitle
+      : getOperationalAffectedPairs(v).slice(0, 4).map((product) => `${product.vendor}/${product.product}`).join(", ") || "Clasificación pendiente";
     const prompt = `Analiza el impacto de ${v.cveId} en nuestra infraestructura.
-Productos afectados: ${(v.affectedProducts || []).map(p => `${p.vendor}/${p.product}`).join(", ") || "No informado"}.
+Entidad o componentes afectados: ${affectedLabel}.
 CVSS: ${v.cvssV31Score ?? "N/A"} (${v.cvssV31Severity || "N/A"}).
 EPSS: ${fmtEpss(v.epssScore)}.
 Indica prioridad, acciones inmediatas y plan de mitigación.`;
@@ -1372,7 +1828,34 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     ? allNav.filter((n) => viewerAllowedViews.includes(n.id))
     : allNav;
   const currentSection = nav.find((n) => n.id === view)?.label || "Panel";
-  const backfillMetrics = parseMaybeJsonObject(backfillStatus?.job?.metrics);
+  const backfillMetrics = parseMaybeJsonObject(backfillStatus?.metrics || backfillStatus?.job?.metrics);
+  const backfillCheckpointSummary = parseMaybeJsonObject(backfillStatus?.checkpointSummary);
+  const backfillProgress = parseMaybeJsonObject(backfillStatus?.progress);
+  const backfillCheckpointTotal = Number(
+    backfillCheckpointSummary.total ||
+    ((backfillStatus?.remaining || 0) + (backfillStatus?.checkpoints?.DONE || 0)),
+  );
+  const backfillCheckpointDone = Number(
+    backfillCheckpointSummary.done || backfillStatus?.checkpoints?.DONE || 0,
+  );
+  const backfillRequestsProcessed = Number(
+    backfillProgress.requestsProcessed || backfillMetrics.requestsProcessed || backfillMetrics.pagesProcessed || 0,
+  );
+  const backfillItemsFetched = Number(
+    backfillProgress.itemsFetched || backfillMetrics.itemsFetched || 0,
+  );
+  const backfillInserted = Number(
+    backfillProgress.inserted || backfillMetrics.inserted || 0,
+  );
+  const backfillUpdated = Number(
+    backfillProgress.updated || backfillMetrics.updated || 0,
+  );
+  const backfillUnchanged = Number(
+    backfillProgress.unchanged || backfillMetrics.unchanged || 0,
+  );
+  const backfillErrors = Number(
+    backfillProgress.errors || backfillMetrics.errors || 0,
+  );
 
   useEffect(() => {
     if (!isViewer) return;
@@ -1569,7 +2052,9 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 12, fontFamily: "monospace", color: C.critical }}>{v.cveId}</td>
                         <td style={{ padding: "10px 14px" }}><SevBadge s={v.cvssV31Severity} small /> <span style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 700, marginLeft: 4 }}>{fmtScore(v.cvssV31Score)}</span></td>
                         <td style={{ padding: "10px 14px", fontFamily: "monospace", fontSize: 12, fontWeight: 600 }}>{fmtEpss(v.epssScore)}</td>
-                        <td style={{ padding: "10px 14px" }}>{(v.affectedProducts || []).map((p, i) => <span key={i} style={{ display: "inline-block", background: C.bluePale, color: C.navy, padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, marginRight: 3 }}>{p.vendor}/{p.product}</span>)}</td>
+                        <td style={{ padding: "10px 14px", minWidth: 220 }}>
+                          <SemanticCompactAffected vuln={v} small contextLimit={1} showPendingNote={false} />
+                        </td>
                         <td style={{ padding: "10px 14px" }}>{aff.map(c => <span key={c.id} style={{ display: "inline-block", background: "#F0F0F0", padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, marginRight: 3, color: C.gray700 }}>{c.name.split(" ").slice(1, 3).join(" ")}</span>)}</td>
                         <td style={{ padding: "10px 14px", fontSize: 10, color: C.gray500, fontFamily: "monospace" }}>{timeAgo(v.firstSeenAt)}</td>
                       </tr>
@@ -1591,26 +2076,108 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                   </div>
                 </div>
 
+                <Card style={{ marginBottom: 14 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10, marginBottom: 10 }}>
+                    <select value={riskTierFilter} onChange={e => setRiskTierFilter(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 8, background: "#fff", fontSize: 12 }}>
+                      <option value="">Risk tier (todos)</option>
+                      {["informational", "monitor", "elevated", "high", "urgent", "emergency"].map(t => <option key={t} value={t}>{riskTierMeta(t).label}</option>)}
+                    </select>
+                    <select value={exploitStatusFilter} onChange={e => setExploitStatusFilter(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 8, background: "#fff", fontSize: 12 }}>
+                      <option value="">Estado exploit (todos)</option>
+                      {["none", "mention", "poc", "reliable_poc", "active_exploitation"].map(s => <option key={s} value={s}>{exploitStatusMeta(s).label}</option>)}
+                    </select>
+                    <Input value={vendorFilter} onChange={setVendorFilter} placeholder="Vendor principal" />
+                    <Input value={productFilter} onChange={setProductFilter} placeholder="Producto principal" />
+                    <select value={changedSinceHoursFilter} onChange={e => setChangedSinceHoursFilter(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 8, background: "#fff", fontSize: 12 }}>
+                      <option value="">Cambios recientes</option>
+                      <option value="4">Últimas 4h</option>
+                      <option value="12">Últimas 12h</option>
+                      <option value="24">Últimas 24h</option>
+                      <option value="72">Últimos 3 días</option>
+                      <option value="168">Última semana</option>
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                    <div style={{ fontSize: 11, color: C.gray500 }}>
+                      {vulnsTotal} CVE{vulnsTotal === 1 ? "" : "s"} en el conjunto actual. Se priorizan explotación conocida, riesgo operativo y CVSS.
+                    </div>
+                    <Btn small onClick={() => {
+                      setSevFilter("");
+                      setRiskTierFilter("");
+                      setExploitStatusFilter("");
+                      setVendorFilter("");
+                      setProductFilter("");
+                      setChangedSinceHoursFilter("");
+                    }}>Limpiar filtros</Btn>
+                  </div>
+                </Card>
+
                 <Card noPad>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead><tr style={{ background: C.gray50 }}>
-                      {["CVE", "Sev", "CVSS", "EPSS", "KEV", "Exploit", "Productos", "Tags", "Publicada"].map(h => (
+                      {["CVE", "Riesgo", "CVSS", "EPSS", "Explotación", "Producto", "Estado", "Tags", "Publicada"].map(h => (
                         <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", borderBottom: `2px solid ${C.gray200}`, whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr></thead>
-                    <tbody>{vulns.filter(v => !sevFilter || v.cvssV31Severity === sevFilter).map(v => (
-                      <tr key={v.cveId} className="rh" onClick={() => openVulnerabilityDetail(v)} style={{ cursor: "pointer", background: v.isKnownExploited ? C.criticalBg : "#fff", borderLeft: v.isKnownExploited ? `3px solid ${C.critical}` : "3px solid transparent", transition: "background 0.1s" }}>
-                        <td style={{ padding: "10px 12px", fontWeight: 700, fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>{v.cveId}</td>
-                        <td style={{ padding: "10px 12px" }}><SevBadge s={v.cvssV31Severity} small /></td>
-                        <td style={{ padding: "10px 12px", fontFamily: "monospace", fontSize: 11, fontWeight: 700 }}>{fmtScore(v.cvssV31Score)}</td>
+                    <tbody>{vulns.filter(v => !sevFilter || v.cvssV31Severity === sevFilter).map(v => {
+                      const semantic = getSemanticSummary(v);
+                      const displayContextTags = getDisplayContextTags({
+                        contextTags: semantic.contextTags,
+                        riskSignals: v.riskSignals,
+                        tags: v.tags,
+                      });
+                      return (
+                      <tr key={v.cveId} className="rh" onClick={() => openVulnerabilityDetail(v)} style={{ cursor: "pointer", ...getRowPriorityStyle(v), transition: "background 0.1s" }}>
+                        <td style={{ padding: "10px 12px" }}>
+                          <div style={{ fontWeight: 700, fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>{v.cveId}</div>
+                          <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                            <SevBadge s={v.cvssV31Severity} small />
+                            {v.isKnownExploited && <SoftBadge label="KEV" bg={C.criticalBg} color={C.critical} border="#FCA5A5" small />}
+                            {v.hasPublicExploit && <SoftBadge label="Exploit" bg={C.highBg} color={C.high} border="#FDBA74" small />}
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 12px" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                            <RiskTierBadge tier={v.operationalRiskTier} small />
+                            <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: isUrgentRisk(v.operationalRiskTier) ? C.critical : C.text }}>
+                              Score {fmtRiskScore(v.operationalRiskScore)}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 12px" }}>
+                          <div style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700 }}>{fmtScore(v.cvssV31Score)}</div>
+                          <div style={{ fontSize: 10, color: C.gray500 }}>{v.cvssV31Severity || "N/A"}</div>
+                        </td>
                         <td style={{ padding: "10px 12px", fontFamily: "monospace", fontSize: 11, color: (v.epssScore || 0) > 0.1 ? C.high : C.text }}>{fmtEpss(v.epssScore)}</td>
-                        <td style={{ padding: "10px 12px" }}>{v.isKnownExploited ? <span style={{ fontSize: 14 }}>⚡</span> : <span style={{ color: C.gray300 }}>-</span>}</td>
-                        <td style={{ padding: "10px 12px" }}>{v.hasPublicExploit ? <I name="bug" size={14} color={C.critical} /> : <span style={{ color: C.gray300 }}>-</span>}</td>
-                        <td style={{ padding: "10px 12px" }}>{(v.affectedProducts || []).slice(0, 2).map((p, i) => <span key={i} style={{ display: "inline-block", background: C.bluePale, color: C.navy, padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 600, marginRight: 3, marginBottom: 2 }}>{p.vendor}/{p.product}</span>)} {(v.affectedProducts || []).length > 2 && <span style={{ fontSize: 9, color: C.gray500 }}>+{v.affectedProducts.length - 2}</span>}</td>
+                        <td style={{ padding: "10px 12px" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                            <ExploitStatusBadge status={v.exploitStatus} small />
+                            <span style={{ fontSize: 10, color: C.gray500 }}>
+                              {v.exploitConfidence != null ? `${Math.round(v.exploitConfidence * 100)}% confianza` : "Sin confianza"}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 12px" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: semantic.hasReliablePrimaryEntity ? C.text : C.gray600 }}>{semantic.displayTitle}</div>
+                          <div style={{ fontSize: 10, color: C.gray500 }}>{semantic.displaySubtitle}</div>
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+                            <ComponentTypeBadge type={semantic.componentType} small />
+                            {displayContextTags.slice(0, 2).map((tag) => <ContextTagPill key={tag} tag={tag} small />)}
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 12px" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                            <RecordStatusBadge status={v.recordStatus} small />
+                            <span style={{ fontSize: 10, color: hasUnknownPatch(v) ? C.high : C.gray500, fontWeight: hasUnknownPatch(v) ? 700 : 500 }}>
+                              {v.patchAvailable === true ? "Parche disponible" : "Parche no confirmado"}
+                            </span>
+                          </div>
+                        </td>
                         <td style={{ padding: "10px 12px" }}>{(v.tags || []).map(t => <span key={t.id} style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: t.color, marginRight: 2 }} title={t.name} />)}</td>
                         <td style={{ padding: "10px 12px", fontSize: 10, color: C.gray500, fontFamily: "monospace" }}>{fmtDate(v.publishedAt).split(",")[0]}</td>
                       </tr>
-                    ))}</tbody>
+                      );
+                    })}</tbody>
                   </table>
                   {vulns.length === 0 && <div style={{ padding: 40, textAlign: "center", color: C.gray400, fontSize: 13 }}>No hay vulnerabilidades que mostrar</div>}
                 </Card>
@@ -1619,135 +2186,319 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 {vulnDetail && (
                   <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 110, display: "flex", justifyContent: "flex-end" }} onClick={() => setVulnDetail(null)}>
                     <div style={{ width: 800, background: "#fff", height: "100%", overflowY: "auto", padding: 32, boxShadow: "-10px 0 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
-                      {vulnLoading ? <div style={{ padding: 40, textAlign: "center" }}>Cargando...</div> : <>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
-                          <div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-                              <h2 style={{ fontSize: 28, fontWeight: 800, margin: 0, fontFamily: "'JetBrains Mono', monospace", color: C.navy }}>{vulnDetail.cveId}</h2>
-                              <SevBadge s={vulnDetail.cvssV31Severity} />
-                              {vulnDetail.isKnownExploited && <span style={{ background: C.criticalBg, color: C.critical, padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, border: `1px solid ${C.critical}` }}>⚡ KEV: EXPLOTACIÓN ACTIVA</span>}
-                            </div>
-                            <div style={{ fontSize: 11, color: C.gray500, fontFamily: "monospace" }}>Publicado: {fmtDate(vulnDetail.publishedAt)} · Actualizado: {fmtDate(vulnDetail.lastModifiedAt)}</div>
-                          </div>
-                          <button onClick={() => setVulnDetail(null)} style={{ border: "none", background: "transparent", cursor: "pointer" }}><I name="x" size={24} color={C.gray400} /></button>
-                        </div>
+                      {vulnLoading ? <div style={{ padding: 40, textAlign: "center" }}>Cargando...</div> : (() => {
+                        const detailedProducts = normalizeFieldList(vulnDetail.affectedProductsDetailed);
+                        const summaryProducts = normalizeFieldList(vulnDetail.affectedProducts);
+                        const displayProducts = detailedProducts.length > 0 ? detailedProducts : summaryProducts;
+                        const semantic = getSemanticSummary(vulnDetail);
+                        const primaryEntityKey = semantic.hasReliablePrimaryEntity
+                          ? `${String(semantic.semanticPrimaryVendor || "").trim().toLowerCase()}::${String(semantic.semanticPrimaryProduct || "").trim().toLowerCase()}`
+                          : "";
+                        const { primaryProducts, otherProducts } = splitDisplayProducts(displayProducts, semantic);
+                        const riskSignals = normalizeFieldList(vulnDetail.riskSignals);
+                        const displayContextTags = getDisplayContextTags({
+                          contextTags: semantic.contextTags,
+                          riskSignals,
+                          tags: vulnDetail.tags,
+                        });
+                        const exploitReferences = normalizeFieldValue(vulnDetail.exploitReferences);
+                        const remediationInfo = normalizeFieldValue(vulnDetail.remediationInfo);
+                        const fixedVersions = normalizeFieldValue(vulnDetail.fixedVersions);
+                        const workarounds = normalizeFieldValue(vulnDetail.workarounds);
+                        const detectionOpportunities = normalizeFieldValue(vulnDetail.detectionOpportunities);
+                        const sourcesPresent = normalizeFieldList(vulnDetail.sourcesPresent);
+                        const references = normalizeFieldValue(vulnDetail.references);
+                        const patchUrls = normalizeFieldList(remediationInfo?.patchUrls);
+                        const changeTimeline = normalizeFieldList(vulnDetail.changeTimeline).slice(0, 20);
+                        const summaryText = vulnDetail.description || "Sin descripción disponible.";
+                        const compactChangeValue = (value) => {
+                          const rendered = summarizeTextValue(value);
+                          return rendered.length > 180 ? `${rendered.slice(0, 177)}...` : rendered;
+                        };
+                        const showWhyBlock = riskSignals.length > 0;
+                        const showProductsBlock = displayProducts.length > 0 || semantic.hasReliablePrimaryEntity || semantic.componentType !== "unknown" || semantic.contextTags.length > 0;
+                        const showContextBlock = displayContextTags.length > 0;
+                        const showExploitBlock = hasValue(vulnDetail.exploitStatus) || hasValue(vulnDetail.exploitConfidence) || hasValue(vulnDetail.exploitFirstSeenAt) || hasValue(vulnDetail.exploitLastCheckedAt) || hasValue(exploitReferences) || vulnDetail.isKnownExploited != null || vulnDetail.hasPublicExploit != null;
+                        const showRemediationBlock = vulnDetail.patchAvailable != null || hasValue(vulnDetail.patchPriority) || hasValue(fixedVersions) || hasValue(workarounds) || hasValue(detectionOpportunities) || hasValue(remediationInfo);
+                        const showSourcesBlock = sourcesPresent.length > 0 || hasValue(vulnDetail.recordStatus) || hasValue(vulnDetail.lastChangeDetectedAt);
+                        const showReferencesBlock = patchUrls.length > 0 || hasValue(references) || hasValue(exploitReferences);
 
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 24 }}>
-                          <Metric icon="shield" label="CVSS Score" value={fmtScore(vulnDetail.cvssV31Score)} sub={vulnDetail.cvssV31Vector} color={sevColor(vulnDetail.cvssV31Severity)} />
-                          <Metric icon="activity" label="EPSS Prob." value={fmtEpss(vulnDetail.epssScore)} sub={`Percentile: ${((vulnDetail.epssPercentile || 0) * 100).toFixed(0)}%`} color={C.blue} />
-                          <Metric icon="bug" label="Exploit Público" value={vulnDetail.hasPublicExploit ? "SÍ" : "NO"} sub={vulnDetail.hasPublicExploit ? `${(vulnDetail.exploitReferences?.length || 0)} referencias` : "No detectado"} color={vulnDetail.hasPublicExploit ? C.critical : C.low} />
-                        </div>
-
-                        <div style={{ marginBottom: 24 }}>
-                          <h3 style={{ fontSize: 14, fontWeight: 700, color: C.gray700, marginBottom: 8, textTransform: "uppercase" }}>Descripción</h3>
-                          <p style={{ fontSize: 13, lineHeight: 1.6, color: C.gray700, background: C.gray50, padding: 16, borderRadius: 8, border: `1px solid ${C.gray200}` }}>
-                            {vulnDetail.description}
-                          </p>
-                        </div>
-
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24 }}>
-                          <div>
-                            <h3 style={{ fontSize: 14, fontWeight: 700, color: C.gray700, marginBottom: 12, textTransform: "uppercase" }}>Etiquetas</h3>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-                              {vulnDetail.tags.map(t => (
-                                <span key={t.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 12, background: `${t.color}15`, color: t.color, fontSize: 11, fontWeight: 600, border: `1px solid ${t.color}30` }}>
-                                  {t.name}
-                                  <span style={{ cursor: "pointer", opacity: 0.6 }} onClick={() => handleVulnTags(vulnDetail.tags.filter(x => x.id !== t.id))}>×</span>
-                                </span>
-                              ))}
-                              <div style={{ position: "relative" }}>
-                                <button onClick={() => document.getElementById("tag-dropdown").style.display = "block"} style={{ background: C.gray100, border: "none", borderRadius: 12, width: 24, height: 24, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><I name="plus" size={14} color={C.gray600} /></button>
-                                <div id="tag-dropdown" style={{ display: "none", position: "absolute", top: 30, left: 0, background: "#fff", border: `1px solid ${C.gray200}`, boxShadow: "0 10px 20px rgba(0,0,0,0.1)", borderRadius: 8, padding: 8, width: 200, zIndex: 120 }}>
-                                  {tags.filter(t => !vulnDetail.tags.find(vt => vt.id === t.id)).map(t => (
-                                    <div key={t.id} onClick={() => { handleVulnTags([...vulnDetail.tags, t]); document.getElementById("tag-dropdown").style.display = "none"; }} style={{ padding: "6px 10px", fontSize: 12, cursor: "pointer", borderRadius: 4 }} className="rh">
-                                      <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: t.color, marginRight: 8 }} />
-                                      {t.name}
-                                    </div>
-                                  ))}
-                                  {tags.length === 0 && <div style={{ fontSize: 11, color: C.gray500, padding: 8 }}>No hay tags disponibles. Créalos en Configuración.</div>}
-                                  <div style={{ borderTop: `1px solid ${C.gray100}`, marginTop: 4, paddingTop: 4, textAlign: "center", fontSize: 10, color: C.blue, cursor: "pointer" }} onClick={() => document.getElementById("tag-dropdown").style.display = "none"}>Cerrar</div>
-                                </div>
+                        return <>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, gap: 16 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                                <h2 style={{ fontSize: 28, fontWeight: 800, margin: 0, fontFamily: "'JetBrains Mono', monospace", color: C.navy }}>{vulnDetail.cveId}</h2>
+                                <SevBadge s={vulnDetail.cvssV31Severity} />
+                                <RiskTierBadge tier={vulnDetail.operationalRiskTier} />
+                                <ExploitStatusBadge status={vulnDetail.exploitStatus} />
+                                <ComponentTypeBadge type={semantic.componentType} />
+                                {vulnDetail.isKnownExploited && <SoftBadge label="KEV / explotación activa" bg={C.criticalBg} color={C.critical} border="#FCA5A5" />}
+                                {hasValue(vulnDetail.recordStatus) && <RecordStatusBadge status={vulnDetail.recordStatus} />}
+                              </div>
+                              <p style={{ margin: "0 0 14px", fontSize: 13, lineHeight: 1.65, color: C.gray700, maxWidth: 680 }}>
+                                {summaryText}
+                              </p>
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                                {semantic.hasReliablePrimaryEntity ? (
+                                  <SoftBadge label={`Entidad principal ${semantic.displayTitle}`} bg={C.white} color={C.navy} border={C.gray300} />
+                                ) : (
+                                  <SoftBadge label="Sin entidad principal fiable" bg={C.gray50} color={C.gray600} border={C.gray300} />
+                                )}
+                                {displayContextTags.slice(0, 2).map((tag) => <ContextTagPill key={tag} tag={tag} />)}
+                              </div>
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                <SoftBadge label={`Publicado ${fmtDate(vulnDetail.publishedAt)}`} bg={C.gray50} color={C.gray700} border={C.gray300} />
+                                <SoftBadge label={`Actualizado ${fmtDate(vulnDetail.lastModifiedAt)}`} bg={C.gray50} color={C.gray700} border={C.gray300} />
+                                {hasValue(vulnDetail.lastChangeDetectedAt) && <SoftBadge label={`Cambio detectado ${fmtDate(vulnDetail.lastChangeDetectedAt)}`} bg={C.bluePale} color={C.navy} border={C.gray200} />}
+                                {hasValue(vulnDetail.exploitFirstSeenAt) && <SoftBadge label={`Exploit visto ${fmtDate(vulnDetail.exploitFirstSeenAt)}`} bg={C.highBg} color={C.high} border="#FDBA74" />}
                               </div>
                             </div>
-                          </div>
-                          <div>
-                            <h3 style={{ fontSize: 14, fontWeight: 700, color: C.gray700, marginBottom: 12, textTransform: "uppercase" }}>Software Afectado ({((vulnDetail.affectedProducts || []).length)})</h3>
-                            <div style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.gray200}`, borderRadius: 6 }}>
-                              {(vulnDetail.affectedProducts || []).map((p, i) => (
-                                <div key={i} style={{ padding: "6px 10px", borderBottom: `1px solid ${C.gray100}`, fontSize: 11 }}>
-                                  <span style={{ fontWeight: 700, color: C.navy }}>{p.vendor}</span> / {p.product} <span style={{ color: C.gray500 }}>{p.versionRange || ""}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div style={{ marginBottom: 24 }}>
-                          <h3 style={{ fontSize: 14, fontWeight: 700, color: C.gray700, marginBottom: 12, textTransform: "uppercase" }}>Referencias Oficiales & Parches</h3>
-                          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                            <a href={`https://nvd.nist.gov/vuln/detail/${vulnDetail.cveId}`} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#fff", border: `1px solid ${C.gray300}`, borderRadius: 6, textDecoration: "none", color: C.navy, fontSize: 12, fontWeight: 600 }}>
-                              <img src="https://nvd.nist.gov/site-media/images/NIST_logo_bw_64.png" height="14" alt="" /> NVD NIST <I name="link" size={12} />
-                            </a>
-                            {vulnDetail.remediationInfo?.patchAvailable && (vulnDetail.remediationInfo.patchUrls || []).map((url, i) => (
-                              <a key={i} href={url} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: C.lowBg, border: `1px solid ${C.low}`, borderRadius: 6, textDecoration: "none", color: C.low, fontSize: 12, fontWeight: 600 }}>
-                                <I name="check" size={12} /> Patch / Advisor <I name="link" size={12} />
-                              </a>
-                            ))}
-                            {(vulnDetail.references || []).slice(0, 3).map((ref, i) => (
-                              <a key={i} href={ref.url} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: C.gray50, border: `1px solid ${C.gray200}`, borderRadius: 6, textDecoration: "none", color: C.gray600, fontSize: 12 }}>
-                                Reference {i + 1} <I name="link" size={12} />
-                              </a>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div style={{ background: C.gray50, borderRadius: 8, padding: 20, border: `1px solid ${C.gray200}` }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                            <h3 style={{ fontSize: 14, fontWeight: 700, color: C.navy, margin: 0, display: "flex", alignItems: "center", gap: 8 }}><I name="mail" size={16} /> Notificaciones y Alertas</h3>
-                            <Btn small primary onClick={openNotifyModal}><I name="send" size={12} /> Notificar a contacto</Btn>
+                            <button onClick={() => setVulnDetail(null)} style={{ border: "none", background: "transparent", cursor: "pointer" }}><I name="x" size={24} color={C.gray400} /></button>
                           </div>
 
-                          {showNotifModal && (
-                            <div style={{ marginBottom: 16, background: "#fff", padding: 16, borderRadius: 6, border: `1px solid ${C.blue}`, animation: "fadeIn 0.2s" }}>
-                              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Selecciona un contacto para enviar alerta sobre {vulnDetail.cveId}:</div>
-                              <div style={{ display: "flex", gap: 8 }}>
-                                <select id="contact-select" disabled={notifContactsLoading || contacts.length === 0} style={{ flex: 1, padding: 8, borderRadius: 4, border: `1px solid ${C.gray300}` }}>
-                                  {notifContactsLoading && <option value="">Cargando contactos...</option>}
-                                  {!notifContactsLoading && contacts.length === 0 && <option value="">No hay contactos disponibles</option>}
-                                  {!notifContactsLoading && contacts.map(c => <option key={c.id} value={c.id}>{c.name} ({c.email})</option>)}
-                                </select>
-                                <Btn small primary disabled={notifSending || notifContactsLoading || contacts.length === 0} onClick={() => handleNotifyContact(document.getElementById("contact-select").value)}>
-                                  {notifSending ? "Enviando..." : "Enviar Email"}
-                                </Btn>
-                                <Btn small onClick={() => setShowNotifModal(false)}>Cancelar</Btn>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12, marginBottom: 24 }}>
+                            <Metric icon="shield" label="CVSS" value={fmtScore(vulnDetail.cvssV31Score)} sub={`${vulnDetail.cvssV31Severity || "N/A"} · ${vulnDetail.cvssV31Vector || "Vector no informado"}`} color={sevColor(vulnDetail.cvssV31Severity)} />
+                            <Metric icon="activity" label="EPSS" value={fmtEpss(vulnDetail.epssScore)} sub={`Percentil ${(Number(vulnDetail.epssPercentile || 0) * 100).toFixed(0)}%`} color={C.blue} />
+                            <Metric icon="alert" label="Riesgo Operativo" value={fmtRiskScore(vulnDetail.operationalRiskScore)} sub={riskTierMeta(vulnDetail.operationalRiskTier).label} color={riskTierMeta(vulnDetail.operationalRiskTier).color} />
+                            <Metric icon="bug" label="Explotación" value={exploitStatusMeta(vulnDetail.exploitStatus).label} sub={`Confianza ${fmtConfidence(vulnDetail.exploitConfidence)}`} color={exploitStatusMeta(vulnDetail.exploitStatus).color} />
+                          </div>
+
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 16, marginBottom: 16 }}>
+                            <DetailBlock title="Cabecera Operativa" icon="shield">
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+                                <KV label="Entidad principal" value={semantic.hasReliablePrimaryEntity ? semantic.displayTitle : "No inferida con suficiente evidencia"} />
+                                <KV label="Tipo de componente" value={componentTypeMeta(semantic.componentType).label} />
+                                <KV label="Estado de registro" value={recordStatusMeta(vulnDetail.recordStatus).label} />
+                                <KV label="Prioridad de parche" value={vulnDetail.patchPriority || "No informada"} />
                               </div>
-                            </div>
+                            </DetailBlock>
+
+                            <DetailBlock title="Etiquetas" icon="edit">
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                                {(vulnDetail.tags || []).map(t => (
+                                  <span key={t.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 12, background: `${t.color}15`, color: t.color, fontSize: 11, fontWeight: 600, border: `1px solid ${t.color}30` }}>
+                                    {t.name}
+                                    <span style={{ cursor: "pointer", opacity: 0.6 }} onClick={() => handleVulnTags((vulnDetail.tags || []).filter(x => x.id !== t.id))}>×</span>
+                                  </span>
+                                ))}
+                                <div style={{ position: "relative" }}>
+                                  <button onClick={() => document.getElementById("tag-dropdown").style.display = "block"} style={{ background: C.gray100, border: "none", borderRadius: 12, width: 24, height: 24, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><I name="plus" size={14} color={C.gray600} /></button>
+                                  <div id="tag-dropdown" style={{ display: "none", position: "absolute", top: 30, left: 0, background: "#fff", border: `1px solid ${C.gray200}`, boxShadow: "0 10px 20px rgba(0,0,0,0.1)", borderRadius: 8, padding: 8, width: 220, zIndex: 120 }}>
+                                    {tags.filter(t => !(vulnDetail.tags || []).find(vt => vt.id === t.id)).map(t => (
+                                      <div key={t.id} onClick={() => { handleVulnTags([...(vulnDetail.tags || []), t]); document.getElementById("tag-dropdown").style.display = "none"; }} style={{ padding: "6px 10px", fontSize: 12, cursor: "pointer", borderRadius: 4 }} className="rh">
+                                        <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: t.color, marginRight: 8 }} />
+                                        {t.name}
+                                      </div>
+                                    ))}
+                                    {tags.length === 0 && <div style={{ fontSize: 11, color: C.gray500, padding: 8 }}>No hay tags disponibles. Créalos en Configuración.</div>}
+                                    <div style={{ borderTop: `1px solid ${C.gray100}`, marginTop: 4, paddingTop: 4, textAlign: "center", fontSize: 10, color: C.blue, cursor: "pointer" }} onClick={() => document.getElementById("tag-dropdown").style.display = "none"}>Cerrar</div>
+                                  </div>
+                                </div>
+                              </div>
+                              {(vulnDetail.tags || []).length === 0 && <div style={{ fontSize: 12, color: C.gray500 }}>Sin etiquetas asignadas.</div>}
+                            </DetailBlock>
+                          </div>
+
+                          {showWhyBlock && (
+                            <DetailBlock title="Por Qué Destaca" icon="zap" style={{ marginBottom: 16 }}>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                {riskSignals.map((signal, idx) => <SignalPill key={`${signal}-${idx}`} signal={signal} />)}
+                              </div>
+                            </DetailBlock>
                           )}
 
-                          <table style={{ width: "100%", borderCollapse: "collapse", background: "#fff", borderRadius: 6, overflow: "hidden" }}>
-                            <thead><tr style={{ background: C.gray100, borderBottom: `1px solid ${C.gray200}` }}>
-                              {["Fecha", "Destinatario", "Estado"].map(h => <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, color: C.gray600 }}>{h}</th>)}
-                            </tr></thead>
-                            <tbody>
-                              {(vulnDetail.notifications || []).length === 0 ? (
-                                <tr><td colSpan={3} style={{ padding: 12, textAlign: "center", fontSize: 11, color: C.gray500 }}>Sin notificaciones enviadas</td></tr>
-                              ) : vulnDetail.notifications.map(n => (
-                                <tr key={n.id} style={{ borderBottom: `1px solid ${C.gray100}` }}>
-                                  <td style={{ padding: "8px 12px", fontSize: 11, fontFamily: "monospace" }}>{fmtDate(n.sentAt)}</td>
-                                  <td style={{ padding: "8px 12px", fontSize: 11 }}>{n.recipientName} ({n.recipientEmail})</td>
-                                  <td style={{ padding: "8px 12px", fontSize: 10, fontWeight: 700, color: n.status === "sent" ? C.low : C.critical }}>{n.status.toUpperCase()}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                          {showContextBlock && (
+                            <DetailBlock title="Contexto Operativo" icon="server" style={{ marginBottom: 16 }}>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                {displayContextTags.map((tag) => <ContextTagPill key={tag} tag={tag} />)}
+                              </div>
+                            </DetailBlock>
+                          )}
 
-                        <div style={{ marginTop: 24, textAlign: "right" }}>
-                          <Btn onClick={() => analyzeVulnerabilityWithAi(vulnDetail)} style={{ marginRight: 12 }}><I name="brain" size={14} /> Analizar con IA</Btn>
-                          <Btn onClick={() => setVulnDetail(null)}>Cerrar</Btn>
-                        </div>
+                          {showProductsBlock && (
+                            <DetailBlock title="Productos Afectados" icon="server" style={{ marginBottom: 16 }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 12 }}>
+                                <KV label="Entidad principal" value={semantic.hasReliablePrimaryEntity ? semantic.displayTitle : "No inferida con suficiente evidencia"} />
+                                <KV label="Tipo inferido" value={componentTypeMeta(semantic.componentType).label} />
+                                <KV label="Elementos detectados" value={String(displayProducts.length || 0)} />
+                              </div>
 
-                      </>}
+                              {semantic.hasReliablePrimaryEntity && primaryProducts.length > 0 && (
+                                <div style={{ marginBottom: otherProducts.length > 0 ? 16 : 0 }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Entidad principal afectada</div>
+                                  <ProductDetailList items={primaryProducts} primaryKey={primaryEntityKey} />
+                                </div>
+                              )}
+
+                              {otherProducts.length > 0 && (
+                                <div>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>
+                                    {semantic.hasReliablePrimaryEntity ? "Otros productos o componentes afectados" : "Productos o componentes detectados"}
+                                  </div>
+                                  {detailedProducts.length > 0 ? (
+                                    <details open>
+                                      <summary style={{ cursor: "pointer", fontSize: 12, fontWeight: 700, color: C.navy, marginBottom: 12 }}>
+                                        Ver detalle completo
+                                      </summary>
+                                      <ProductDetailList items={otherProducts} primaryKey={primaryEntityKey} />
+                                    </details>
+                                  ) : (
+                                    <ProductDetailList items={otherProducts} primaryKey={primaryEntityKey} />
+                                  )}
+                                </div>
+                              )}
+
+                              {!semantic.hasReliablePrimaryEntity && otherProducts.length === 0 && displayProducts.length > 0 && (
+                                <ProductDetailList items={displayProducts} primaryKey={primaryEntityKey} />
+                              )}
+                            </DetailBlock>
+                          )}
+
+                          {showExploitBlock && (
+                            <DetailBlock title="Explotación" icon="bug" style={{ marginBottom: 16 }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginBottom: 12 }}>
+                                <KV label="En KEV" value={yesNoUnknown(vulnDetail.isKnownExploited)} tone={vulnDetail.isKnownExploited ? C.criticalBg : C.gray50} />
+                                <KV label="Exploit público" value={yesNoUnknown(vulnDetail.hasPublicExploit)} tone={vulnDetail.hasPublicExploit ? C.highBg : C.gray50} />
+                                <KV label="Estado de exploit" value={exploitStatusMeta(vulnDetail.exploitStatus).label} />
+                                <KV label="Confianza" value={fmtConfidence(vulnDetail.exploitConfidence)} />
+                                <KV label="Primera detección" value={fmtDate(vulnDetail.exploitFirstSeenAt)} />
+                                <KV label="Última comprobación" value={fmtDate(vulnDetail.exploitLastCheckedAt)} />
+                              </div>
+                              {hasValue(exploitReferences) && <>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Referencias de explotación</div>
+                                <LinkList items={exploitReferences} empty="Sin referencias de explotación" accent="#FED7AA" />
+                              </>}
+                            </DetailBlock>
+                          )}
+
+                          {showRemediationBlock && (
+                            <DetailBlock title="Remediación" icon="check" style={{ marginBottom: 16 }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginBottom: 14 }}>
+                                <KV label="Parche" value={describePatchStatus(vulnDetail.patchAvailable)} tone={vulnDetail.patchAvailable === true ? C.lowBg : vulnDetail.patchAvailable === false ? C.highBg : C.gray50} />
+                                <KV label="Prioridad de parche" value={vulnDetail.patchPriority || "No informada"} />
+                              </div>
+                              {hasValue(fixedVersions) && <div style={{ marginBottom: 14 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Versiones corregidas</div>
+                                <RichValue value={fixedVersions} />
+                              </div>}
+                              {hasValue(workarounds) && <div style={{ marginBottom: 14 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Workarounds</div>
+                                <RichValue value={workarounds} />
+                              </div>}
+                              {hasValue(detectionOpportunities) && <div style={{ marginBottom: 14 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Oportunidades de detección</div>
+                                <RichValue value={detectionOpportunities} />
+                              </div>}
+                              {hasValue(remediationInfo) && <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Información adicional</div>
+                                <RichValue value={remediationInfo} />
+                              </div>}
+                            </DetailBlock>
+                          )}
+
+                          {showSourcesBlock && (
+                            <DetailBlock title="Procedencia y Estado" icon="file" style={{ marginBottom: 16 }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+                                <KV label="Fuentes presentes" value={sourcesPresent.length > 0 ? sourcesPresent.map((item) => summarizeTextValue(item)).join(", ") : "No informadas"} />
+                                <KV label="Estado del registro" value={recordStatusMeta(vulnDetail.recordStatus).label} />
+                                <KV label="Último cambio detectado" value={fmtDate(vulnDetail.lastChangeDetectedAt)} />
+                              </div>
+                            </DetailBlock>
+                          )}
+
+                          {showReferencesBlock && (
+                            <DetailBlock title="Referencias" icon="link" style={{ marginBottom: 16 }}>
+                              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+                                <a href={`https://nvd.nist.gov/vuln/detail/${vulnDetail.cveId}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "#fff", border: `1px solid ${C.gray300}`, borderRadius: 8, textDecoration: "none", color: C.navy, fontSize: 12, fontWeight: 600 }}>
+                                  <img src="https://nvd.nist.gov/site-media/images/NIST_logo_bw_64.png" height="14" alt="" /> NVD NIST <I name="link" size={12} />
+                                </a>
+                              </div>
+                              {patchUrls.length > 0 && <div style={{ marginBottom: 14 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Parches y advisories</div>
+                                <LinkList items={patchUrls} empty="Sin URLs de parche" accent="#BBF7D0" />
+                              </div>}
+                              {hasValue(references) && <div style={{ marginBottom: hasValue(exploitReferences) ? 14 : 0 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Referencias generales</div>
+                                <LinkList items={references} empty="Sin referencias generales" />
+                              </div>}
+                            </DetailBlock>
+                          )}
+
+                          {changeTimeline.length > 0 && (
+                            <DetailBlock title="Historial de Cambios" icon="clock" style={{ marginBottom: 16 }}>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                {changeTimeline.map((change) => (
+                                  <div key={change.id} style={{ padding: "12px 14px", borderRadius: 12, border: `1px solid ${change.isSignificant ? "#FCA5A5" : C.gray200}`, background: change.isSignificant ? C.criticalBg : C.gray50 }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 6 }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                        <SoftBadge label={getChangeTypeLabel(change.changeType)} small bg={C.white} color={C.navy} border={C.gray300} />
+                                        <SoftBadge label={toSentence(change.fieldName || "campo")} small bg={C.white} color={C.gray700} border={C.gray300} />
+                                        {change.isSignificant && <SoftBadge label="Significativo" small bg={C.criticalBg} color={C.critical} border="#FCA5A5" />}
+                                      </div>
+                                      <span style={{ fontSize: 10, color: C.gray500, fontFamily: "monospace" }}>{fmtDate(change.detectedAt)}</span>
+                                    </div>
+                                    <div style={{ fontSize: 12, color: C.gray700, fontWeight: 600, marginBottom: (hasValue(change.oldValue) || hasValue(change.newValue)) ? 8 : 0 }}>
+                                      {change.summary || "Cambio detectado sin resumen adicional."}
+                                    </div>
+                                    {(hasValue(change.oldValue) || hasValue(change.newValue)) && (
+                                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                                        <KV label="Valor anterior" value={compactChangeValue(change.oldValue)} />
+                                        <KV label="Valor nuevo" value={compactChangeValue(change.newValue)} tone={change.isSignificant ? "#FFF1F2" : C.white} />
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </DetailBlock>
+                          )}
+
+                          <div style={{ background: C.gray50, borderRadius: 8, padding: 20, border: `1px solid ${C.gray200}` }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                              <h3 style={{ fontSize: 14, fontWeight: 700, color: C.navy, margin: 0, display: "flex", alignItems: "center", gap: 8 }}><I name="mail" size={16} /> Notificaciones y Alertas</h3>
+                              <Btn small primary onClick={openNotifyModal}><I name="send" size={12} /> Notificar a contacto</Btn>
+                            </div>
+
+                            {showNotifModal && (
+                              <div style={{ marginBottom: 16, background: "#fff", padding: 16, borderRadius: 6, border: `1px solid ${C.blue}`, animation: "fadeIn 0.2s" }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Selecciona un contacto para enviar alerta sobre {vulnDetail.cveId}:</div>
+                                <div style={{ display: "flex", gap: 8 }}>
+                                  <select id="contact-select" disabled={notifContactsLoading || contacts.length === 0} style={{ flex: 1, padding: 8, borderRadius: 4, border: `1px solid ${C.gray300}` }}>
+                                    {notifContactsLoading && <option value="">Cargando contactos...</option>}
+                                    {!notifContactsLoading && contacts.length === 0 && <option value="">No hay contactos disponibles</option>}
+                                    {!notifContactsLoading && contacts.map(c => <option key={c.id} value={c.id}>{c.name} ({c.email})</option>)}
+                                  </select>
+                                  <Btn small primary disabled={notifSending || notifContactsLoading || contacts.length === 0} onClick={() => handleNotifyContact(document.getElementById("contact-select").value)}>
+                                    {notifSending ? "Enviando..." : "Enviar Email"}
+                                  </Btn>
+                                  <Btn small onClick={() => setShowNotifModal(false)}>Cancelar</Btn>
+                                </div>
+                              </div>
+                            )}
+
+                            <table style={{ width: "100%", borderCollapse: "collapse", background: "#fff", borderRadius: 6, overflow: "hidden" }}>
+                              <thead><tr style={{ background: C.gray100, borderBottom: `1px solid ${C.gray200}` }}>
+                                {["Fecha", "Destinatario", "Estado"].map(h => <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, color: C.gray600 }}>{h}</th>)}
+                              </tr></thead>
+                              <tbody>
+                                {(vulnDetail.notifications || []).length === 0 ? (
+                                  <tr><td colSpan={3} style={{ padding: 12, textAlign: "center", fontSize: 11, color: C.gray500 }}>Sin notificaciones enviadas</td></tr>
+                                ) : vulnDetail.notifications.map(n => (
+                                  <tr key={n.id} style={{ borderBottom: `1px solid ${C.gray100}` }}>
+                                    <td style={{ padding: "8px 12px", fontSize: 11, fontFamily: "monospace" }}>{fmtDate(n.sentAt)}</td>
+                                    <td style={{ padding: "8px 12px", fontSize: 11 }}>{n.recipientName} ({n.recipientEmail})</td>
+                                    <td style={{ padding: "8px 12px", fontSize: 10, fontWeight: 700, color: n.status === "sent" ? C.low : C.critical }}>{n.status.toUpperCase()}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          <div style={{ marginTop: 24, textAlign: "right" }}>
+                            <Btn onClick={() => analyzeVulnerabilityWithAi(vulnDetail)} style={{ marginRight: 12 }}><I name="brain" size={14} /> Analizar con IA</Btn>
+                            <Btn onClick={() => setVulnDetail(null)}>Cerrar</Btn>
+                          </div>
+                        </>;
+                      })()}
                     </div>
                   </div>
                 )}
@@ -1840,9 +2591,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                               {v.hasPublicExploit && <span style={{ background: C.high, color: "#fff", padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700 }}>EXPLOIT</span>}
                             </div>
                             <p style={{ color: C.gray600, fontSize: 11, lineHeight: 1.5, margin: "0 0 8px" }}>{v.description}</p>
-                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                              {(v.affectedProducts || []).map((p, i) => <span key={i} style={{ background: C.bluePale, color: C.navy, padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600 }}>{p.vendor}/{p.product} {p.versionRange ? `(${p.versionRange})` : ""}</span>)}
-                            </div>
+                            <SemanticCompactAffected vuln={v} small contextLimit={2} />
                             {aff.length > 0 && (
                               <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
                                 <I name="users" size={12} color={C.gray400} />
@@ -1887,8 +2636,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         <span style={{ fontSize: 10, color: C.gray500 }}>EPSS {fmtEpss(v.epssScore)}</span>
                       </div>
                       <p style={{ color: C.gray600, fontSize: 11, lineHeight: 1.5, marginBottom: 10 }}>{v.description}</p>
-                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
-                        {(v.affectedProducts || []).map((p, i) => <span key={i} style={{ background: C.bluePale, color: C.navy, padding: "2px 8px", borderRadius: 3, fontSize: 10, fontWeight: 600 }}>{p.vendor}/{p.product}</span>)}
+                      <div style={{ marginBottom: 8 }}>
+                        <SemanticCompactAffected vuln={v} contextLimit={2} />
                       </div>
                       {aff.length > 0 && (
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
@@ -2318,7 +3067,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
               {contacts.map(c => {
                 const contactProds = (c.subscriptions || []).map(s => `${s.vendor}/${s.product}`.toLowerCase());
-                const affectedVulns = vulns.filter(v => (v.affectedProducts || []).some(p => contactProds.includes(`${p.vendor}/${p.product}`.toLowerCase())));
+                const affectedVulns = vulns.filter(v => getOperationalAffectedPairs(v).some(product => contactProds.includes(`${product.vendor}/${product.product}`.toLowerCase())));
                 const critCount = affectedVulns.filter(v => v.cvssV31Severity === "CRITICAL").length;
                 const exploitedCount = affectedVulns.filter(v => v.isKnownExploited).length;
                 return (
@@ -3271,22 +4020,37 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
                 {backfillStatus?.job ? (
                   <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, overflow: "hidden" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 0 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 0 }}>
                       <div style={{ padding: "10px 12px", borderRight: `1px solid ${C.gray100}` }}>
                         <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Estado</div>
                         <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{backfillStatus.job.status || "-"}</div>
                       </div>
                       <div style={{ padding: "10px 12px", borderRight: `1px solid ${C.gray100}` }}>
                         <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Checkpoints</div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{backfillStatus?.checkpoints?.DONE || 0} / {(backfillStatus?.remaining || 0) + (backfillStatus?.checkpoints?.DONE || 0)}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{backfillCheckpointDone} / {backfillCheckpointTotal}</div>
+                        <div style={{ fontSize: 10, color: C.gray500 }}>
+                          {Number(backfillCheckpointSummary.inProgress || backfillStatus?.checkpoints?.IN_PROGRESS || 0)} en curso · {Number(backfillCheckpointSummary.pending || backfillStatus?.checkpoints?.PENDING || 0)} pendientes
+                        </div>
                       </div>
                       <div style={{ padding: "10px 12px", borderRight: `1px solid ${C.gray100}` }}>
-                        <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Insertados/Actualizados</div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{backfillMetrics.inserted || 0} / {backfillMetrics.updated || 0}</div>
+                        <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Requests NVD</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{backfillRequestsProcessed}</div>
+                        <div style={{ fontSize: 10, color: C.gray500 }}>Páginas / requests procesados</div>
+                      </div>
+                      <div style={{ padding: "10px 12px", borderRight: `1px solid ${C.gray100}` }}>
+                        <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Items recuperados</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{backfillItemsFetched}</div>
+                        <div style={{ fontSize: 10, color: C.gray500 }}>CVEs devueltos por NVD</div>
+                      </div>
+                      <div style={{ padding: "10px 12px", borderRight: `1px solid ${C.gray100}` }}>
+                        <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Escrituras en DB</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{backfillInserted} insertados · {backfillUpdated} actualizados</div>
+                        <div style={{ fontSize: 10, color: C.gray500 }}>Cambios persistidos</div>
                       </div>
                       <div style={{ padding: "10px 12px" }}>
-                        <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Páginas / Items</div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{backfillMetrics.pagesProcessed || 0} / {backfillMetrics.itemsFetched || 0}</div>
+                        <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Sin cambios / Errores</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: backfillErrors > 0 ? C.high : C.text }}>{backfillUnchanged} sin cambios · {backfillErrors} errores</div>
+                        <div style={{ fontSize: 10, color: C.gray500 }}>Mucho histórico existente aparecerá aquí</div>
                       </div>
                     </div>
                     <div style={{ borderTop: `1px solid ${C.gray100}`, padding: "8px 12px", fontSize: 11, color: C.gray600, fontFamily: "monospace" }}>

@@ -61,6 +61,57 @@ export const VENDOR_ALIASES: Record<string, string> = {
   'linux kernel organization, inc.': 'linux',
 };
 
+export type SemanticComponentType =
+  | 'application'
+  | 'library'
+  | 'framework'
+  | 'os-package'
+  | 'platform-context'
+  | 'unknown';
+
+export type SemanticAffectedProduct = {
+  vendor: string;
+  product: string;
+  version?: string;
+  versionRange?: string;
+  cpe?: string;
+  source?: string;
+  componentType: SemanticComponentType;
+  contextualVendor: boolean;
+};
+
+const CONTEXTUAL_VENDOR_TOKENS = new Set([
+  'azure devops',
+  'bitbucket',
+  'circleci',
+  'docker',
+  'docker hub',
+  'ghcr',
+  'github',
+  'github actions',
+  'github container registry',
+  'gitlab',
+  'gradle',
+  'jenkins',
+  'maven',
+  'npm',
+  'pypi',
+  'travis',
+]);
+
+const CONTEXT_TAG_PATTERNS: Array<{ tag: string; pattern: RegExp }> = [
+  { tag: 'github', pattern: /\bgithub\b/i },
+  { tag: 'github-actions', pattern: /\bgithub[-\s]?actions?\b/i },
+  { tag: 'gitlab', pattern: /\bgitlab\b/i },
+  { tag: 'bitbucket', pattern: /\bbitbucket\b/i },
+  { tag: 'docker', pattern: /\bdocker\b/i },
+  { tag: 'registry', pattern: /\b(ghcr|container registry|docker hub|registry)\b/i },
+  { tag: 'package-manager', pattern: /\b(npm|pypi|maven|gradle)\b/i },
+  { tag: 'ci-cd', pattern: /\b(ci\/cd|ci-cd|continuous integration|pipeline)\b/i },
+  { tag: 'workflow', pattern: /\bworkflow(s)?\b/i },
+  { tag: 'supply-chain', pattern: /\b(supply chain|dependency|package|registry)\b/i },
+];
+
 /**
  * Normalize a vendor name: lowercase, trim, apply alias map.
  */
@@ -90,6 +141,279 @@ export function normalizeName(value: string | undefined | null): string {
   return String(value || '').trim().toLowerCase();
 }
 
+function normalizeContextToken(value: string | undefined | null): string {
+  return normalizeName(value)
+    .replace(/[._/]+/g, ' ')
+    .replace(/[-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+export function isContextualVendor(value: string | undefined | null): boolean {
+  const normalized = normalizeContextToken(value);
+  if (!normalized) return false;
+  if (CONTEXTUAL_VENDOR_TOKENS.has(normalized)) return true;
+
+  return (
+    normalized.includes('github actions') ||
+    normalized.includes('container registry') ||
+    normalized.includes('docker hub') ||
+    normalized.includes('package registry')
+  );
+}
+
+export function detectComponentType(
+  vendor: string | undefined | null,
+  product: string | undefined | null,
+  description?: string | undefined | null,
+): SemanticComponentType {
+  const normalizedVendor = normalizeName(vendor);
+  const normalizedProduct = normalizeName(product);
+  const text = `${normalizedVendor} ${normalizedProduct} ${normalizeName(description)}`;
+  const hasPlatformSignals =
+    /\b(actions?|workflow|pipeline|ci\/cd|ci-cd|registry|container registry)\b/i.test(text) ||
+    /\b(npm|pypi|maven|gradle|docker hub|ghcr)\b/i.test(text);
+
+  if (
+    hasPlatformSignals ||
+    (isContextualVendor(normalizedVendor) && isContextualVendor(normalizedProduct))
+  ) {
+    return 'platform-context';
+  }
+  if (
+    /\b(framework|django|spring|laravel|rails|struts|angular|react|vue|next\.?js)\b/i.test(
+      text,
+    )
+  ) {
+    return 'framework';
+  }
+  if (
+    /\b(library|lib\b|sdk|client|module|package|plugin|extension|gem|crate|dependency)\b/i.test(
+      text,
+    )
+  ) {
+    return 'library';
+  }
+  if (/\b(deb|rpm|apk|apt|yum|dnf|portage|os package|linux package)\b/i.test(text)) {
+    return 'os-package';
+  }
+  return normalizedVendor && normalizedProduct ? 'application' : 'unknown';
+}
+
+export function normalizeAffectedProductSemantics(
+  affectedProduct: {
+    vendor?: string | null;
+    product?: string | null;
+    version?: string | null;
+    versionRange?: string | null;
+    cpe?: string | null;
+    source?: string | null;
+  },
+  description?: string | undefined | null,
+): SemanticAffectedProduct | null {
+  const vendor = normalizeName(affectedProduct?.vendor);
+  const product = normalizeName(affectedProduct?.product);
+  if (!vendor || !product) return null;
+
+  return {
+    vendor,
+    product,
+    version: normalizeName(affectedProduct?.version) || undefined,
+    versionRange: normalizeName(affectedProduct?.versionRange) || undefined,
+    cpe: normalizeName(affectedProduct?.cpe) || undefined,
+    source: normalizeName(affectedProduct?.source) || undefined,
+    componentType: detectComponentType(vendor, product, description),
+    contextualVendor: isContextualVendor(vendor),
+  };
+}
+
+export function filterOperationalAffectedProducts(
+  affectedProducts: Array<{
+    vendor?: string | null;
+    product?: string | null;
+    version?: string | null;
+    versionRange?: string | null;
+    cpe?: string | null;
+    source?: string | null;
+  }>,
+  description?: string | undefined | null,
+): SemanticAffectedProduct[] {
+  const normalized = Array.from(
+    new Map(
+      (affectedProducts || [])
+        .map((entry) => normalizeAffectedProductSemantics(entry, description))
+        .filter((entry): entry is SemanticAffectedProduct => entry != null)
+        .map((entry) => [
+          [
+            entry.vendor,
+            entry.product,
+            entry.version || '',
+            entry.versionRange || '',
+            entry.cpe || '',
+          ].join('::'),
+          entry,
+        ]),
+    ).values(),
+  );
+
+  const operational = normalized.filter(
+    (entry) => entry.componentType !== 'platform-context',
+  );
+
+  return (operational.length > 0 ? operational : normalized).sort((left, right) =>
+    [
+      left.vendor,
+      left.product,
+      left.versionRange || '',
+      left.version || '',
+      left.cpe || '',
+    ]
+      .join('/')
+      .localeCompare(
+        [right.vendor, right.product, right.versionRange || '', right.version || '', right.cpe || ''].join('/'),
+      ),
+  );
+}
+
+export function selectDominantAffectedEntity(
+  affectedProducts: Array<{
+    vendor?: string | null;
+    product?: string | null;
+    version?: string | null;
+    versionRange?: string | null;
+    cpe?: string | null;
+    source?: string | null;
+  }>,
+  description?: string | undefined | null,
+  preferredPrimary?: { vendor?: string | null; product?: string | null },
+): (SemanticAffectedProduct & { dominanceScore: number; contextTags: string[] }) | null {
+  const normalized = filterOperationalAffectedProducts(affectedProducts, description);
+  if (normalized.length === 0) return null;
+
+  const preferredVendor = normalizeName(preferredPrimary?.vendor);
+  const preferredProduct = normalizeName(preferredPrimary?.product);
+  const candidates = new Map<
+    string,
+    SemanticAffectedProduct & {
+      dominanceScore: number;
+      versions: Set<string>;
+      ranges: Set<string>;
+      cpes: Set<string>;
+    }
+  >();
+
+  for (const entry of normalized) {
+    const key = `${entry.vendor}::${entry.product}`;
+    if (!candidates.has(key)) {
+      candidates.set(key, {
+        ...entry,
+        dominanceScore: 40,
+        versions: new Set<string>(),
+        ranges: new Set<string>(),
+        cpes: new Set<string>(),
+      });
+    }
+
+    const current = candidates.get(key)!;
+    current.dominanceScore += 12;
+    if (entry.version) current.versions.add(entry.version);
+    if (entry.versionRange) current.ranges.add(entry.versionRange);
+    if (entry.cpe) current.cpes.add(entry.cpe);
+    if (entry.componentType === 'application') current.dominanceScore += 6;
+    if (entry.componentType === 'framework' || entry.componentType === 'library') {
+      current.dominanceScore += 4;
+    }
+    if (!entry.contextualVendor) current.dominanceScore += 4;
+    if (preferredVendor && preferredProduct && entry.vendor === preferredVendor && entry.product === preferredProduct) {
+      current.dominanceScore += 5;
+    }
+  }
+
+  const ranked = Array.from(candidates.values())
+    .map((candidate) => ({
+      ...candidate,
+      dominanceScore:
+        candidate.dominanceScore +
+        candidate.versions.size * 2 +
+        candidate.ranges.size * 3 +
+        candidate.cpes.size * 4,
+    }))
+    .sort((left, right) => {
+      if (right.dominanceScore !== left.dominanceScore) {
+        return right.dominanceScore - left.dominanceScore;
+      }
+      if (left.contextualVendor !== right.contextualVendor) {
+        return Number(left.contextualVendor) - Number(right.contextualVendor);
+      }
+      return `${left.vendor}/${left.product}`.localeCompare(`${right.vendor}/${right.product}`);
+    });
+
+  const best = ranked[0];
+  if (!best) return null;
+
+  return {
+    vendor: best.vendor,
+    product: best.product,
+    version: best.version,
+    versionRange: best.versionRange,
+    cpe: best.cpe,
+    source: best.source,
+    componentType: best.componentType,
+    contextualVendor: best.contextualVendor,
+    dominanceScore: best.dominanceScore,
+    contextTags: extractContextTags({
+      products: normalized,
+      description,
+      primaryVendor: best.vendor,
+      primaryProduct: best.product,
+    }),
+  };
+}
+
+export function extractContextTags(params: {
+  products?: Array<{
+    vendor?: string | null;
+    product?: string | null;
+    version?: string | null;
+    versionRange?: string | null;
+    cpe?: string | null;
+    source?: string | null;
+  }>;
+  description?: string | undefined | null;
+  primaryVendor?: string | undefined | null;
+  primaryProduct?: string | undefined | null;
+}): string[] {
+  const productText = (params.products || [])
+    .map((entry) =>
+      [
+        entry?.vendor,
+        entry?.product,
+        entry?.source,
+        entry?.cpe,
+        entry?.version,
+        entry?.versionRange,
+      ]
+        .filter(Boolean)
+        .join(' '),
+    )
+    .join(' ');
+  const combined = [
+    params.description,
+    params.primaryVendor,
+    params.primaryProduct,
+    productText,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return Array.from(
+    new Set(
+      CONTEXT_TAG_PATTERNS.filter(({ pattern }) => pattern.test(combined)).map(
+        ({ tag }) => tag,
+      ),
+    ),
+  ).sort();
+}
+
 /**
  * Checks if a subscription matches an affected product entry.
  * Matching rules:
@@ -101,16 +425,36 @@ export function normalizeName(value: string | undefined | null): string {
  */
 export function matchesSubscription(
   subscription: { vendor: string; product: string; versions: string[] },
-  affectedProduct: { vendor?: string; product?: string; version?: string; versionRange?: string },
+  affectedProduct: {
+    vendor?: string;
+    product?: string;
+    version?: string;
+    versionRange?: string;
+    description?: string;
+    componentType?: string;
+  },
 ): boolean {
-  const sVendor = normalizeName(subscription.vendor);
-  const sProduct = normalizeName(subscription.product);
+  const sVendor = normalizeVendor(subscription.vendor);
+  const sProduct = normalizeProduct(subscription.product);
 
-  const pVendor = normalizeName(affectedProduct?.vendor);
-  const pProduct = normalizeName(affectedProduct?.product);
+  const normalizedAffected = normalizeAffectedProductSemantics(
+    affectedProduct,
+    affectedProduct?.description,
+  );
+  const pVendor = normalizeVendor(normalizedAffected?.vendor || affectedProduct?.vendor);
+  const pProduct = normalizeProduct(normalizedAffected?.product || affectedProduct?.product);
+  const affectedComponentType = String(
+    affectedProduct?.componentType || normalizedAffected?.componentType || 'unknown',
+  ).toLowerCase();
+  const subscriptionIsContextual = isContextualVendor(subscription.vendor);
 
   // Both fields empty → poorly correlated data
-  if (!pVendor && !pProduct) return false;
+  if ((!pVendor || pVendor === 'unknown') && !pProduct) return false;
+
+  // Avoid matching pure platform/context entries against regular product subscriptions.
+  if (affectedComponentType === 'platform-context' && !subscriptionIsContextual) {
+    return false;
+  }
 
   // If subscription specifies vendor, it must match
   if (sVendor && pVendor && sVendor !== pVendor) return false;
@@ -137,8 +481,22 @@ export function matchesSubscription(
  */
 export function getMatchedProducts(
   subscriptions: Array<{ vendor: string; product: string; versions: string[] }>,
-  affectedProducts: Array<{ vendor: string; product: string; version?: string; versionRange?: string }>,
-): Array<{ vendor: string; product: string; version?: string; versionRange?: string }> {
+  affectedProducts: Array<{
+    vendor: string;
+    product: string;
+    version?: string;
+    versionRange?: string;
+    description?: string;
+    componentType?: string;
+  }>,
+): Array<{
+  vendor: string;
+  product: string;
+  version?: string;
+  versionRange?: string;
+  description?: string;
+  componentType?: string;
+}> {
   return (affectedProducts || []).filter((ap) =>
     subscriptions.some((sub) => matchesSubscription(sub, ap)),
   );
