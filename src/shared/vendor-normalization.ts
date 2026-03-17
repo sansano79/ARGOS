@@ -80,6 +80,24 @@ export type SemanticAffectedProduct = {
   contextualVendor: boolean;
 };
 
+export type SemanticReferenceLike = {
+  url?: string | null;
+  tags?: string[] | null;
+  source?: string | null;
+  type?: string | null;
+  name?: string | null;
+};
+
+export type SemanticReferenceCandidate = {
+  vendor: string;
+  product: string;
+  componentType: SemanticComponentType;
+  contextualVendor: boolean;
+  confidence: number;
+  source: 'repository-reference' | 'package-reference';
+  contextTags: string[];
+};
+
 const CONTEXTUAL_VENDOR_TOKENS = new Set([
   'azure devops',
   'bitbucket',
@@ -101,6 +119,7 @@ const CONTEXTUAL_VENDOR_TOKENS = new Set([
 
 const CONTEXT_TAG_PATTERNS: Array<{ tag: string; pattern: RegExp }> = [
   { tag: 'github', pattern: /\bgithub\b/i },
+  { tag: 'ghsa', pattern: /\bghsa[-:\s]/i },
   { tag: 'github-actions', pattern: /\bgithub[-\s]?actions?\b/i },
   { tag: 'gitlab', pattern: /\bgitlab\b/i },
   { tag: 'bitbucket', pattern: /\bbitbucket\b/i },
@@ -111,6 +130,49 @@ const CONTEXT_TAG_PATTERNS: Array<{ tag: string; pattern: RegExp }> = [
   { tag: 'workflow', pattern: /\bworkflow(s)?\b/i },
   { tag: 'supply-chain', pattern: /\b(supply chain|dependency|package|registry)\b/i },
 ];
+
+const REPOSITORY_REFERENCE_HOSTS = new Set([
+  'github.com',
+  'gitlab.com',
+  'bitbucket.org',
+]);
+
+const REPOSITORY_PATH_BLOCKLIST = new Set([
+  'advisories',
+  'advisory',
+  'login',
+  'marketplace',
+  'orgs',
+  'organizations',
+  'security',
+  'settings',
+  'sponsors',
+  'users',
+]);
+
+const GENERIC_PACKAGE_TOKENS = new Set([
+  'action',
+  'actions',
+  'advisory',
+  'application',
+  'component',
+  'dependency',
+  'docker',
+  'framework',
+  'github',
+  'gitlab',
+  'library',
+  'maven',
+  'module',
+  'npm',
+  'package',
+  'plugin',
+  'product',
+  'pypi',
+  'registry',
+  'software',
+  'workflow',
+]);
 
 /**
  * Normalize a vendor name: lowercase, trim, apply alias map.
@@ -165,20 +227,27 @@ export function detectComponentType(
   vendor: string | undefined | null,
   product: string | undefined | null,
   description?: string | undefined | null,
+  evidence?: string | string[] | undefined | null,
 ): SemanticComponentType {
   const normalizedVendor = normalizeName(vendor);
   const normalizedProduct = normalizeName(product);
-  const text = `${normalizedVendor} ${normalizedProduct} ${normalizeName(description)}`;
+  const evidenceText = Array.isArray(evidence)
+    ? evidence.map((value) => normalizeName(value)).join(' ')
+    : normalizeName(evidence);
+  const text = `${normalizedVendor} ${normalizedProduct} ${normalizeName(description)} ${evidenceText}`;
+  const packageNameSignals =
+    /^@[a-z0-9._-]+\/[a-z0-9._-]+$/.test(normalizedProduct) ||
+    /^[a-z0-9._-]+\/[a-z0-9._-]+$/.test(normalizedProduct) ||
+    /\b(?:npm|pypi|nuget|maven|composer|cargo|crate|gem|package)\b/i.test(text);
+  const strongLibrarySignals =
+    packageNameSignals ||
+    /\b(library|lib\b|sdk|client|module|package|plugin|extension|gem|crate|dependency)\b/i.test(
+      text,
+    );
   const hasPlatformSignals =
     /\b(actions?|workflow|pipeline|ci\/cd|ci-cd|registry|container registry)\b/i.test(text) ||
     /\b(npm|pypi|maven|gradle|docker hub|ghcr)\b/i.test(text);
 
-  if (
-    hasPlatformSignals ||
-    (isContextualVendor(normalizedVendor) && isContextualVendor(normalizedProduct))
-  ) {
-    return 'platform-context';
-  }
   if (
     /\b(framework|django|spring|laravel|rails|struts|angular|react|vue|next\.?js)\b/i.test(
       text,
@@ -186,15 +255,17 @@ export function detectComponentType(
   ) {
     return 'framework';
   }
-  if (
-    /\b(library|lib\b|sdk|client|module|package|plugin|extension|gem|crate|dependency)\b/i.test(
-      text,
-    )
-  ) {
+  if (strongLibrarySignals) {
     return 'library';
   }
   if (/\b(deb|rpm|apk|apt|yum|dnf|portage|os package|linux package)\b/i.test(text)) {
     return 'os-package';
+  }
+  if (
+    hasPlatformSignals ||
+    (isContextualVendor(normalizedVendor) && isContextualVendor(normalizedProduct))
+  ) {
+    return 'platform-context';
   }
   return normalizedVendor && normalizedProduct ? 'application' : 'unknown';
 }
@@ -213,6 +284,13 @@ export function normalizeAffectedProductSemantics(
   const vendor = normalizeName(affectedProduct?.vendor);
   const product = normalizeName(affectedProduct?.product);
   if (!vendor || !product) return null;
+  const evidenceText = [
+    normalizeName(affectedProduct?.source),
+    normalizeName(affectedProduct?.cpe),
+    normalizeName(affectedProduct?.versionRange),
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return {
     vendor,
@@ -221,7 +299,7 @@ export function normalizeAffectedProductSemantics(
     versionRange: normalizeName(affectedProduct?.versionRange) || undefined,
     cpe: normalizeName(affectedProduct?.cpe) || undefined,
     source: normalizeName(affectedProduct?.source) || undefined,
-    componentType: detectComponentType(vendor, product, description),
+    componentType: detectComponentType(vendor, product, description, evidenceText),
     contextualVendor: isContextualVendor(vendor),
   };
 }
@@ -381,6 +459,8 @@ export function extractContextTags(params: {
   description?: string | undefined | null;
   primaryVendor?: string | undefined | null;
   primaryProduct?: string | undefined | null;
+  references?: SemanticReferenceLike[] | undefined | null;
+  additionalText?: Array<string | null | undefined> | undefined | null;
 }): string[] {
   const productText = (params.products || [])
     .map((entry) =>
@@ -401,6 +481,18 @@ export function extractContextTags(params: {
     params.primaryVendor,
     params.primaryProduct,
     productText,
+    ...(params.references || []).map((reference) =>
+      [
+        reference?.url,
+        ...(reference?.tags || []),
+        reference?.source,
+        reference?.type,
+        reference?.name,
+      ]
+        .filter(Boolean)
+        .join(' '),
+    ),
+    ...(params.additionalText || []),
   ]
     .filter(Boolean)
     .join(' ');
@@ -412,6 +504,177 @@ export function extractContextTags(params: {
       ),
     ),
   ).sort();
+}
+
+export function inferReferenceEntityCandidates(params: {
+  description?: string | null;
+  references?: SemanticReferenceLike[] | null;
+}): SemanticReferenceCandidate[] {
+  const description = String(params.description || '');
+  const references = Array.isArray(params.references) ? params.references : [];
+  const candidates = new Map<string, SemanticReferenceCandidate>();
+  const contextTags = extractContextTags({
+    description,
+    references,
+  });
+  const addCandidate = (
+    vendorValue: string | undefined | null,
+    productValue: string | undefined | null,
+    confidence: number,
+    source: SemanticReferenceCandidate['source'],
+    evidenceText?: string,
+  ) => {
+    const vendor = normalizeName(vendorValue);
+    const product = normalizeName(productValue);
+    if (!vendor || !product) return;
+    if (GENERIC_PACKAGE_TOKENS.has(product)) return;
+
+    const key = `${vendor}::${product}`;
+    const componentType = detectComponentType(vendor, product, description, evidenceText);
+    const contextualVendor = isContextualVendor(vendor);
+    const existing = candidates.get(key);
+    if (existing && existing.confidence >= confidence) return;
+
+    candidates.set(key, {
+      vendor,
+      product,
+      componentType,
+      contextualVendor,
+      confidence,
+      source,
+      contextTags,
+    });
+  };
+
+  for (const reference of references) {
+    const url = String(reference?.url || '').trim();
+    if (!url) continue;
+
+    const repositoryCandidate = extractRepositoryCandidate(url);
+    if (repositoryCandidate) {
+      const hasStrongRefSignals = /\/(commit|compare|pull|security|releases)\//i.test(url) ||
+        (reference.tags || []).some((tag) => /patch|advisory|vendor advisory/i.test(tag));
+      addCandidate(
+        repositoryCandidate.vendor,
+        repositoryCandidate.product,
+        hasStrongRefSignals ? 0.9 : 0.78,
+        'repository-reference',
+        `${url} ${(reference.tags || []).join(' ')}`,
+      );
+    }
+
+    const packageCandidates = extractPackageCandidates(
+      `${description} ${url} ${(reference.tags || []).join(' ')} ${reference.name || ''}`,
+    );
+    for (const candidate of packageCandidates) {
+      if (candidate.vendor) {
+        addCandidate(
+          candidate.vendor,
+          candidate.product,
+          candidate.confidence,
+          'package-reference',
+          `${description} ${url}`,
+        );
+        continue;
+      }
+
+      if (repositoryCandidate && normalizeProduct(repositoryCandidate.product) === normalizeProduct(candidate.product)) {
+        addCandidate(
+          repositoryCandidate.vendor,
+          candidate.product,
+          Math.max(candidate.confidence, 0.84),
+          'package-reference',
+          `${description} ${url}`,
+        );
+      }
+    }
+  }
+
+  for (const candidate of extractPackageCandidates(description)) {
+    if (candidate.vendor) {
+      addCandidate(candidate.vendor, candidate.product, candidate.confidence, 'package-reference', description);
+    }
+  }
+
+  return Array.from(candidates.values()).sort((left, right) => {
+    if (right.confidence !== left.confidence) return right.confidence - left.confidence;
+    if (left.contextualVendor !== right.contextualVendor) {
+      return Number(left.contextualVendor) - Number(right.contextualVendor);
+    }
+    return `${left.vendor}/${left.product}`.localeCompare(`${right.vendor}/${right.product}`);
+  });
+}
+
+function extractRepositoryCandidate(url: string): { vendor: string; product: string } | null {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+    if (!REPOSITORY_REFERENCE_HOSTS.has(host)) return null;
+
+    const parts = parsed.pathname
+      .split('/')
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length < 2) return null;
+    if (REPOSITORY_PATH_BLOCKLIST.has(parts[0].toLowerCase())) return null;
+
+    const vendor = normalizeName(parts[0]);
+    const product = normalizeName(parts[1].replace(/\.git$/i, ''));
+    if (!vendor || !product) return null;
+    if (GENERIC_PACKAGE_TOKENS.has(product)) return null;
+
+    return { vendor, product };
+  } catch {
+    return null;
+  }
+}
+
+function extractPackageCandidates(
+  text: string,
+): Array<{ vendor: string | null; product: string; confidence: number }> {
+  const candidates = new Map<string, { vendor: string | null; product: string; confidence: number }>();
+  const patterns = [
+    /\b(?:npm|pypi|nuget|maven|composer|cargo|crate|gem)\s+package\s+[`"' ]?(@?[a-z0-9._-]+(?:\/[a-z0-9._-]+)?)/gi,
+    /\b(?:package|module|library|component|plugin)\s+[`"' ]?(@?[a-z0-9._-]+(?:\/[a-z0-9._-]+)?)/gi,
+    /\bin\s+[`"' ]?(@?[a-z0-9._-]+(?:\/[a-z0-9._-]+)?)\s+(?:before|through|prior to|versions?)/gi,
+  ];
+
+  const pushCandidate = (rawName: string, confidence: number) => {
+    const normalized = String(rawName || '').trim().replace(/[`"',.:;]+$/g, '');
+    if (!normalized) return;
+
+    if (normalized.startsWith('@')) {
+      const scopedMatch = normalized.match(/^@([^/]+)\/(.+)$/);
+      const vendor = normalizeName(scopedMatch?.[1]);
+      const product = normalizeName(scopedMatch?.[2]);
+      if (vendor && product && !GENERIC_PACKAGE_TOKENS.has(product)) {
+        candidates.set(`${vendor}::${product}`, { vendor, product, confidence });
+      }
+      return;
+    }
+
+    if (normalized.includes('/')) {
+      const [vendorRaw, productRaw] = normalized.split('/', 2);
+      const vendor = normalizeName(vendorRaw);
+      const product = normalizeName(productRaw);
+      if (vendor && product && !GENERIC_PACKAGE_TOKENS.has(product)) {
+        candidates.set(`${vendor}::${product}`, { vendor, product, confidence });
+      }
+      return;
+    }
+
+    const product = normalizeName(normalized);
+    if (!product || GENERIC_PACKAGE_TOKENS.has(product) || product.length < 2) return;
+    candidates.set(`product::${product}`, { vendor: null, product, confidence: Math.min(confidence, 0.72) });
+  };
+
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      pushCandidate(match[1], pattern === patterns[0] ? 0.9 : 0.8);
+    }
+  }
+
+  return Array.from(candidates.values()).sort((left, right) => right.confidence - left.confidence);
 }
 
 /**

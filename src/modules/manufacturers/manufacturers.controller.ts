@@ -13,8 +13,13 @@ export class ManufacturersController {
   constructor(private readonly manufacturersService: ManufacturersService) {}
 
   @Get()
-  async findAll() {
-    return this.manufacturersService.findAll();
+  async findAll(@Query('includeHidden') includeHidden?: string) {
+    return this.manufacturersService.findAll(includeHidden === 'true');
+  }
+
+  @Get('catalog-metadata')
+  async getCatalogMetadata() {
+    return this.manufacturersService.getCatalogMetadata();
   }
 
   @Post()
@@ -68,4 +73,3 @@ export class ManufacturersController {
     return this.manufacturersService.deleteManufacturer(name);
   }
 }
-

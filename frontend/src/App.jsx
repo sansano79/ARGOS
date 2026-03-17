@@ -173,6 +173,20 @@ const CONTEXT_TAG_PRIORITY = {
   workflow: 2,
   "ci cd": 3,
 };
+const CATALOG_CONTEXTUAL_VENDORS = new Set([
+  "github",
+  "github actions",
+  "github-actions",
+  "gitlab",
+  "bitbucket",
+  "cert",
+  "cisa",
+  "mitre",
+  "nvd",
+  "nist",
+  "cve",
+  "ghsa",
+]);
 const productEntityKey = (value) => {
   const vendor = String(value?.vendor || "").trim().toLowerCase();
   const product = String(value?.product || "").trim().toLowerCase();
@@ -217,10 +231,38 @@ const sortContextTags = (tags) => normalizeFieldList(tags).sort((a, b) => {
   if (pa !== pb) return pa - pb;
   return aa.localeCompare(bb, "es");
 });
+const isContextualCatalogVendor = (value) => CATALOG_CONTEXTUAL_VENDORS.has(normalizeSemanticToken(value));
+const getFallbackSemanticEntity = (v) => {
+  const candidates = getPreferredAffectedProducts(v)
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      vendor: String(item.vendor || "").trim(),
+      product: String(item.product || "").trim(),
+      version: String(item.version || "").trim(),
+      versionRange: String(item.versionRange || "").trim(),
+      cpe: String(item.cpe || "").trim(),
+    }))
+    .filter((item) => item.product);
+
+  if (candidates.length === 0) return null;
+
+  const scored = candidates.map((item) => {
+    const score =
+      (item.vendor && !isContextualCatalogVendor(item.vendor) ? 4 : 0) +
+      (item.version ? 1 : 0) +
+      (item.versionRange ? 1 : 0) +
+      (item.cpe ? 1 : 0);
+    return { ...item, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score || a.product.localeCompare(b.product, "es"));
+  return scored[0];
+};
 const getSemanticSummary = (v) => {
   const contextTags = normalizeFieldList(v?.contextTags);
-  const semanticPrimaryVendor = String(v?.semanticPrimaryVendor || "").trim();
-  const semanticPrimaryProduct = String(v?.semanticPrimaryProduct || "").trim();
+  const fallbackEntity = getFallbackSemanticEntity(v);
+  const semanticPrimaryVendor = String(v?.semanticPrimaryVendor || "").trim() || (fallbackEntity?.vendor || "");
+  const semanticPrimaryProduct = String(v?.semanticPrimaryProduct || "").trim() || (fallbackEntity?.product || "");
   const componentType = String(v?.componentType || v?.semanticComponentType || "unknown").toLowerCase();
   const hasReasonablyUsefulPrimary =
     semanticPrimaryProduct.length > 0 &&
@@ -242,9 +284,13 @@ const getSemanticSummary = (v) => {
     displayTitle,
     displaySubtitle: hasReliablePrimaryEntity
       ? componentTypeMeta(componentType).label
+      : componentType !== "unknown" && semanticPrimaryProduct
+        ? `${componentTypeMeta(componentType).label}: ${semanticPrimaryProduct}`
       : contextTags.length > 0
         ? `Contexto: ${contextTags.slice(0, 3).join(", ")}`
-        : "Se evita mostrar un vendor/producto engañoso",
+        : componentType !== "unknown"
+          ? componentTypeMeta(componentType).label
+          : "Se evita mostrar un vendor/producto engañoso",
   };
 };
 const getDisplayContextTags = ({ contextTags, riskSignals = [], tags = [] }) => {
@@ -257,6 +303,32 @@ const getDisplayContextTags = ({ contextTags, riskSignals = [], tags = [] }) => 
     const normalized = normalizeSemanticToken(tag);
     return normalized && !blocked.has(normalized);
   }));
+};
+const getCompactContextTags = (tags, limit = 2) => sortContextTags(tags).slice(0, limit);
+const getReferenceHost = (url) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+};
+const inferReferenceLabel = ({ item, url, index }) => {
+  const rawLabel = String(item?.label || item?.source || item?.name || item?.type || "").trim();
+  if (rawLabel && !/^https?:\/\//i.test(rawLabel)) {
+    return toSentence(rawLabel);
+  }
+
+  const host = getReferenceHost(url);
+  const lowerUrl = String(url || "").toLowerCase();
+
+  if (lowerUrl.includes("github.com") && lowerUrl.includes("/commit/")) return "Commit";
+  if (lowerUrl.includes("github.com/advisories") || lowerUrl.includes("ghsa")) return "GHSA Advisory";
+  if (lowerUrl.includes("patch") || lowerUrl.includes("hotfix") || lowerUrl.includes("release-notes")) return "Patch";
+  if (lowerUrl.includes("advisory") || lowerUrl.includes("bulletin") || lowerUrl.includes("security")) return "Vendor Advisory";
+  if (host === "nvd.nist.gov") return "NVD";
+  if (host === "cve.org") return "CVE.org";
+  if (host) return `Referencia ${index + 1}`;
+  return `Referencia general ${index + 1}`;
 };
 const splitDisplayProducts = (products, semantic) => {
   const primaryKey = semantic.hasReliablePrimaryEntity
@@ -367,11 +439,11 @@ const SemanticCompactAffected = ({
   showPendingNote = true,
 }) => {
   const semantic = getSemanticSummary(vuln);
-  const contextTags = getDisplayContextTags({
+  const contextTags = getCompactContextTags(getDisplayContextTags({
     contextTags: semantic.contextTags,
     riskSignals: vuln?.riskSignals,
     tags: vuln?.tags,
-  }).slice(0, contextLimit);
+  }), contextLimit);
   const title = semantic.hasReliablePrimaryEntity ? semantic.displayTitle : pendingLabel;
 
   return (
@@ -534,11 +606,19 @@ const RichValue = ({ value, empty = "Sin datos disponibles" }) => {
 
 const LinkList = ({ items, empty = "Sin referencias disponibles", accent = C.gray200 }) => {
   const links = normalizeFieldList(items).map((item, idx) => {
-    if (typeof item === "string") return { id: `${item}-${idx}`, label: item, url: item };
+    if (typeof item === "string") {
+      return {
+        id: `${item}-${idx}`,
+        label: inferReferenceLabel({ item: null, url: item, index: idx }),
+        subtitle: getReferenceHost(item) || "Enlace externo",
+        url: item,
+      };
+    }
     if (item && typeof item === "object" && item.url) {
       return {
         id: `${item.url}-${idx}`,
-        label: item.source || item.name || item.type || `Referencia ${idx + 1}`,
+        label: inferReferenceLabel({ item, url: item.url, index: idx }),
+        subtitle: getReferenceHost(item.url) || toSentence(item.source || item.type || "enlace externo"),
         url: item.url,
       };
     }
@@ -555,6 +635,7 @@ const LinkList = ({ items, empty = "Sin referencias disponibles", accent = C.gra
           href={link.url}
           target="_blank"
           rel="noreferrer"
+          title={link.url}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -569,7 +650,10 @@ const LinkList = ({ items, empty = "Sin referencias disponibles", accent = C.gra
             fontWeight: 600,
           }}
         >
-          <span>{link.label}</span>
+          <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <span>{link.label}</span>
+            <span style={{ fontSize: 10, color: C.gray500, fontWeight: 500 }}>{link.subtitle}</span>
+          </span>
           <I name="link" size={12} color={C.gray500} />
         </a>
       ))}
@@ -619,6 +703,7 @@ const VisualBanner = () => (
 // ─── Main Component ──────────────────────────────────────────────────────────
 export default function VulnDashboard() {
   const initialResetToken = getResetTokenFromPath();
+  const VULN_PAGE_LIMIT = 50;
 
   // Auth state
   const [isLoggedIn, setIsLoggedIn] = useState(!!getToken());
@@ -648,6 +733,10 @@ export default function VulnDashboard() {
   const [dash, setDash] = useState({ totalAll: 0, today: [], week: [], topExploited: [], lastRun: null });
   const [vulns, setVulns] = useState([]);
   const [vulnsTotal, setVulnsTotal] = useState(0);
+  const [vulnsPage, setVulnsPage] = useState(1);
+  const [vulnsHasMore, setVulnsHasMore] = useState(false);
+  const [vulnsLoading, setVulnsLoading] = useState(false);
+  const [vulnsLoadingMore, setVulnsLoadingMore] = useState(false);
   const [runs, setRuns] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [reports, setReports] = useState([]);
@@ -678,6 +767,8 @@ export default function VulnDashboard() {
   const [templatePreviewMeta, setTemplatePreviewMeta] = useState({ cveId: "", manufacturer: "" });
   const [templatePreviewLoading, setTemplatePreviewLoading] = useState(false);
   const [manufacturers, setManufacturers] = useState([]);
+  const [allManufacturers, setAllManufacturers] = useState([]);
+  const [manufacturersCatalogMeta, setManufacturersCatalogMeta] = useState(null);
   const [selectedManufacturer, setSelectedManufacturer] = useState("");
   const [newManufacturerName, setNewManufacturerName] = useState("");
   const [newProductForm, setNewProductForm] = useState({ vendor: "", product: "", versions: "" });
@@ -691,9 +782,22 @@ export default function VulnDashboard() {
   const loadManufacturers = async () => {
     setManufacturersLoading(true);
     try {
-      const r = await apiFetch("/manufacturers");
-      const data = await r.json();
-      setManufacturers(Array.isArray(data) ? data : []);
+      const [operationalR, allR, metaR] = await Promise.all([
+        apiFetch("/manufacturers"),
+        apiFetch("/manufacturers?includeHidden=true"),
+        apiFetch("/manufacturers/catalog-metadata"),
+      ]);
+      const data = await operationalR.json();
+      const allData = await allR.json();
+      const meta = await metaR.json();
+      const list = Array.isArray(data) ? data : [];
+      setManufacturers(list);
+      setAllManufacturers(Array.isArray(allData) ? allData : []);
+      setManufacturersCatalogMeta(meta && typeof meta === "object" ? meta : null);
+      if ((!selectedManufacturer || !list.some((item) => item.name === selectedManufacturer)) && list.length > 0) {
+        const preferred = list[0];
+        if (preferred) setSelectedManufacturer(preferred.name);
+      }
     } catch (e) { console.error(e); }
     finally { setManufacturersLoading(false); }
   };
@@ -944,40 +1048,67 @@ export default function VulnDashboard() {
     validateResetToken(resetToken);
   }, [authMode, isLoggedIn, resetToken, validateResetToken]);
 
+  useEffect(() => {
+    if (view === "search") {
+      setView("vulns");
+    }
+  }, [view]);
+
   // Load data when view changes
+  const loadVulnerabilityExplorer = useCallback(async ({ page = 1, append = false } = {}) => {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("limit", String(VULN_PAGE_LIMIT));
+    if (sevFilter) params.set("severity", sevFilter);
+    if (riskTierFilter) params.set("riskTier", riskTierFilter);
+    if (exploitStatusFilter) params.set("exploitStatus", exploitStatusFilter);
+    if (vendorFilter.trim()) params.set("vendor", vendorFilter.trim().toLowerCase());
+    if (productFilter.trim()) params.set("product", productFilter.trim().toLowerCase());
+    if (changedSinceHoursFilter) params.set("changedSinceHours", changedSinceHoursFilter);
+
+    if (append) setVulnsLoadingMore(true);
+    else setVulnsLoading(true);
+
+    try {
+      const [vulnsR, tagsR] = await Promise.all([
+        apiFetch(`/vulnerabilities?${params.toString()}`),
+        apiFetch("/tags"),
+      ]);
+      const vulnData = await vulnsR.json();
+      const nextRows = Array.isArray(vulnData?.data) ? vulnData.data : [];
+      const total = Number(vulnData?.total || 0);
+      const limit = Number(vulnData?.limit || VULN_PAGE_LIMIT);
+
+      setVulns((prev) => append ? [...prev, ...nextRows] : nextRows);
+      setVulnsTotal(total);
+      setVulnsPage(page);
+      setVulnsHasMore(page * limit < total);
+
+      const tagsData = await tagsR.json();
+      setTags(Array.isArray(tagsData) ? tagsData : []);
+    } finally {
+      setVulnsLoading(false);
+      setVulnsLoadingMore(false);
+    }
+  }, [VULN_PAGE_LIMIT, sevFilter, riskTierFilter, exploitStatusFilter, vendorFilter, productFilter, changedSinceHoursFilter]);
+
   const loadData = useCallback(async (v) => {
     try {
       if (v === "overview") {
         const r = await apiFetch("/vulnerabilities/dashboard"); setDash(await r.json());
-      } else if (v === "vulns" || v === "exploited") {
+      } else if (v === "vulns" || v === "search") {
+        await loadVulnerabilityExplorer({ page: 1, append: false });
+      } else if (v === "exploited") {
         const params = new URLSearchParams();
         params.set("limit", "100");
         if (v === "exploited") {
           params.set("exploited", "true");
-        } else {
-          params.set("dashboardDefault", "true");
-          if (sevFilter) params.set("severity", sevFilter);
-          if (riskTierFilter) params.set("riskTier", riskTierFilter);
-          if (exploitStatusFilter) params.set("exploitStatus", exploitStatusFilter);
-          if (vendorFilter.trim()) params.set("vendor", vendorFilter.trim().toLowerCase());
-          if (productFilter.trim()) params.set("product", productFilter.trim().toLowerCase());
-          if (changedSinceHoursFilter) params.set("changedSinceHours", changedSinceHoursFilter);
         }
         const q = `?${params.toString()}`;
         const r = await apiFetch(`/vulnerabilities${q}`); const d = await r.json(); setVulns(d.data || []); setVulnsTotal(d.total || 0);
       } else if (v === "contacts") {
         const r = await apiFetch("/users"); const allUsers = await r.json();
         setContacts((Array.isArray(allUsers) ? allUsers : []).filter(u => u.isSubscriber));
-      } else if (v === "search") {
-        const [vulnsR, tagsR] = await Promise.all([
-          apiFetch("/vulnerabilities?limit=1000"),
-          apiFetch("/tags"),
-        ]);
-        const vulnData = await vulnsR.json();
-        setVulns(Array.isArray(vulnData?.data) ? vulnData.data : []);
-        setVulnsTotal(vulnData?.total || 0);
-        const tagsData = await tagsR.json();
-        setTags(Array.isArray(tagsData) ? tagsData : []);
       } else if (v === "reports") {
         const r = await apiFetch("/vulnerabilities/reports"); const d = await r.json(); setReports(d.data || []);
       } else if (v === "collector") {
@@ -1003,13 +1134,22 @@ export default function VulnDashboard() {
         }
       } else if (v === "manufacturers") {
         setManufacturersLoading(true);
-        const r = await apiFetch("/manufacturers");
-        const data = await r.json();
+        const [operationalR, allR, metaR] = await Promise.all([
+          apiFetch("/manufacturers"),
+          apiFetch("/manufacturers?includeHidden=true"),
+          apiFetch("/manufacturers/catalog-metadata"),
+        ]);
+        const data = await operationalR.json();
+        const allData = await allR.json();
+        const meta = await metaR.json();
         const list = Array.isArray(data) ? data : [];
         setManufacturers(list);
-        if (!selectedManufacturer && list.length > 0) {
-          setSelectedManufacturer(list[0].name);
-          setMergeForm({ targetName: list[0].name, sourceNames: [list[0].name] });
+        setAllManufacturers(Array.isArray(allData) ? allData : []);
+        setManufacturersCatalogMeta(meta && typeof meta === "object" ? meta : null);
+        const preferred = list[0];
+        if (!selectedManufacturer && preferred) {
+          setSelectedManufacturer(preferred.name);
+          setMergeForm({ targetName: preferred.name, sourceNames: [preferred.name] });
         }
         setManufacturersLoading(false);
       } else if (v === "settings") {
@@ -1089,7 +1229,7 @@ export default function VulnDashboard() {
       setManufacturersLoading(false);
       console.error("Load error:", e.message);
     }
-  }, [sevFilter, riskTierFilter, exploitStatusFilter, vendorFilter, productFilter, changedSinceHoursFilter, backfillJobId]);
+  }, [loadVulnerabilityExplorer, backfillJobId]);
 
   useEffect(() => { if (isLoggedIn) loadData(view); }, [view, isLoggedIn, loadData]);
 
@@ -1161,8 +1301,9 @@ export default function VulnDashboard() {
     setTimeout(() => setSmtpMsg(null), 3000);
   };
 
-  const todayT = (dash?.today || []).reduce((s, c) => s + (c?._count || 0), 0);
-  const weekT = (dash?.week || []).reduce((s, c) => s + (c?._count || 0), 0);
+  const todayT = dash?.publishedLast24hTotal ?? (dash?.today || []).reduce((s, c) => s + (c?._count || 0), 0);
+  const weekT = dash?.publishedLast7dTotal ?? (dash?.week || []).reduce((s, c) => s + (c?._count || 0), 0);
+  const kevConfirmedT = Number(dash?.kevConfirmedTotal ?? (dash?.topKevConfirmed || dash?.topExploited || []).length);
   const gc = (arr, sev) => (arr || []).find(c => c?.cvssV31Severity === sev)?._count || 0;
   const nextRun = () => { if (!dash?.lastRun?.finishedAt) return "-"; return Math.max(0, Math.floor((new Date(dash?.lastRun?.finishedAt).getTime() + 1800000 - now) / 60000)) + "m"; };
 
@@ -1223,6 +1364,65 @@ export default function VulnDashboard() {
 
     return textMatch && tagMatch && severityMatch && scoreMatch && fromMatch && toMatch && exploitMatch;
   });
+  const clearExplorerFilters = () => {
+    setSearchQ("");
+    setSearchType("all");
+    setSearchTagId("");
+    setSearchPublishedFrom("");
+    setSearchPublishedTo("");
+    setSearchMinScore("");
+    setSearchExploit("all");
+    setSearchSeverity("");
+    setSevFilter("");
+    setRiskTierFilter("");
+    setExploitStatusFilter("");
+    setVendorFilter("");
+    setProductFilter("");
+    setChangedSinceHoursFilter("");
+  };
+  const loadMoreVulns = async () => {
+    if (vulnsLoadingMore || !vulnsHasMore) return;
+    await loadVulnerabilityExplorer({ page: vulnsPage + 1, append: true });
+  };
+  const visibleManufacturers = manufacturers;
+  const visibleManufacturersCount = Number(
+    manufacturersCatalogMeta?.visibleManufacturers ?? visibleManufacturers.length,
+  );
+  const visibleProductsCount = Number(
+    manufacturersCatalogMeta?.visibleProducts
+      ?? visibleManufacturers.reduce((sum, item) => sum + (item.productsCount || 0), 0),
+  );
+  const hiddenManufacturersCount = Number(manufacturersCatalogMeta?.hiddenManufacturers || 0);
+  const hiddenProductsCount = Number(manufacturersCatalogMeta?.hiddenProducts || 0);
+  const hiddenReasonLabelMap = {
+    contextual_vendor: "contexto/plataforma",
+    advisory_emitter: "emisor de advisory",
+    cert_org: "CERT/CSIRT",
+    unknown_vendor: "desconocido",
+  };
+  const hiddenReasonSummary = Array.isArray(manufacturersCatalogMeta?.hiddenByReason)
+    ? manufacturersCatalogMeta.hiddenByReason
+      .map((item) => {
+        const count = Number(item?.count || 0);
+        if (!count) return null;
+        const label = hiddenReasonLabelMap[item?.reason] || item?.reason || "otros";
+        return `${count} ${label}`;
+      })
+      .filter(Boolean)
+      .slice(0, 4)
+      .join(", ")
+    : "";
+  const hiddenSamplesSummary = Array.isArray(manufacturersCatalogMeta?.hiddenSamples)
+    ? manufacturersCatalogMeta.hiddenSamples
+      .map((item) => item?.vendor)
+      .filter(Boolean)
+      .slice(0, 4)
+      .join(", ")
+    : "";
+  const explorerRows = hasSearchCriteria ? searchResults : vulns;
+  const explorerResultLabel = hasSearchCriteria
+    ? `${searchResults.length} coincidencias sobre ${vulns.length} CVEs cargadas`
+    : `Mostrando ${vulns.length} de ${vulnsTotal} CVEs`;
 
   // Find contacts (subscribers) affected by a CVE
   const getAffectedContacts = (vuln) => {
@@ -1295,7 +1495,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     const ql = q.toLowerCase();
     if (ql.includes("cve-2025-21298") || ql.includes("windows ole")) return `**CVE-2025-21298 — Windows OLE RCE**\n\n**Severidad:** CRITICAL (CVSS 9.8) | **EPSS:** 94.3% probabilidad de explotación\n**Estado:** ⚠️ Explotación activa confirmada (CISA KEV)\n\n**Impacto en infraestructura OCC:**\n- Afecta a microsoft/windows_11 y windows_server_2022\n- **Equipo afectado:** Infraestructura Windows (infra-windows@corp.local)\n- Ventana de parcheo configurada: domingos 02:00-06:00\n\n**Recomendación:**\nDada la explotación activa, recomiendo solicitar parcheo de emergencia fuera de la ventana habitual. El vector de ataque es via documentos manipulados (OLE), lo que implica riesgo directo por phishing.\n\n**Acciones inmediatas:**\n1. Notificar a Pedro Gómez (infra-windows) para parcheo urgente\n2. Bloquear adjuntos OLE en el gateway de correo temporalmente\n3. Verificar detecciones en EDR para intentos de explotación`;
     if (ql.includes("fortinet") || ql.includes("fortigate") || ql.includes("fortios")) return `**Análisis FortiOS — CVE-2024-55591**\n\n**Severidad:** CRITICAL (CVSS 9.8) | Authentication Bypass\n**Estado:** Explotación activa confirmada\n\n**Detalle técnico:**\nBypass de autenticación via Node.js websocket en FortiOS permite a un atacante no autenticado obtener privilegios de super-admin mediante requests CSF proxy manipulados.\n\n**Impacto en OCC:**\n- **Equipo afectado:** Redes y Firewalls (redes-fw@corp.local)\n- FortiOS configurado en HA activo-pasivo según notas del equipo\n- Requiere CAB approval excepto P1 — esta vulnerabilidad califica como P1\n\n**Remediación:**\n1. Actualizar a FortiOS ≥7.0.17 inmediatamente\n2. Verificar logs de admin para accesos no autorizados\n3. Revisar reglas CSF proxy y deshabilitar si no se usa\n4. Contactar a Laura Martín para coordinar`;
-    if (ql.includes("resumen") || ql.includes("estado") || ql.includes("informe")) return `**Resumen ejecutivo — Estado de vulnerabilidades**\n\n📊 **Últimas 24h:** ${todayT} CVEs procesados\n- 🔴 Critical: ${gc(dash.today, "CRITICAL")} | 🟠 High: ${gc(dash.today, "HIGH")} | 🟡 Medium: ${gc(dash.today, "MEDIUM")}\n\n⚡ **Explotación activa:** ${dash.topExploited.length} CVEs confirmados en CISA KEV\n\n**Top prioridades:**\n1. **CVE-2025-21298** (Windows OLE) — CVSS 9.8, EPSS 94.3% → Equipo Infra Windows\n2. **CVE-2024-55591** (FortiOS) — CVSS 9.8, EPSS 87.6% → Equipo Redes\n3. **CVE-2025-0282** (Ivanti CS) — CVSS 9.0, EPSS 89.1% → Equipo VPN\n\n**Recomendación:** Convocar reunión de emergencia con los 3 equipos afectados para coordinar parcheo prioritario de las 3 CVEs con explotación activa y CVSS ≥9.0.`;
+    if (ql.includes("resumen") || ql.includes("estado") || ql.includes("informe")) return `**Resumen ejecutivo — Estado de vulnerabilidades**\n\n📊 **Publicadas en 24h:** ${todayT} CVEs\n- 🔴 Critical: ${gc(dash.today, "CRITICAL")} | 🟠 High: ${gc(dash.today, "HIGH")} | 🟡 Medium: ${gc(dash.today, "MEDIUM")}\n\n⚡ **KEV confirmadas:** ${kevConfirmedT} CVEs confirmados en CISA KEV\n\n**Top prioridades:**\n1. **CVE-2025-21298** (Windows OLE) — CVSS 9.8, EPSS 94.3% → Equipo Infra Windows\n2. **CVE-2024-55591** (FortiOS) — CVSS 9.8, EPSS 87.6% → Equipo Redes\n3. **CVE-2025-0282** (Ivanti CS) — CVSS 9.0, EPSS 89.1% → Equipo VPN\n\n**Recomendación:** Convocar reunión de emergencia con los equipos afectados para coordinar parcheo prioritario de las CVEs KEV y las de mayor criticidad.`;
     if (ql.includes("ivanti")) return `**Análisis Ivanti — Múltiples CVEs activas**\n\n**CVE-2025-0282** (Connect Secure) — CVSS 9.0\nBuffer overflow en stack permite RCE sin autenticación. Exploit público disponible.\n\n**CVE-2024-8963** (CSA) — CVSS 9.4\nPath traversal permite acceso no autenticado a funcionalidad restringida.\n\n**Impacto OCC:**\n- **Equipo VPN y Acceso Remoto** (vpn-team@corp.local)\n- 2 appliances en producción (Madrid y Barcelona)\n- Contacto: Carlos Ruiz\n\n**Acciones:**\n1. Verificar versión actual de Connect Secure (vulnerable si <22.7R2.5)\n2. Aplicar parche fuera de horario laboral según protocolo del equipo\n3. Ejecutar Integrity Checker Tool de Ivanti post-parcheo\n4. Revisar logs de acceso VPN de las últimas 2 semanas`;
     return `Procesando consulta: "${q}"\n\n**Análisis basado en la base de datos OCC:**\n\nActualmente hay ${dash.totalAll || vulns.length} CVEs indexados.\n\nLos equipos IT con mayor exposición son:\n${contacts.map(c => `- **${c.name}**: ${(c.products || []).length} productos monitorizados`).join("\n")}\n\n¿Necesitas un análisis más específico? Puedo detallar:\n- Impacto de un CVE concreto en la infraestructura\n- Vulnerabilidades que afectan a un producto/vendor\n- Priorización de parcheo recomendada\n- Draft de comunicación a un equipo IT`;
   };
@@ -1811,8 +2011,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
   const currentUser = getUser();
   const allNav = [
     { id: "overview", label: "Visión General", icon: "shield" },
-    { id: "vulns", label: "Vulnerabilidades", icon: "bug" },
-    { id: "search", label: "Búsqueda", icon: "search" },
+    { id: "vulns", label: "Exploración CVE", icon: "bug" },
     { id: "exploited", label: "Explotación Activa", icon: "zap" },
     { id: "manufacturers", label: "Fabricantes", icon: "server" },
     { id: "notifications", label: "Comunicaciones", icon: "mail" },
@@ -1823,7 +2022,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     { id: "settings", label: "Configuración", icon: "settings" },
   ];
   const isViewer = (currentUser?.role || "").toUpperCase() === "VIEWER";
-  const viewerAllowedViews = ["overview", "vulns", "search", "exploited", "ai"];
+  const viewerAllowedViews = ["overview", "vulns", "exploited", "ai"];
   const nav = isViewer
     ? allNav.filter((n) => viewerAllowedViews.includes(n.id))
     : allNav;
@@ -2011,13 +2210,13 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
                 <Metric icon="bug" label="Total CVEs" value={dash?.totalAll ?? 0} sub="En base de datos" color={C.navy} />
-                <Metric icon="alert" label="Últimas 24h" value={todayT} sub={`${gc(dash?.today, "CRITICAL")} críticas`} color={C.critical} />
-                <Metric icon="zap" label="Explotación activa" value={(dash?.topExploited || []).length} sub="CISA KEV confirmadas" color="#B91C1C" />
-                <Metric icon="activity" label="Semana" value={weekT} sub={`${gc(dash?.week, "HIGH")} altas`} color={C.high} />
+                <Metric icon="alert" label="Publicadas 24h" value={todayT} sub={`${gc(dash?.today, "CRITICAL")} críticas por publishedAt`} color={C.critical} />
+                <Metric icon="zap" label="KEV confirmadas" value={kevConfirmedT} sub="Total marcado como CISA KEV" color="#B91C1C" />
+                <Metric icon="activity" label="Publicadas 7d" value={weekT} sub={`${gc(dash?.week, "HIGH")} altas por publishedAt`} color={C.high} />
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                <Card title="Severidad (24h)" icon="shield">
+                <Card title="Severidad (publicadas 24h)" icon="shield">
                   <Bar label="Critical" count={gc(dash?.today, "CRITICAL")} total={todayT} color={C.critical} />
                   <Bar label="High" count={gc(dash?.today, "HIGH")} total={todayT} color={C.high} />
                   <Bar label="Medium" count={gc(dash?.today, "MEDIUM")} total={todayT} color={C.medium} />
@@ -2038,7 +2237,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 </Card>
               </div>
 
-              <Card title="Explotación Activa — Acción Inmediata" icon="zap" noPad style={{ marginTop: 16 }} action={<span onClick={() => setView("exploited")} style={{ fontSize: 11, color: C.blue, cursor: "pointer", fontWeight: 600 }}>Ver todas →</span>}>
+              <Card title="KEV Confirmadas — Acción Inmediata" icon="zap" noPad style={{ marginTop: 16 }} action={<span onClick={() => setView("exploited")} style={{ fontSize: 11, color: C.blue, cursor: "pointer", fontWeight: 600 }}>Ver todas →</span>}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: C.gray50 }}>
                     {["CVE", "CVSS", "EPSS", "Producto", "Equipo IT", "Hace"].map(h => (
@@ -2068,7 +2267,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
             {
               view === "vulns" && <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                  <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: 0 }}>Vulnerabilidades</h1>
+                  <div>
+                    <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: 0 }}>Exploración de Vulnerabilidades</h1>
+                    <p style={{ color: C.gray500, fontSize: 12, margin: "4px 0 0" }}>
+                      Listado principal unificado con búsqueda, filtros y carga progresiva.
+                    </p>
+                  </div>
                   <div style={{ display: "flex", gap: 6 }}>
                     {["", "CRITICAL", "HIGH", "MEDIUM", "LOW"].map(s => (
                       <button key={s} onClick={() => setSevFilter(s)} className="bh" style={{ padding: "5px 12px", borderRadius: 5, fontSize: 10, fontWeight: 600, border: sevFilter === s ? "none" : `1px solid ${C.gray200}`, background: sevFilter === s ? (s ? sevColor(s) : C.navy) : "#fff", color: sevFilter === s ? "#fff" : C.gray600, cursor: "pointer", transition: "all 0.12s" }}>{s || "Todas"}</button>
@@ -2077,6 +2281,14 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 </div>
 
                 <Card style={{ marginBottom: 14 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 2fr) minmax(140px, 160px)", gap: 10, marginBottom: 12 }}>
+                    <Input value={searchQ} onChange={setSearchQ} placeholder="Buscar por CVE, descripción, vendor, producto o contexto..." icon="search" />
+                    <select value={searchType} onChange={e => setSearchType(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#fff" }}>
+                      <option value="all">Búsqueda global</option>
+                      <option value="cve">Solo CVE</option>
+                      <option value="product">Producto / vendor</option>
+                    </select>
+                  </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10, marginBottom: 10 }}>
                     <select value={riskTierFilter} onChange={e => setRiskTierFilter(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 8, background: "#fff", fontSize: 12 }}>
                       <option value="">Risk tier (todos)</option>
@@ -2097,18 +2309,61 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                       <option value="168">Última semana</option>
                     </select>
                   </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10, marginBottom: 10 }}>
+                    <select value={searchTagId} onChange={e => setSearchTagId(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#fff" }}>
+                      <option value="">Etiqueta (todas)</option>
+                      {tags.map(t => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
+                    </select>
+                    <select value={searchSeverity} onChange={e => setSearchSeverity(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#fff" }}>
+                      <option value="">Criticidad libre</option>
+                      <option value="CRITICAL">CRITICAL</option>
+                      <option value="HIGH">HIGH</option>
+                      <option value="MEDIUM">MEDIUM</option>
+                      <option value="LOW">LOW</option>
+                    </select>
+                    <select value={searchExploit} onChange={e => setSearchExploit(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#fff" }}>
+                      <option value="all">Exploit libre</option>
+                      <option value="known">KEV / confirmada</option>
+                      <option value="public">Exploit público</option>
+                      <option value="any">Cualquier explotación</option>
+                      <option value="none">Sin explotación</option>
+                    </select>
+                    <input
+                      type="number"
+                      min="0"
+                      max="10"
+                      step="0.1"
+                      value={searchMinScore}
+                      onChange={e => setSearchMinScore(e.target.value)}
+                      placeholder="CVSS mínimo"
+                      style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#fff", boxSizing: "border-box" }}
+                    />
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <input
+                        type="date"
+                        value={searchPublishedFrom}
+                        onChange={e => setSearchPublishedFrom(e.target.value)}
+                        style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#fff", boxSizing: "border-box" }}
+                      />
+                      <input
+                        type="date"
+                        value={searchPublishedTo}
+                        onChange={e => setSearchPublishedTo(e.target.value)}
+                        style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#fff", boxSizing: "border-box" }}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                    <span style={{ fontSize: 11, color: C.gray500, lineHeight: "26px" }}>Búsquedas rápidas:</span>
+                    {["fortinet", "microsoft", "ivanti", "cisco", "CVE-2025", "sonicwall", "apple"].map(q => (
+                      <span key={q} onClick={() => { setSearchQ(q); setSearchType(q.startsWith("CVE") ? "cve" : "product"); }} style={{ padding: "3px 10px", background: C.bluePale, color: C.navy, borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.1s" }}>{q}</span>
+                    ))}
+                  </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                     <div style={{ fontSize: 11, color: C.gray500 }}>
-                      {vulnsTotal} CVE{vulnsTotal === 1 ? "" : "s"} en el conjunto actual. Se priorizan explotación conocida, riesgo operativo y CVSS.
+                      {explorerResultLabel}. {hasSearchCriteria && vulnsHasMore ? "La búsqueda opera sobre lo cargado; usa “Cargar más” para ampliar el universo explorado." : "Se priorizan explotación conocida, riesgo operativo y CVSS."}
                     </div>
-                    <Btn small onClick={() => {
-                      setSevFilter("");
-                      setRiskTierFilter("");
-                      setExploitStatusFilter("");
-                      setVendorFilter("");
-                      setProductFilter("");
-                      setChangedSinceHoursFilter("");
-                    }}>Limpiar filtros</Btn>
+                    <Btn small onClick={clearExplorerFilters}>Limpiar filtros</Btn>
                   </div>
                 </Card>
 
@@ -2119,7 +2374,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", borderBottom: `2px solid ${C.gray200}`, whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr></thead>
-                    <tbody>{vulns.filter(v => !sevFilter || v.cvssV31Severity === sevFilter).map(v => {
+                    <tbody>{explorerRows.map(v => {
                       const semantic = getSemanticSummary(v);
                       const displayContextTags = getDisplayContextTags({
                         contextTags: semantic.contextTags,
@@ -2179,7 +2434,18 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                       );
                     })}</tbody>
                   </table>
-                  {vulns.length === 0 && <div style={{ padding: 40, textAlign: "center", color: C.gray400, fontSize: 13 }}>No hay vulnerabilidades que mostrar</div>}
+                  {vulnsLoading && <div style={{ padding: 24, textAlign: "center", color: C.gray500, fontSize: 12 }}>Cargando vulnerabilidades...</div>}
+                  {!vulnsLoading && explorerRows.length === 0 && <div style={{ padding: 40, textAlign: "center", color: C.gray400, fontSize: 13 }}>No hay vulnerabilidades que mostrar con los filtros actuales</div>}
+                  {(vulnsHasMore || vulnsLoadingMore) && (
+                    <div style={{ padding: 18, borderTop: `1px solid ${C.gray200}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                      <div style={{ fontSize: 11, color: C.gray500 }}>
+                        {vulns.length} CVEs cargadas localmente de {vulnsTotal}.
+                      </div>
+                      <Btn onClick={loadMoreVulns} disabled={vulnsLoadingMore}>
+                        {vulnsLoadingMore ? "Cargando..." : "Cargar más"}
+                      </Btn>
+                    </div>
+                  )}
                 </Card>
 
                 {/* VULN DETAIL OVERLAY */}
@@ -2505,120 +2771,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
               </>
             }
 
-            {/* ═══ SEARCH ═══ */}
-            {view === "search" && <>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Búsqueda de Vulnerabilidades</h1>
-              <Card>
-                <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-                  <div style={{ flex: 1 }}>
-                    <Input value={searchQ} onChange={setSearchQ} placeholder="Buscar por CVE, producto, vendor, descripción..." icon="search" />
-                  </div>
-                  <select value={searchType} onChange={e => setSearchType(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff", minWidth: 140 }}>
-                    <option value="all">Todo</option>
-                    <option value="cve">CVE ID</option>
-                    <option value="product">Producto / Vendor</option>
-                  </select>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(120px, 1fr))", gap: 10, marginBottom: 12 }}>
-                  <select value={searchTagId} onChange={e => setSearchTagId(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
-                    <option value="">Etiqueta (todas)</option>
-                    {tags.map(t => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
-                  </select>
-                  <select value={searchSeverity} onChange={e => setSearchSeverity(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
-                    <option value="">Criticidad (todas)</option>
-                    <option value="CRITICAL">CRITICAL</option>
-                    <option value="HIGH">HIGH</option>
-                    <option value="MEDIUM">MEDIUM</option>
-                    <option value="LOW">LOW</option>
-                  </select>
-                  <select value={searchExploit} onChange={e => setSearchExploit(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
-                    <option value="all">Exploit (todos)</option>
-                    <option value="known">KEV (explotación activa)</option>
-                    <option value="public">Exploit público</option>
-                    <option value="any">Cualquier explotación</option>
-                    <option value="none">Sin explotación</option>
-                  </select>
-                  <input
-                    type="number"
-                    min="0"
-                    max="10"
-                    step="0.1"
-                    value={searchMinScore}
-                    onChange={e => setSearchMinScore(e.target.value)}
-                    placeholder="CVSS mínimo (ej. 7.5)"
-                    style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff", boxSizing: "border-box" }}
-                  />
-                  <Btn onClick={() => { setSearchQ(""); setSearchType("all"); setSearchTagId(""); setSearchPublishedFrom(""); setSearchPublishedTo(""); setSearchMinScore(""); setSearchExploit("all"); setSearchSeverity(""); }}>Limpiar filtros</Btn>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-                  <input
-                    type="date"
-                    value={searchPublishedFrom}
-                    onChange={e => setSearchPublishedFrom(e.target.value)}
-                    style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff", boxSizing: "border-box" }}
-                  />
-                  <input
-                    type="date"
-                    value={searchPublishedTo}
-                    onChange={e => setSearchPublishedTo(e.target.value)}
-                    style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff", boxSizing: "border-box" }}
-                  />
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-                  <span style={{ fontSize: 11, color: C.gray500, lineHeight: "26px" }}>Búsquedas rápidas:</span>
-                  {["fortinet", "microsoft", "ivanti", "cisco", "CVE-2025", "sonicwall", "apple"].map(q => (
-                    <span key={q} onClick={() => { setSearchQ(q); setSearchType(q.startsWith("CVE") ? "cve" : "product"); }} style={{ padding: "3px 10px", background: C.bluePale, color: C.navy, borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.1s" }}>{q}</span>
-                  ))}
-                </div>
-              </Card>
-
-              {hasSearchCriteria && (
-                <div className="fade" style={{ marginTop: 14 }}>
-                  <div style={{ fontSize: 12, color: C.gray500, marginBottom: 10 }}>
-                    {searchResults.length} resultado{searchResults.length !== 1 ? "s" : ""}
-                  </div>
-                  {searchResults.map(v => {
-                    const aff = getAffectedContacts(v);
-                    return (
-                      <Card key={v.cveId} style={{ marginBottom: 10, borderLeft: `3px solid ${sevColor(v.cvssV31Severity)}` }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                              <span style={{ fontSize: 15, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace" }}>{v.cveId}</span>
-                              <SevBadge s={v.cvssV31Severity} small />
-                              <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 13 }}>{fmtScore(v.cvssV31Score)}</span>
-                              {v.isKnownExploited && <span style={{ background: C.critical, color: "#fff", padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700 }}>KEV</span>}
-                              {v.hasPublicExploit && <span style={{ background: C.high, color: "#fff", padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700 }}>EXPLOIT</span>}
-                            </div>
-                            <p style={{ color: C.gray600, fontSize: 11, lineHeight: 1.5, margin: "0 0 8px" }}>{v.description}</p>
-                            <SemanticCompactAffected vuln={v} small contextLimit={2} />
-                            {aff.length > 0 && (
-                              <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
-                                <I name="users" size={12} color={C.gray400} />
-                                {aff.map(c => <span key={c.id} style={{ fontSize: 10, color: C.gray600 }}>{c.name} ({c.email})</span>)}
-                              </div>
-                            )}
-                          </div>
-                          <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12 }}>
-                            <div style={{ fontSize: 10, color: C.gray400 }}>EPSS {fmtEpss(v.epssScore)}</div>
-                            <div style={{ fontSize: 10, color: C.gray400 }}>{fmtDate(v.publishedAt)}</div>
-                            <Btn small style={{ marginTop: 6 }} onClick={() => openVulnerabilityDetail(v)}>Detalle →</Btn>
-                          </div>
-                        </div>
-                      </Card>
-                    );
-                  })}
-                  {searchResults.length === 0 && <Card><div style={{ textAlign: "center", padding: 20, color: C.gray500 }}>Sin resultados con los filtros actuales</div></Card>}
-                </div>
-              )}
-            </>}
-
             {/* ═══ EXPLOITED ═══ */}
             {view === "exploited" && <>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 14px" }}>Explotación Activa</h1>
+              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 14px" }}>KEV / Explotación Confirmada</h1>
               <div style={{ background: C.critical, color: "#fff", borderRadius: 8, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
                 <I name="alert" size={20} color="#fff" />
-                <div><div style={{ fontWeight: 700, fontSize: 13 }}>{vulns.filter(v => v.isKnownExploited).length} vulnerabilidades con explotación activa</div><div style={{ fontSize: 11, opacity: 0.85 }}>Parcheo prioritario según CISA BOD 22-01</div></div>
+                <div><div style={{ fontWeight: 700, fontSize: 13 }}>{vulns.filter(v => v.isKnownExploited).length} vulnerabilidades con explotación confirmada</div><div style={{ fontSize: 11, opacity: 0.85 }}>Casos priorizados por KEV / evidencia confirmada</div></div>
               </div>
               {vulns.filter(v => v.isKnownExploited).map(v => {
                 const aff = getAffectedContacts(v);
@@ -2650,8 +2808,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                           ))}
                         </div>
                       )}
-                      <div style={{ padding: "8px 10px", borderRadius: 4, background: v.remediationInfo?.patchAvailable ? C.lowBg : C.highBg, fontSize: 11, borderLeft: `3px solid ${v.remediationInfo?.patchAvailable ? C.low : C.high}` }}>
-                        <strong>{v.remediationInfo?.patchAvailable ? "✅ Parche disponible" : "❌ Sin parche"}</strong>
+                      <div style={{ padding: "8px 10px", borderRadius: 4, background: v.patchAvailable ? C.lowBg : C.highBg, fontSize: 11, borderLeft: `3px solid ${v.patchAvailable ? C.low : C.high}` }}>
+                        <strong>{v.patchAvailable ? "✅ Parche disponible" : "❌ Sin parche confirmado"}</strong>
                       </div>
                     </div>
                   </Card>
@@ -2664,17 +2822,17 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
                 <div>
                   <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Fabricantes y Catálogo</h1>
-                  <p style={{ color: C.gray500, fontSize: 12 }}>Gestión avanzada de fabricantes, software y normalización de nombres para suscripciones.</p>
+                  <p style={{ color: C.gray500, fontSize: 12 }}>Catálogo operativo apoyado en la semántica actual de vulnerabilidades, con herramientas de armonización y normalización.</p>
                 </div>
               </div>
 
               {/* ── Stats bar ── */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
                 {[
-                  { label: "Fabricantes", value: manufacturers.length, color: C.blue },
-                  { label: "Productos", value: manufacturers.reduce((s, m) => s + (m.productsCount || 0), 0), color: "#059669" },
+                  { label: "Fabricantes operativos", value: visibleManufacturersCount, color: C.blue },
+                  { label: "Productos operativos", value: visibleProductsCount, color: "#059669" },
                   { label: "Aliases configurados", value: mfrAliases?.totalAliases || "—", color: "#7C3AED" },
-                  { label: "Duplicados detectados", value: mfrAliases?.stats?.duplicateGroups?.length || 0, color: mfrAliases?.stats?.duplicateGroups?.length > 0 ? C.critical : "#059669" },
+                  { label: "Entradas no operativas ocultas", value: hiddenManufacturersCount, color: hiddenManufacturersCount > 0 ? C.high : "#059669" },
                 ].map((s, i) => (
                   <div key={i} style={{ background: "#fff", border: `1px solid ${C.gray200}`, borderRadius: 8, padding: "12px 14px", textAlign: "center" }}>
                     <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.value}</div>
@@ -2688,6 +2846,13 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 <div style={{ padding: "10px 14px", borderRadius: 6, marginBottom: 14, fontSize: 12, fontWeight: 600, background: mfrMsg.type === "error" ? C.criticalBg : "#ECFDF5", color: mfrMsg.type === "error" ? C.critical : "#065F46", border: `1px solid ${mfrMsg.type === "error" ? "#FECACA" : "#A7F3D0"}` }}>
                   {mfrMsg.text}
                   <button onClick={() => setMfrMsg(null)} style={{ float: "right", background: "none", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 14, lineHeight: 1 }}>×</button>
+                </div>
+              )}
+              {hiddenManufacturersCount > 0 && (
+                <div style={{ padding: "10px 14px", borderRadius: 6, marginBottom: 14, fontSize: 12, background: "#FFFBEB", color: "#92400E", border: "1px solid #FDE68A" }}>
+                  Se ocultan <strong>{hiddenManufacturersCount}</strong> fabricantes y <strong>{hiddenProductsCount}</strong> productos del catálogo operativo para no reforzar clasificaciones históricas no operativas.
+                  {hiddenReasonSummary ? ` Motivos principales: ${hiddenReasonSummary}.` : ""}
+                  {hiddenSamplesSummary ? ` Ejemplos: ${hiddenSamplesSummary}.` : ""}
                 </div>
               )}
 
@@ -2732,7 +2897,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                     </div>
                     <div style={{ maxHeight: 520, overflow: "auto", padding: "6px 8px" }}>
                       {manufacturersLoading && <div style={{ padding: 20, textAlign: "center", color: C.gray500, fontSize: 12 }}>Cargando...</div>}
-                      {!manufacturersLoading && manufacturers
+                      {!manufacturersLoading && visibleManufacturers
                         .filter(m => !mfrSearch || m.name.toLowerCase().includes(mfrSearch.toLowerCase()))
                         .map(m => (
                         <div
@@ -2762,7 +2927,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                           </span>
                         </div>
                       ))}
-                      {!manufacturersLoading && manufacturers.filter(m => !mfrSearch || m.name.toLowerCase().includes(mfrSearch.toLowerCase())).length === 0 && (
+                      {!manufacturersLoading && visibleManufacturers.filter(m => !mfrSearch || m.name.toLowerCase().includes(mfrSearch.toLowerCase())).length === 0 && (
                         <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: C.gray400 }}>
                           {mfrSearch ? `Sin resultados para "${mfrSearch}"` : "No hay fabricantes todavía."}
                         </div>
@@ -2954,7 +3119,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, boxSizing: "border-box", marginBottom: 6 }}
                       />
                       <div id="merge-list" style={{ maxHeight: 320, overflow: "auto", border: `1px solid ${C.gray200}`, borderRadius: 6, padding: 8, background: "#fff" }}>
-                        {manufacturers.map(m => {
+                        {allManufacturers.map(m => {
                           const checked = (mergeForm.sourceNames || []).includes(m.name);
                           return (
                             <label key={`merge-${m.name}`} data-vendor={m.name.toLowerCase()} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12, cursor: "pointer" }}>
@@ -3000,7 +3165,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", fontSize: 12 }}
                       >
                         <option value="">Selecciona fabricante</option>
-                        {manufacturers.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
+                        {allManufacturers.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
                       </select>
                       <Input value={newProductForm.product} onChange={v => setNewProductForm({ ...newProductForm, product: v })} placeholder="nombre del producto" />
                     </div>

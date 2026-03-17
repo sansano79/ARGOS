@@ -1,50 +1,46 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { normalizeName, normalizeProduct, normalizeVendor, VENDOR_ALIASES } from '../../shared/vendor-normalization';
+import {
+  isContextualVendor,
+  normalizeName,
+  normalizeProduct,
+  normalizeVendor,
+  VENDOR_ALIASES,
+} from '../../shared/vendor-normalization';
+
+type CatalogProduct = { id: number; product: string; versions: string[] };
+type CatalogManufacturer = { name: string; products: CatalogProduct[]; productsCount: number };
+type CatalogHiddenReason =
+  | 'contextual_vendor'
+  | 'advisory_emitter'
+  | 'cert_org'
+  | 'unknown_vendor';
+
+type CatalogMetadata = {
+  source: string;
+  visibleManufacturers: number;
+  visibleProducts: number;
+  hiddenManufacturers: number;
+  hiddenProducts: number;
+  hiddenByReason: Array<{ reason: CatalogHiddenReason; count: number }>;
+  hiddenSamples: Array<{ vendor: string; reason: CatalogHiddenReason; productsCount: number }>;
+};
 
 @Injectable()
 export class ManufacturersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll() {
-    const [manufacturers, catalogRows] = await Promise.all([
-      (this.prisma as any).manufacturer.findMany({
-        where: { isActive: true },
-        orderBy: { name: 'asc' },
-      }),
-      this.prisma.softwareCatalog.findMany({
-        orderBy: [{ vendor: 'asc' }, { product: 'asc' }],
-      }),
-    ]);
-
-    const map = new Map<
-      string,
-      { name: string; products: Array<{ id: number; product: string; versions: string[] }> }
-    >();
-
-    for (const m of manufacturers) {
-      map.set(m.name, { name: m.name, products: [] });
+  async findAll(includeHidden = false) {
+    if (includeHidden) {
+      return this.buildRawCatalogView();
     }
+    const { items } = await this.buildOperationalCatalogView();
+    return items;
+  }
 
-    for (const row of catalogRows) {
-      const name = row.vendor;
-      if (!map.has(name)) {
-        map.set(name, { name, products: [] });
-      }
-      map.get(name)?.products.push({
-        id: row.id,
-        product: row.product,
-        versions: this.parseJsonArray(row.versions),
-      });
-    }
-
-    return Array.from(map.values())
-      .map((m) => ({
-        ...m,
-        products: m.products.sort((a, b) => a.product.localeCompare(b.product)),
-        productsCount: m.products.length,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+  async getCatalogMetadata(): Promise<CatalogMetadata> {
+    const { metadata } = await this.buildOperationalCatalogView();
+    return metadata;
   }
 
   async createManufacturer(name: string) {
@@ -349,5 +345,200 @@ export class ManufacturersService {
       try { return JSON.parse(value); } catch { return value; }
     }
     return value;
+  }
+
+  private async buildOperationalCatalogView(): Promise<{
+    items: CatalogManufacturer[];
+    metadata: CatalogMetadata;
+  }> {
+    const [manufacturers, catalogRows, vulnerabilityPairs] = await Promise.all([
+      (this.prisma as any).manufacturer.findMany({
+        where: { isActive: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.softwareCatalog.findMany({
+        orderBy: [{ vendor: 'asc' }, { product: 'asc' }],
+      }),
+      this.prisma.vulnerability.findMany({
+        where: {
+          primaryVendor: { not: null },
+          primaryProduct: { not: null },
+        },
+        distinct: ['primaryVendor', 'primaryProduct'],
+        select: {
+          primaryVendor: true,
+          primaryProduct: true,
+        },
+      }),
+    ]);
+
+    const catalogRowByKey = new Map<string, { id: number; versions: string[] }>();
+    for (const row of catalogRows) {
+      catalogRowByKey.set(`${row.vendor}::${row.product}`, {
+        id: row.id,
+        versions: this.parseJsonArray(row.versions),
+      });
+    }
+
+    const visibleMap = new Map<string, { name: string; products: CatalogProduct[] }>();
+    const hiddenSamples = new Map<string, { vendor: string; reason: CatalogHiddenReason; productsCount: number }>();
+    const hiddenReasonCounts = new Map<CatalogHiddenReason, Set<string>>();
+
+    const pushVisibleProduct = (vendor: string, product: string) => {
+      const normalizedVendor = normalizeName(vendor);
+      const normalizedProduct = normalizeProduct(product);
+      if (!normalizedVendor || !normalizedProduct) return;
+
+      const key = `${normalizedVendor}::${normalizedProduct}`;
+      const catalogRow = catalogRowByKey.get(key);
+      if (!visibleMap.has(normalizedVendor)) {
+        visibleMap.set(normalizedVendor, { name: normalizedVendor, products: [] });
+      }
+
+      const current = visibleMap.get(normalizedVendor)!;
+      if (current.products.some((item) => item.product === normalizedProduct)) {
+        return;
+      }
+
+      current.products.push({
+        id: catalogRow?.id || 0,
+        product: normalizedProduct,
+        versions: catalogRow?.versions || [],
+      });
+    };
+
+    const registerHiddenVendor = (
+      vendorValue: string | null | undefined,
+      reason: CatalogHiddenReason,
+      productsCount = 0,
+    ) => {
+      const vendor = normalizeName(vendorValue);
+      if (!vendor) return;
+      if (!hiddenReasonCounts.has(reason)) {
+        hiddenReasonCounts.set(reason, new Set<string>());
+      }
+      hiddenReasonCounts.get(reason)!.add(vendor);
+      if (!hiddenSamples.has(vendor)) {
+        hiddenSamples.set(vendor, { vendor, reason, productsCount });
+      } else {
+        hiddenSamples.get(vendor)!.productsCount = Math.max(
+          hiddenSamples.get(vendor)!.productsCount,
+          productsCount,
+        );
+      }
+    };
+
+    for (const manufacturer of manufacturers) {
+      const reason = this.classifyCatalogVendor(manufacturer.name);
+      if (!reason) {
+        if (!visibleMap.has(manufacturer.name)) {
+          visibleMap.set(manufacturer.name, { name: manufacturer.name, products: [] });
+        }
+        continue;
+      }
+      const productsCount = catalogRows.filter((row) => row.vendor === manufacturer.name).length;
+      registerHiddenVendor(manufacturer.name, reason, productsCount);
+    }
+
+    for (const row of catalogRows) {
+      const reason = this.classifyCatalogVendor(row.vendor);
+      if (reason) {
+        registerHiddenVendor(row.vendor, reason, 1);
+        continue;
+      }
+      pushVisibleProduct(row.vendor, row.product);
+    }
+
+    for (const pair of vulnerabilityPairs) {
+      const vendor = normalizeName(pair.primaryVendor);
+      const product = normalizeProduct(pair.primaryProduct);
+      if (!vendor || !product) continue;
+      const reason = this.classifyCatalogVendor(vendor);
+      if (reason) {
+        registerHiddenVendor(vendor, reason, 1);
+        continue;
+      }
+      pushVisibleProduct(vendor, product);
+    }
+
+    const items = Array.from(visibleMap.values())
+      .map((manufacturer) => ({
+        name: manufacturer.name,
+        products: manufacturer.products.sort((a, b) => a.product.localeCompare(b.product)),
+        productsCount: manufacturer.products.length,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    const visibleProducts = items.reduce((sum, item) => sum + item.productsCount, 0);
+    const hiddenProducts = Array.from(hiddenSamples.values()).reduce(
+      (sum, item) => sum + item.productsCount,
+      0,
+    );
+    const hiddenSampleList = Array.from(hiddenSamples.values())
+      .sort((left, right) => right.productsCount - left.productsCount || left.vendor.localeCompare(right.vendor))
+      .slice(0, 20);
+
+    return {
+      items,
+      metadata: {
+        source: 'operational-catalog-from-vulnerability-semantics+software-catalog',
+        visibleManufacturers: items.length,
+        visibleProducts,
+        hiddenManufacturers: hiddenSamples.size,
+        hiddenProducts,
+        hiddenByReason: Array.from(hiddenReasonCounts.entries())
+          .map(([reason, vendors]) => ({ reason, count: vendors.size }))
+          .sort((left, right) => right.count - left.count || left.reason.localeCompare(right.reason)),
+        hiddenSamples: hiddenSampleList,
+      },
+    };
+  }
+
+  private async buildRawCatalogView(): Promise<CatalogManufacturer[]> {
+    const [manufacturers, catalogRows] = await Promise.all([
+      (this.prisma as any).manufacturer.findMany({
+        where: { isActive: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.softwareCatalog.findMany({
+        orderBy: [{ vendor: 'asc' }, { product: 'asc' }],
+      }),
+    ]);
+
+    const map = new Map<string, { name: string; products: CatalogProduct[] }>();
+
+    for (const manufacturer of manufacturers) {
+      map.set(manufacturer.name, { name: manufacturer.name, products: [] });
+    }
+
+    for (const row of catalogRows) {
+      if (!map.has(row.vendor)) {
+        map.set(row.vendor, { name: row.vendor, products: [] });
+      }
+      map.get(row.vendor)?.products.push({
+        id: row.id,
+        product: row.product,
+        versions: this.parseJsonArray(row.versions),
+      });
+    }
+
+    return Array.from(map.values())
+      .map((manufacturer) => ({
+        name: manufacturer.name,
+        products: manufacturer.products.sort((a, b) => a.product.localeCompare(b.product)),
+        productsCount: manufacturer.products.length,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  private classifyCatalogVendor(vendorValue: string | null | undefined): CatalogHiddenReason | null {
+    const vendor = normalizeName(vendorValue);
+    if (!vendor || vendor === 'unknown') return 'unknown_vendor';
+    if (isContextualVendor(vendor)) return 'contextual_vendor';
+    if (/\b(cert|jpcert|incibe|csirt)\b/i.test(vendor)) return 'cert_org';
+    if (/\b(patchstack|vuldb|mitre|nvd|cve|ghsa|advisory|security)\b/i.test(vendor)) {
+      return 'advisory_emitter';
+    }
+    return null;
   }
 }

@@ -15,6 +15,8 @@ import { PasswordResetModule } from './modules/password-reset/password-reset.mod
 import { SmartNotificationsModule } from './modules/smart-notifications/smart-notifications.module';
 import { SubscriberPortalModule } from './modules/subscriber-portal/subscriber-portal.module';
 import { ProductAssetsModule } from './modules/product-assets/product-assets.module';
+import { DependencyEvidenceImportsModule } from './modules/dependency-evidence-imports/dependency-evidence-imports.module';
+import { VulnerabilityProductImpactsModule } from './modules/vulnerability-product-impacts/vulnerability-product-impacts.module';
 
 @Module({
   imports: [
@@ -36,6 +38,8 @@ import { ProductAssetsModule } from './modules/product-assets/product-assets.mod
     SmartNotificationsModule,
     SubscriberPortalModule,
     ProductAssetsModule,
+    DependencyEvidenceImportsModule,
+    VulnerabilityProductImpactsModule,
   ],
 })
 export class AppModule { }
