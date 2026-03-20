@@ -35,6 +35,7 @@ body {
 .occ-page-banner {
   min-height: 14rem;
   margin-bottom: 1.25rem;
+  box-shadow: none;
 }
 
 .occ-page-banner::before {

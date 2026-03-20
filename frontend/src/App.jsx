@@ -2011,8 +2011,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
   const currentUser = getUser();
   const allNav = [
     { id: "overview", label: "Visión General", icon: "shield" },
-    { id: "vulns", label: "Exploración CVE", icon: "bug" },
-    { id: "exploited", label: "Explotación Activa", icon: "zap" },
+    { id: "vulns", label: "Exploración de Vulnerabilidades", icon: "bug" },
+    { id: "exploited", label: "Explotación CVE", icon: "zap", parent: "vulns" },
     { id: "manufacturers", label: "Fabricantes", icon: "server" },
     { id: "notifications", label: "Comunicaciones", icon: "mail" },
     { id: "smart-notif", label: "Notif. Inteligentes", icon: "brain" },
@@ -2021,6 +2021,16 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     { id: "collector", label: "Collector", icon: "server" },
     { id: "settings", label: "Configuración", icon: "settings" },
   ];
+  {
+    const ids = allNav.map((n) => n.id);
+    const unique = new Set(ids);
+    if (unique.size !== ids.length) throw new Error("Invalid navigation: duplicate ids");
+    if (!unique.has("vulns")) throw new Error("Invalid navigation: missing vulns");
+    if (!unique.has("exploited")) throw new Error("Invalid navigation: missing exploited");
+    if (ids.indexOf("exploited") < ids.indexOf("vulns")) throw new Error("Invalid navigation: exploited before vulns");
+    const exploitedItem = allNav.find((n) => n.id === "exploited");
+    if ((exploitedItem?.parent || "") !== "vulns") throw new Error("Invalid navigation: exploited must be secondary");
+  }
   const isViewer = (currentUser?.role || "").toUpperCase() === "VIEWER";
   const viewerAllowedViews = ["overview", "vulns", "exploited", "ai"];
   const nav = isViewer
@@ -2168,14 +2178,46 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
           </div>
           <div style={{ flex: 1, padding: "12px 0", overflowY: "auto" }}>
             {!collapsed && <div style={{ padding: "4px 18px 8px", fontSize: 8, fontWeight: 700, color: C.gray500, letterSpacing: "2px", textTransform: "uppercase" }}>Módulos</div>}
-            {nav.map(n => (
-              <div className="occ-sidebar-nav-item" key={n.id} onClick={() => setView(n.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: collapsed ? "10px 18px" : "11px 18px", cursor: "pointer", color: view === n.id ? "#fff" : C.gray500, background: view === n.id ? "rgba(19,91,236,0.18)" : "transparent", borderLeft: view === n.id ? `3px solid var(--occ-primary)` : "3px solid transparent", transition: "all 0.12s" }} onMouseLeave={e => { if (view !== n.id) e.currentTarget.style.background = "transparent"; }}>
-                <I name={n.icon} size={17} color={view === n.id ? C.blueLight : C.gray500} />
-                {!collapsed && <span style={{ fontSize: 12, fontWeight: view === n.id ? 600 : 400 }}>{n.label}</span>}
-              </div>
-            ))}
+            {nav.map(n => {
+              const isActive = view === n.id;
+              const isChild = !!n.parent;
+              return (
+                <div className="occ-sidebar-nav-item" key={n.id} onClick={() => setView(n.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: collapsed ? "10px 18px" : isChild ? "10px 18px 10px 34px" : "11px 18px", cursor: "pointer", color: isActive ? "#fff" : C.gray500, background: isActive ? "rgba(19,91,236,0.18)" : "transparent", borderLeft: isActive ? `3px solid var(--occ-primary)` : "3px solid transparent", transition: "all 0.12s" }} onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
+                  <I name={n.icon} size={isChild ? 16 : 17} color={isActive ? C.blueLight : C.gray500} />
+                  {!collapsed && <span style={{ fontSize: isChild ? 11 : 12, fontWeight: isActive ? 600 : 400 }}>{n.label}</span>}
+                </div>
+              );
+            })}
           </div>
           <div style={{ padding: "10px 14px", borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 10 }}>
+            {currentUser && (
+              <div
+                onClick={handleLogout}
+                title="Cerrar Sesión"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: collapsed ? "8px 6px" : "8px 10px",
+                  borderRadius: 10,
+                  cursor: "pointer",
+                  marginBottom: 10,
+                  background: "rgba(255,255,255,0.04)",
+                }}
+              >
+                <div style={{ width: 34, height: 34, borderRadius: 12, background: "rgba(19,91,236,0.22)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 12, flexShrink: 0 }}>
+                  {(currentUser?.name || currentUser?.email || "A")[0].toUpperCase()}
+                </div>
+                {!collapsed && (
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {currentUser.name || currentUser.email}
+                    </div>
+                    <div style={{ fontSize: 10, color: C.gray500 }}>Cerrar sesión</div>
+                  </div>
+                )}
+              </div>
+            )}
             <div onClick={() => setCollapsed(!collapsed)} style={{ cursor: "pointer", color: C.gray500, display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ transform: collapsed ? "rotate(180deg)" : "none", transition: "transform 0.2s", display: "inline-block" }}>◀</span>
               {!collapsed && "Colapsar"}
@@ -2185,22 +2227,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
         {/* ── MAIN ── */}
         <main className="occ-app-main" style={{ flex: 1, marginLeft: sw, transition: "margin-left 0.2s ease", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-          {/* Header */}
-          <header className="occ-topbar" style={{ height: 60, borderBottom: `1px solid ${C.gray200}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 22px", position: "sticky", top: 0, zIndex: 50 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.gray500 }}>
-              <span>OCC</span><span style={{ color: C.gray300 }}>/</span>
-              <span style={{ color: C.text, fontWeight: 600 }}>{currentSection}</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <span style={{ fontSize: 10, color: C.gray400, fontFamily: "monospace" }}>
-                Próx. scan: {nextRun()}
-              </span>
-              {currentUser && <span style={{ fontSize: 11, color: C.gray600 }}>{currentUser.name || currentUser.email}</span>}
-              <div style={{ width: 30, height: 30, borderRadius: "50%", background: C.navy, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 11, cursor: "pointer" }} title="Cerrar Sesión" onClick={handleLogout}>{(currentUser?.name || "A")[0].toUpperCase()}</div>
-            </div>
-          </header>
-
-          <div style={{ padding: 22, flex: 1 }} className="fade" key={view}>
+          <div style={{ padding: "0 22px 22px", flex: 1 }} className="fade" key={view}>
             <VisualBanner />
 
             {/* ═══ OVERVIEW ═══ */}
