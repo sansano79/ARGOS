@@ -39,7 +39,7 @@ body {
 }
 
 .occ-page-banner::before {
-  background-position: center 32%;
+  background-position: center top;
 }
 
 .occ-login-shell {
