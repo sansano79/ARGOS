@@ -1303,6 +1303,7 @@ export default function VulnDashboard() {
 
   const todayT = dash?.publishedLast24hTotal ?? (dash?.today || []).reduce((s, c) => s + (c?._count || 0), 0);
   const weekT = dash?.publishedLast7dTotal ?? (dash?.week || []).reduce((s, c) => s + (c?._count || 0), 0);
+  const monthT = dash?.publishedLast30dTotal ?? (dash?.month || []).reduce((s, c) => s + (c?._count || 0), 0);
   const kevConfirmedT = Number(dash?.kevConfirmedTotal ?? (dash?.topKevConfirmed || dash?.topExploited || []).length);
   const gc = (arr, sev) => (arr || []).find(c => c?.cvssV31Severity === sev)?._count || 0;
   const nextRun = () => { if (!dash?.lastRun?.finishedAt) return "-"; return Math.max(0, Math.floor((new Date(dash?.lastRun?.finishedAt).getTime() + 1800000 - now) / 60000)) + "m"; };
@@ -2011,8 +2012,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
   const currentUser = getUser();
   const allNav = [
     { id: "overview", label: "Visión General", icon: "shield" },
-    { id: "vulns", label: "Exploración de Vulnerabilidades", icon: "bug" },
-    { id: "exploited", label: "Explotación CVE", icon: "zap", parent: "vulns" },
+    { id: "vulns", label: "Catálogo de vulnerabilidades", icon: "bug" },
+    { id: "exploited", label: "Explotación CVE", icon: "zap" },
     { id: "manufacturers", label: "Fabricantes", icon: "server" },
     { id: "notifications", label: "Comunicaciones", icon: "mail" },
     { id: "smart-notif", label: "Notif. Inteligentes", icon: "brain" },
@@ -2029,7 +2030,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     if (!unique.has("exploited")) throw new Error("Invalid navigation: missing exploited");
     if (ids.indexOf("exploited") < ids.indexOf("vulns")) throw new Error("Invalid navigation: exploited before vulns");
     const exploitedItem = allNav.find((n) => n.id === "exploited");
-    if ((exploitedItem?.parent || "") !== "vulns") throw new Error("Invalid navigation: exploited must be secondary");
+    if (exploitedItem?.parent) throw new Error("Invalid navigation: exploited must be top-level");
   }
   const isViewer = (currentUser?.role || "").toUpperCase() === "VIEWER";
   const viewerAllowedViews = ["overview", "vulns", "exploited", "ai"];
@@ -2243,11 +2244,11 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                <Card title="Severidad (publicadas 24h)" icon="shield">
-                  <Bar label="Critical" count={gc(dash?.today, "CRITICAL")} total={todayT} color={C.critical} />
-                  <Bar label="High" count={gc(dash?.today, "HIGH")} total={todayT} color={C.high} />
-                  <Bar label="Medium" count={gc(dash?.today, "MEDIUM")} total={todayT} color={C.medium} />
-                  <Bar label="Low" count={gc(dash?.today, "LOW")} total={todayT} color={C.low} />
+                <Card title="Severidad (últimos 30d)" icon="shield">
+                  <Bar label="Critical" count={gc(dash?.month, "CRITICAL")} total={monthT} color={C.critical} />
+                  <Bar label="High" count={gc(dash?.month, "HIGH")} total={monthT} color={C.high} />
+                  <Bar label="Medium" count={gc(dash?.month, "MEDIUM")} total={monthT} color={C.medium} />
+                  <Bar label="Low" count={gc(dash?.month, "LOW")} total={monthT} color={C.low} />
                 </Card>
                 <Card title="Estado Collector" icon="server">
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
@@ -2295,9 +2296,9 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
               view === "vulns" && <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                   <div>
-                    <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: 0 }}>Exploración de Vulnerabilidades</h1>
+                    <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: 0 }}>Catálogo de vulnerabilidades</h1>
                     <p style={{ color: C.gray500, fontSize: 12, margin: "4px 0 0" }}>
-                      Listado principal unificado con búsqueda, filtros y carga progresiva.
+                      Catálogo completo con búsqueda, filtros y carga progresiva.
                     </p>
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>

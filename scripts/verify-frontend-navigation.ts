@@ -22,17 +22,17 @@ const allNavBlock = source.slice(allNavStart, allNavEnd);
 
 const vulnsItem = findNavItemBlock("vulns");
 if (!vulnsItem) fail('Falta el menú principal id: "vulns"');
-if (!vulnsItem.includes('label: "Exploración de Vulnerabilidades"')) {
-  fail('El menú "vulns" debe llamarse "Exploración de Vulnerabilidades"');
+if (!vulnsItem.includes('label: "Catálogo de vulnerabilidades"')) {
+  fail('El menú "vulns" debe llamarse "Catálogo de vulnerabilidades"');
 }
 
 const exploitedItem = findNavItemBlock("exploited");
-if (!exploitedItem) fail('Falta el submenú id: "exploited"');
+if (!exploitedItem) fail('Falta el menú id: "exploited"');
 if (!exploitedItem.includes('label: "Explotación CVE"')) {
   fail('El menú "exploited" debe llamarse "Explotación CVE"');
 }
-if (!exploitedItem.includes('parent: "vulns"')) {
-  fail('El menú "exploited" debe ser secundario (parent: "vulns")');
+if (exploitedItem.includes('parent:')) {
+  fail('El menú "exploited" debe ser de primer nivel (sin parent)');
 }
 
 const vulnsIdx = allNavBlock.indexOf('id: "vulns"');

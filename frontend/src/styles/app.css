@@ -39,7 +39,9 @@ body {
 }
 
 .occ-page-banner::before {
-  background-position: center top;
+  background-position: center 32%;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 62%, transparent 62%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 62%, transparent 62%, transparent 100%);
 }
 
 .occ-login-shell {
