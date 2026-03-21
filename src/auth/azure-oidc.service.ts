@@ -117,7 +117,6 @@ export class AzureOidcService {
     );
     const claims: any = tokenSet.claims() || {};
 
-    const azureAppRoles = toArray(claims?.roles).map((r) => normalizeRole(r)).filter(Boolean);
     const email = firstTruthy(
       claims?.email,
       claims?.preferred_username,
@@ -126,9 +125,29 @@ export class AzureOidcService {
     );
     if (!email) throw new UnauthorizedException('Missing email claim');
 
+    const emailLower = String(email).trim().toLowerCase();
+
     const name = firstTruthy(claims?.name, claims?.given_name, email);
     const oid = firstTruthy(claims?.oid, claims?.sub);
     const groups = toArray(claims?.groups).map((g) => String(g).trim()).filter(Boolean);
+
+    const userRoleMapRaw = parseJsonObject(this.config.get<string>('AZURE_OIDC_USER_ROLE_MAP'));
+    const userRoleMap: Record<string, string> = Object.fromEntries(
+      Object.entries(userRoleMapRaw || {}).map(([k, v]) => [String(k).trim().toLowerCase(), String(v)]),
+    );
+    const roleFromUserMap = normalizeRole(userRoleMap[emailLower] || '');
+
+    const appRoleValueMapRaw = parseJsonObject(this.config.get<string>('AZURE_OIDC_APP_ROLE_VALUE_MAP'));
+    const appRoleValueMap: Record<string, string> = Object.fromEntries(
+      Object.entries(appRoleValueMapRaw || {}).map(([k, v]) => [String(k).trim().toLowerCase(), String(v)]),
+    );
+    const azureAppRoles = toArray(claims?.roles)
+      .map((r) => {
+        const raw = String(r || '').trim();
+        const mapped = appRoleValueMap[raw.toLowerCase()] ?? raw;
+        return normalizeRole(mapped);
+      })
+      .filter(Boolean);
 
     const roleFromAppRoles = azureAppRoles
       .filter((r) => ['ADMIN', 'VIEWER', 'USER', 'SUBSCRIBER'].includes(r))
@@ -138,6 +157,7 @@ export class AzureOidcService {
     const rolesFromGroups = groups.map((g) => normalizeRole(groupRoleMap[g] || '')).filter(Boolean);
 
     const role =
+      (['ADMIN', 'VIEWER', 'USER', 'SUBSCRIBER'].includes(roleFromUserMap) ? roleFromUserMap : '') ||
       roleFromAppRoles ||
       rolesFromGroups.sort((a, b) => roleRank(b) - roleRank(a))[0] ||
       normalizeRole(this.config.get<string>('AZURE_OIDC_DEFAULT_ROLE') || 'USER');
@@ -149,7 +169,7 @@ export class AzureOidcService {
     const isSubscriber = role === 'SUBSCRIBER';
 
     const user = await this.prisma.user.upsert({
-      where: { email: String(email).toLowerCase() },
+      where: { email: emailLower },
       update: {
         name: String(name),
         role,
@@ -161,7 +181,7 @@ export class AzureOidcService {
         lastLoginAt: new Date(),
       },
       create: {
-        email: String(email).toLowerCase(),
+        email: emailLower,
         name: String(name),
         role,
         authProvider: 'AZURE_OIDC',
