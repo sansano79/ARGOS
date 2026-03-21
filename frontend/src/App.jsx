@@ -2262,7 +2262,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
   const isSubscriber = role === "SUBSCRIBER";
   const isViewer = role === "VIEWER";
   const subscriberAllowedViews = ["vulns", "exploited", "portal", "account"];
-  const viewerAllowedViews = ["overview", "vulns", "exploited", "account"];
+  const viewerAllowedViews = ["vulns", "exploited", "account"];
   const nav = isAdmin
     ? allNav
     : (
@@ -2300,12 +2300,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     backfillProgress.errors || backfillMetrics.errors || 0,
   );
 
+  const navIds = nav.map((n) => n.id).join("|");
   useEffect(() => {
-    if (!isViewer) return;
-    if (!viewerAllowedViews.includes(view)) {
-      setView("overview");
+    if (!nav.some((n) => n.id === view)) {
+      setView(nav[0]?.id || "overview");
     }
-  }, [isViewer, view]);
+  }, [navIds, view]);
 
   return (
     !isLoggedIn ? (
