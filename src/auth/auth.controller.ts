@@ -1,4 +1,4 @@
-import { Controller, Post, UseGuards, Request, Get, Res, NotFoundException, UnauthorizedException, Logger, Body, Param } from '@nestjs/common';
+import { Controller, Post, UseGuards, Request, Get, Res, NotFoundException, UnauthorizedException, Logger, Body, Param, Put } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -10,6 +10,8 @@ import { SamlStrategy } from './strategies/saml.strategy';
 import { AzureOidcService } from './azure-oidc.service';
 import { LocalSignupService } from './local-signup.service';
 import { LocalSignupRequestDto } from './dto/local-signup-request.dto';
+import { PrismaService } from '../prisma/prisma.service';
+import { UpdateMeDto } from './dto/update-me.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -22,6 +24,7 @@ export class AuthController {
     private readonly samlStrategy: SamlStrategy,
     private readonly azureOidc: AzureOidcService,
     private readonly localSignup: LocalSignupService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @UseGuards(LocalAuthGuard)
@@ -35,6 +38,66 @@ export class AuthController {
   @Get('profile')
   getProfile(@Request() req) {
     return req.user;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @Get('me')
+  async me(@Request() req: any) {
+    const id = Number(req?.user?.id);
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        authProvider: true,
+        isSubscriber: true,
+        canLogin: true,
+        isActive: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true,
+        notificationEmail: true,
+        contactPerson: true,
+        department: true,
+        phone: true,
+        subscriptions: {
+          where: { isActive: true },
+          select: { id: true, vendor: true, product: true, versions: true },
+          orderBy: [{ vendor: 'asc' }, { product: 'asc' }],
+        },
+      },
+    });
+    if (!user) throw new UnauthorizedException('User not found');
+    const subscriptions = (user.subscriptions || []).map((s) => ({
+      ...s,
+      versions: (() => {
+        try {
+          const v = JSON.parse(String(s.versions || '[]'));
+          return Array.isArray(v) ? v : [];
+        } catch {
+          return [];
+        }
+      })(),
+    }));
+    return { ...user, subscriptions };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @Put('me')
+  async updateMe(@Request() req: any, @Body() body: UpdateMeDto) {
+    const id = Number(req?.user?.id);
+    const data: any = {};
+    if (body?.name != null) data.name = String(body.name).trim();
+    if (body?.notificationEmail != null) data.notificationEmail = String(body.notificationEmail).trim().toLowerCase();
+    if (body?.contactPerson != null) data.contactPerson = String(body.contactPerson).trim();
+    if (body?.department != null) data.department = String(body.department).trim();
+    if (body?.phone != null) data.phone = String(body.phone).trim();
+    await this.prisma.user.update({ where: { id }, data });
+    return this.me(req);
   }
 
   @UseGuards(SamlAuthGuard)

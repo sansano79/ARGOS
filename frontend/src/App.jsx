@@ -46,6 +46,9 @@ const callBackfillApi = async (suffix, opts = {}) => {
           lastErr = `${path} no disponible (${res.status})`;
           continue;
         }
+        if (res.status === 403) {
+          throw new Error(`Necesitas rol ADMIN para esta acción [${res.status}]`);
+        }
         throw new Error(`${msg} [${res.status}]`);
       }
       return payload.json;
@@ -756,6 +759,10 @@ export default function VulnDashboard() {
   const [portalLoading, setPortalLoading] = useState(false);
   const [portalSaving, setPortalSaving] = useState(false);
   const [portalMsg, setPortalMsg] = useState(null);
+  const [accountProfile, setAccountProfile] = useState(null);
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [accountSaving, setAccountSaving] = useState(false);
+  const [accountMsg, setAccountMsg] = useState(null);
   const [tags, setTags] = useState([]);
   const [notifHistory, setNotifHistory] = useState([]);
   const [notifDetail, setNotifDetail] = useState(null);
@@ -1290,6 +1297,27 @@ export default function VulnDashboard() {
     try {
       if (v === "overview") {
         const r = await apiFetch("/vulnerabilities/dashboard"); setDash(await r.json());
+      } else if (v === "account") {
+        setAccountLoading(true);
+        try {
+          const r = await apiFetch("/auth/me");
+          const d = await r.json();
+          if (d && typeof d === "object" && !d.statusCode) {
+            setAccountProfile(d);
+            setUser({
+              id: d.id,
+              email: d.email,
+              name: d.name,
+              role: d.role,
+              isSubscriber: d.isSubscriber,
+              authProvider: d.authProvider,
+            });
+          } else {
+            setAccountProfile(null);
+          }
+        } finally {
+          setAccountLoading(false);
+        }
       } else if (v === "vulns" || v === "search") {
         await loadVulnerabilityExplorer({ page: 1, append: false });
       } else if (v === "exploited") {
@@ -1307,6 +1335,19 @@ export default function VulnDashboard() {
         const r = await apiFetch("/vulnerabilities/reports"); const d = await r.json(); setReports(d.data || []);
       } else if (v === "portal") {
         await loadSubscriberPortal();
+      } else if (v === "user-mgmt") {
+        const [usersRes, catalogRes] = await Promise.allSettled([
+          apiFetch("/users"),
+          apiFetch("/users/subscription-catalog"),
+        ]);
+        if (usersRes.status === "fulfilled") {
+          const json = await usersRes.value.json();
+          setUsers(Array.isArray(json) ? json : []);
+        }
+        if (catalogRes.status === "fulfilled") {
+          const json = await catalogRes.value.json();
+          setSubscriptionCatalog(Array.isArray(json) ? json : []);
+        }
       } else if (v === "collector") {
         const [runsR, dashR] = await Promise.all([
           apiFetch("/vulnerabilities/runs?limit=30"),
@@ -1349,6 +1390,7 @@ export default function VulnDashboard() {
         }
         setManufacturersLoading(false);
       } else if (v === "settings") {
+        if (settingsTab === "users") setSettingsTab("smtp");
         setSmtpLoading(true);
         try {
           const smtpR = await apiFetch("/notifications/config");
@@ -1358,20 +1400,12 @@ export default function VulnDashboard() {
           setSmtpLoading(false);
         }
 
-        const [usersRes, tagsRes, catalogRes] = await Promise.allSettled([
-          apiFetch("/users").then(r => r.json()),
+        const [tagsRes] = await Promise.allSettled([
           apiFetch("/tags").then(r => r.json()),
-          apiFetch("/users/subscription-catalog").then(r => r.json()),
         ]);
 
-        if (usersRes.status === "fulfilled") {
-          setUsers(Array.isArray(usersRes.value) ? usersRes.value : []);
-        }
         if (tagsRes.status === "fulfilled") {
           setTags(Array.isArray(tagsRes.value) ? tagsRes.value : []);
-        }
-        if (catalogRes.status === "fulfilled") {
-          setSubscriptionCatalog(Array.isArray(catalogRes.value) ? catalogRes.value : []);
         }
 
         setAiConfigLoading(true);
@@ -1425,7 +1459,7 @@ export default function VulnDashboard() {
       setManufacturersLoading(false);
       console.error("Load error:", e.message);
     }
-  }, [loadVulnerabilityExplorer, loadSubscriberPortal, backfillJobId]);
+  }, [loadVulnerabilityExplorer, loadSubscriberPortal, backfillJobId, settingsTab]);
 
   useEffect(() => { if (isLoggedIn) loadData(view); }, [view, isLoggedIn, loadData]);
 
@@ -1930,13 +1964,13 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
       if (payload.id) { await apiFetch(`/users/${payload.id}`, { method: "PUT", body: JSON.stringify(payload) }); }
       else { await apiFetch("/users", { method: "POST", body: JSON.stringify(payload) }); }
-      await loadData("settings");
+      await loadData("user-mgmt");
     } catch (e) { console.error(e); }
     setEditUser(null); setShowUserForm(false);
     setSubscriberVendors([]);
     setActiveVendor("");
   };
-  const deleteUser = async (id) => { try { await apiFetch(`/users/${id}`, { method: "DELETE" }); await loadData("settings"); } catch (e) { console.error(e); } };
+  const deleteUser = async (id) => { try { await apiFetch(`/users/${id}`, { method: "DELETE" }); await loadData("user-mgmt"); } catch (e) { console.error(e); } };
 
   // Tags CRUD
   // Vulnerability Detail & Actions
@@ -2203,12 +2237,14 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     { id: "vulns", label: "Catálogo de vulnerabilidades", icon: "bug" },
     { id: "exploited", label: "Explotación CVE", icon: "zap" },
     { id: "portal", label: "Mis Suscripciones", icon: "mail" },
+    { id: "account", label: "Tu cuenta", icon: "users" },
     { id: "manufacturers", label: "Fabricantes", icon: "server" },
     { id: "notifications", label: "Comunicaciones", icon: "mail" },
     { id: "smart-notif", label: "Notif. Inteligentes", icon: "brain" },
     { id: "reports", label: "Informes", icon: "file" },
     { id: "ai", label: "Asistente IA", icon: "brain" },
     { id: "collector", label: "Collector", icon: "server" },
+    { id: "user-mgmt", label: "Gestión usuarios", icon: "users" },
     { id: "settings", label: "Configuración", icon: "settings" },
   ];
   {
@@ -2221,14 +2257,19 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     const exploitedItem = allNav.find((n) => n.id === "exploited");
     if (exploitedItem?.parent) throw new Error("Invalid navigation: exploited must be top-level");
   }
-  const role = (currentUser?.role || "").toUpperCase();
+  const role = (currentUser?.role || "USER").toUpperCase();
+  const isAdmin = role === "ADMIN";
   const isSubscriber = role === "SUBSCRIBER";
   const isViewer = role === "VIEWER";
-  const subscriberAllowedViews = ["vulns", "exploited", "portal"];
-  const viewerAllowedViews = ["overview", "vulns", "exploited"];
-  const nav = isSubscriber
-    ? allNav.filter((n) => subscriberAllowedViews.includes(n.id))
-    : (isViewer ? allNav.filter((n) => viewerAllowedViews.includes(n.id)) : allNav);
+  const subscriberAllowedViews = ["vulns", "exploited", "portal", "account"];
+  const viewerAllowedViews = ["overview", "vulns", "exploited", "account"];
+  const nav = isAdmin
+    ? allNav
+    : (
+      isSubscriber
+        ? allNav.filter((n) => subscriberAllowedViews.includes(n.id))
+        : (isViewer ? allNav.filter((n) => viewerAllowedViews.includes(n.id)) : allNav.filter((n) => n.id !== "user-mgmt"))
+    );
   const currentSection = nav.find((n) => n.id === view)?.label || "Panel";
   const backfillMetrics = parseMaybeJsonObject(backfillStatus?.metrics || backfillStatus?.job?.metrics);
   const backfillCheckpointSummary = parseMaybeJsonObject(backfillStatus?.checkpointSummary);
@@ -4157,11 +4198,315 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
               </Card>
             </>}
 
+            {/* ═══ ACCOUNT ═══ */}
+            {view === "account" && <>
+              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Tu cuenta</h1>
+              <Card
+                title="Perfil"
+                icon="users"
+                action={<Btn onClick={() => loadData("account")} disabled={accountLoading || accountSaving}><I name="refresh" size={12} /> Actualizar</Btn>}
+              >
+                {accountLoading ? (
+                  <div style={{ padding: 18, textAlign: "center", color: C.gray500 }}>Cargando perfil...</div>
+                ) : (
+                  <>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Nombre</label>
+                        <Input
+                          value={accountProfile?.name || ""}
+                          onChange={(v) => setAccountProfile((p) => ({ ...(p || {}), name: v }))}
+                          placeholder="Nombre"
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email</label>
+                        <Input value={accountProfile?.email || ""} onChange={() => { }} placeholder="Email" style={{ opacity: 0.85 }} />
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                      <span style={{ padding: "3px 10px", borderRadius: 10, fontSize: 11, fontWeight: 800, background: C.bluePale, color: C.blue }}>
+                        {String(accountProfile?.role || role || "USER").toUpperCase()}
+                      </span>
+                      <span style={{ padding: "3px 10px", borderRadius: 10, fontSize: 11, fontWeight: 800, background: C.gray100, color: C.gray600 }}>
+                        {String(accountProfile?.authProvider || currentUser?.authProvider || "LOCAL")}
+                      </span>
+                      <span style={{ padding: "3px 10px", borderRadius: 10, fontSize: 11, fontWeight: 800, background: C.gray50, color: C.gray500 }}>
+                        Último acceso: {fmtDate(accountProfile?.lastLoginAt)}
+                      </span>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email de notificaciones</label>
+                        <Input
+                          value={accountProfile?.notificationEmail || ""}
+                          onChange={(v) => setAccountProfile((p) => ({ ...(p || {}), notificationEmail: v }))}
+                          placeholder="destinatario@empresa.com"
+                          icon="mail"
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Teléfono</label>
+                        <Input
+                          value={accountProfile?.phone || ""}
+                          onChange={(v) => setAccountProfile((p) => ({ ...(p || {}), phone: v }))}
+                          placeholder="+34..."
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Persona de contacto</label>
+                        <Input
+                          value={accountProfile?.contactPerson || ""}
+                          onChange={(v) => setAccountProfile((p) => ({ ...(p || {}), contactPerson: v }))}
+                          placeholder="Contacto"
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Departamento</label>
+                        <Input
+                          value={accountProfile?.department || ""}
+                          onChange={(v) => setAccountProfile((p) => ({ ...(p || {}), department: v }))}
+                          placeholder="Departamento"
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                      <Btn
+                        primary
+                        onClick={async () => {
+                          setAccountSaving(true);
+                          setAccountMsg(null);
+                          try {
+                            const payload = {
+                              name: accountProfile?.name || "",
+                              notificationEmail: accountProfile?.notificationEmail || "",
+                              contactPerson: accountProfile?.contactPerson || "",
+                              department: accountProfile?.department || "",
+                              phone: accountProfile?.phone || "",
+                            };
+                            const r = await apiFetch("/auth/me", { method: "PUT", body: JSON.stringify(payload) });
+                            const d = await r.json();
+                            if (!r.ok) throw new Error(d?.message || "No se pudo guardar");
+                            setAccountProfile(d);
+                            setAccountMsg({ type: "success", text: "Perfil actualizado" });
+                            setTimeout(() => setAccountMsg(null), 2500);
+                          } catch (e) {
+                            setAccountMsg({ type: "error", text: e?.message || "Error guardando perfil" });
+                            setTimeout(() => setAccountMsg(null), 3500);
+                          } finally {
+                            setAccountSaving(false);
+                          }
+                        }}
+                        disabled={accountSaving || accountLoading}
+                      >
+                        {accountSaving ? "Guardando..." : "Guardar"}
+                      </Btn>
+                    </div>
+
+                    {accountMsg && (
+                      <div className="fade" style={{ marginTop: 12, padding: "10px 12px", borderRadius: 6, fontSize: 12, fontWeight: 700, background: accountMsg.type === "success" ? C.lowBg : C.criticalBg, color: accountMsg.type === "success" ? C.low : C.critical }}>
+                        {accountMsg.text}
+                      </div>
+                    )}
+                  </>
+                )}
+              </Card>
+
+              {String(accountProfile?.role || role).toUpperCase() === "SUBSCRIBER" && (
+                <Card title="Suscripciones" icon="mail" action={<Btn onClick={() => setView("portal")}>Gestionar</Btn>}>
+                  <div style={{ fontSize: 12, color: C.gray600, marginBottom: 10 }}>
+                    Gestiona aquí tus datos de usuario y utiliza <strong>Mis Suscripciones</strong> para editar productos/versiones.
+                  </div>
+                  {Array.isArray(accountProfile?.subscriptions) && accountProfile.subscriptions.length > 0 ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {accountProfile.subscriptions.slice(0, 12).map((s) => (
+                        <span key={s.id} style={{ padding: "4px 10px", borderRadius: 999, background: C.gray100, fontSize: 11, color: C.gray700 }}>
+                          {s.vendor}/{s.product}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ padding: 10, color: C.gray500, fontSize: 12 }}>No hay suscripciones activas.</div>
+                  )}
+                </Card>
+              )}
+            </>}
+
+            {/* ═══ USER MANAGEMENT ═══ */}
+            {view === "user-mgmt" && <>
+              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Gestión usuarios</h1>
+              <Card title="Gestión de Usuarios" icon="users" action={<Btn small primary onClick={() => openUserForm()}><I name="plus" size={14} /> Nuevo</Btn>}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr style={{ background: C.gray50 }}>
+                    {["Nombre", "Email", "Rol", "Estado", "Último acceso", "Acciones"].map(h => (
+                      <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", borderBottom: `2px solid ${C.gray200}` }}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>{users.map(u => (
+                    <tr key={u.id} className="rh">
+                      <td style={{ padding: "8px 12px", fontWeight: 600, fontSize: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>{u.name}</span>
+                          {u.isSubscriber && <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: C.infoBg, color: C.info }}>SUSCRIPTOR</span>}
+                        </div>
+                      </td>
+                      <td style={{ padding: "8px 12px", fontSize: 11, fontFamily: "monospace" }}>{u.email}</td>
+                      <td style={{ padding: "8px 12px" }}><span style={{ padding: "2px 8px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: u.role === "ADMIN" ? C.bluePale : C.gray100, color: u.role === "ADMIN" ? C.blue : C.gray600 }}>{u.role}</span></td>
+                      <td style={{ padding: "8px 12px" }}><span style={{ color: u.isActive ? C.low : C.critical, fontWeight: 600, fontSize: 10 }}>{u.isActive ? "● Activo" : "○ Inactivo"}</span></td>
+                      <td style={{ padding: "8px 12px", fontSize: 10, color: C.gray400 }}>{fmtDate(u.lastLoginAt)}</td>
+                      <td style={{ padding: "8px 12px" }}>
+                        <span style={{ cursor: "pointer", marginRight: 8 }} onClick={() => openUserForm(u)}><I name="edit" size={14} color={C.blue} /></span>
+                        <span style={{ cursor: "pointer" }} onClick={() => deleteUser(u.id)}><I name="trash" size={14} color={C.critical} /></span>
+                      </td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </Card>
+              {showUserForm && editUser && (
+                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowUserForm(false)}>
+                  <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 980, maxHeight: "92vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+                    <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 16px" }}>{editUser?.id ? "Editar Usuario" : "Nuevo Usuario"}</h3>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                      {[{ k: "name", l: "Nombre" }, { k: "email", l: "Email" }].map(f => (
+                        <div key={f.k} style={{ marginBottom: 12 }}>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>{f.l}</label>
+                          <Input value={editUser[f.k] || ""} onChange={v => setEditUser({ ...editUser, [f.k]: v })} placeholder={f.l} />
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input type="checkbox" checked={!!editUser.canLogin} onChange={e => setEditUser({
+                          ...editUser,
+                          canLogin: e.target.checked,
+                          role: e.target.checked
+                            ? (editUser.isSubscriber ? "SUBSCRIBER" : (editUser.role === "SUBSCRIBER" ? "USER" : editUser.role || "USER"))
+                            : (editUser.isSubscriber ? "SUBSCRIBER" : "USER"),
+                        })} />
+                        <span style={{ fontSize: 12, color: C.text }}>Permitir inicio de sesión</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input type="checkbox" checked={!!editUser.isSubscriber} onChange={e => setSubscriberEnabled(e.target.checked)} />
+                        <span style={{ fontSize: 12, color: C.text }}>Usuario suscriptor de alertas</span>
+                      </div>
+                    </div>
+                    {editUser.canLogin && (
+                      <>
+                        <div style={{ marginBottom: 12 }}>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Rol de acceso</label>
+                          <select value={editUser.role || ""} onChange={e => setEditUser({ ...editUser, role: e.target.value })} disabled={!!editUser.isSubscriber} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
+                            <option value="" disabled>Seleccionar rol...</option>
+                            {editUser.isSubscriber ? (
+                              <>
+                                <option value="SUBSCRIBER">Suscriptor</option>
+                              </>
+                            ) : (
+                              <>
+                                <option value="USER">Usuario</option>
+                                <option value="VIEWER">Viewer</option>
+                                <option value="ADMIN">Administrador</option>
+                              </>
+                            )}
+                          </select>
+                        </div>
+                        <div style={{ marginBottom: 12 }}>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contraseña {editUser.id ? "(opcional)" : "(obligatoria)"}</label>
+                          <input
+                            type="password"
+                            value={editUser.password || ""}
+                            onChange={e => setEditUser({ ...editUser, password: e.target.value })}
+                            placeholder="Mínimo 8 caracteres"
+                            style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }}
+                          />
+                        </div>
+                      </>
+                    )}
+                    {editUser.isSubscriber && (
+                      <div style={{ marginTop: 6, border: `1px solid ${C.gray200}`, borderRadius: 8, padding: 14, background: C.gray50 }}>
+                        <div style={{ marginBottom: 10 }}>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email de notificación</label>
+                          <Input value={editUser.notificationEmail || ""} onChange={v => setEditUser({ ...editUser, notificationEmail: v })} placeholder="destinatario@empresa.com" icon="mail" />
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 14 }}>
+                          <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", maxHeight: 300, overflow: "auto" }}>
+                            <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray100}`, fontSize: 11, fontWeight: 700, color: C.gray600 }}>Fabricantes</div>
+                            {subscriptionCatalog.length === 0 && <div style={{ padding: 10, fontSize: 11, color: C.gray500 }}>Sin catálogo disponible aún.</div>}
+                            {subscriptionCatalog.map(item => {
+                              const checked = subscriberVendors.includes(item.vendor);
+                              return (
+                                <label key={item.vendor} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderBottom: `1px solid ${C.gray100}`, cursor: "pointer", fontSize: 12 }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={e => toggleVendorSelection(item.vendor, e.target.checked)}
+                                  />
+                                  <span onClick={() => setActiveVendor(item.vendor)} style={{ color: activeVendor === item.vendor ? C.navy : C.text, fontWeight: activeVendor === item.vendor ? 700 : 500 }}>
+                                    {item.vendor}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", maxHeight: 300, overflow: "auto" }}>
+                            <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray100}`, fontSize: 11, fontWeight: 700, color: C.gray600 }}>
+                              Software {activeVendor ? `de ${activeVendor}` : ""}
+                            </div>
+                            {!activeVendor && <div style={{ padding: 10, fontSize: 11, color: C.gray500 }}>Selecciona un fabricante.</div>}
+                            {activeVendor && ((subscriptionCatalog.find(v => v.vendor === activeVendor)?.products) || []).map(p => {
+                              const sub = (editUser.subscriptions || []).find(s => s.vendor === activeVendor && s.product === p.product);
+                              const checked = !!sub;
+                              const selectedVersions = sub?.versions || [];
+                              return (
+                                <div key={`${activeVendor}-${p.product}`} style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray100}` }}>
+                                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600 }}>
+                                    <input type="checkbox" checked={checked} onChange={e => toggleProductSubscription(activeVendor, p.product, e.target.checked)} />
+                                    {p.product}
+                                  </label>
+                                  {checked && (
+                                    <div style={{ marginTop: 6, marginLeft: 22 }}>
+                                      <div style={{ fontSize: 10, color: C.gray500, marginBottom: 4 }}>Versiones (si no marcas ninguna, se notifican todas)</div>
+                                      {(!p.versions || p.versions.length === 0) && <div style={{ fontSize: 10, color: C.gray400 }}>No hay versiones catalogadas.</div>}
+                                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                        {(p.versions || []).map(ver => (
+                                          <label key={ver} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, padding: "2px 6px", background: C.gray50, border: `1px solid ${C.gray200}`, borderRadius: 12 }}>
+                                            <input
+                                              type="checkbox"
+                                              checked={selectedVersions.includes(ver)}
+                                              onChange={e => toggleSubscriptionVersion(activeVendor, p.product, ver, e.target.checked)}
+                                            />
+                                            <span>{ver}</span>
+                                          </label>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+                      <Btn onClick={() => setShowUserForm(false)}>Cancelar</Btn>
+                      <Btn primary onClick={() => saveUser(editUser)}>{editUser?.id ? "Guardar cambios" : "Crear usuario"}</Btn>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>}
+
             {/* ═══ SETTINGS ═══ */}
             {view === "settings" && <>
               <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Configuración</h1>
               <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                {[{ id: "smtp", label: "SMTP" }, { id: "ia", label: "IA" }, { id: "users", label: "Usuarios" }, { id: "tags", label: "Etiquetas" }].map(t => (
+                {[{ id: "smtp", label: "SMTP" }, { id: "ia", label: "IA" }, { id: "tags", label: "Etiquetas" }].map(t => (
                   <div key={t.id} onClick={() => setSettingsTab(t.id)} style={{ padding: "8px 18px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: settingsTab === t.id ? C.navy : C.gray100, color: settingsTab === t.id ? "#fff" : C.gray600, transition: "all 0.15s" }}>{t.label}</div>
                 ))}
               </div>
@@ -4279,176 +4624,6 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                   </>
                 )}
               </Card>}
-
-              {/* Users Tab */}
-              {settingsTab === "users" && <>
-                <Card title="Gestión de Usuarios" icon="users" action={<Btn small primary onClick={() => openUserForm()}><I name="plus" size={14} /> Nuevo</Btn>}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead><tr style={{ background: C.gray50 }}>
-                      {["Nombre", "Email", "Rol", "Estado", "Último acceso", "Acciones"].map(h => (
-                        <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", borderBottom: `2px solid ${C.gray200}` }}>{h}</th>
-                      ))}
-                    </tr></thead>
-                    <tbody>{users.map(u => (
-                      <tr key={u.id} className="rh">
-                        <td style={{ padding: "8px 12px", fontWeight: 600, fontSize: 12 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <span>{u.name}</span>
-                            {u.isSubscriber && <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: C.infoBg, color: C.info }}>SUSCRIPTOR</span>}
-                          </div>
-                        </td>
-                        <td style={{ padding: "8px 12px", fontSize: 11, fontFamily: "monospace" }}>{u.email}</td>
-                        <td style={{ padding: "8px 12px" }}><span style={{ padding: "2px 8px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: u.role === "ADMIN" ? C.bluePale : C.gray100, color: u.role === "ADMIN" ? C.blue : C.gray600 }}>{u.role}</span></td>
-                        <td style={{ padding: "8px 12px" }}><span style={{ color: u.isActive ? C.low : C.critical, fontWeight: 600, fontSize: 10 }}>{u.isActive ? "● Activo" : "○ Inactivo"}</span></td>
-                        <td style={{ padding: "8px 12px", fontSize: 10, color: C.gray400 }}>{fmtDate(u.lastLoginAt)}</td>
-                        <td style={{ padding: "8px 12px" }}>
-                          <span style={{ cursor: "pointer", marginRight: 8 }} onClick={() => openUserForm(u)}><I name="edit" size={14} color={C.blue} /></span>
-                          <span style={{ cursor: "pointer" }} onClick={() => deleteUser(u.id)}><I name="trash" size={14} color={C.critical} /></span>
-                        </td>
-                      </tr>
-                    ))}</tbody>
-                  </table>
-                </Card>
-                {showUserForm && editUser && (
-                  <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowUserForm(false)}>
-                    <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 980, maxHeight: "92vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
-                      <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 16px" }}>{editUser?.id ? "Editar Usuario" : "Nuevo Usuario"}</h3>
-
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                        {[{ k: "name", l: "Nombre" }, { k: "email", l: "Email" }].map(f => (
-                          <div key={f.k} style={{ marginBottom: 12 }}>
-                            <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>{f.l}</label>
-                            <Input value={editUser[f.k] || ""} onChange={v => setEditUser({ ...editUser, [f.k]: v })} placeholder={f.l} />
-                          </div>
-                        ))}
-                      </div>
-
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <input type="checkbox" checked={!!editUser.canLogin} onChange={e => setEditUser({
-                            ...editUser,
-                            canLogin: e.target.checked,
-                            role: e.target.checked
-                              ? (editUser.isSubscriber ? "SUBSCRIBER" : (editUser.role === "SUBSCRIBER" ? "USER" : editUser.role || "USER"))
-                              : (editUser.isSubscriber ? "SUBSCRIBER" : "USER"),
-                          })} />
-                          <span style={{ fontSize: 12, color: C.text }}>Permitir inicio de sesión</span>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <input type="checkbox" checked={!!editUser.isSubscriber} onChange={e => setSubscriberEnabled(e.target.checked)} />
-                          <span style={{ fontSize: 12, color: C.text }}>Usuario suscriptor de alertas</span>
-                        </div>
-                      </div>
-
-                      {editUser.canLogin && (
-                        <>
-                          <div style={{ marginBottom: 12 }}>
-                            <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Rol de acceso</label>
-                            <select value={editUser.role || ""} onChange={e => setEditUser({ ...editUser, role: e.target.value })} disabled={!!editUser.isSubscriber} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
-                              <option value="" disabled>Seleccionar rol...</option>
-                              {editUser.isSubscriber ? (
-                                <>
-                                  <option value="SUBSCRIBER">Suscriptor</option>
-                                </>
-                              ) : (
-                                <>
-                                  <option value="USER">Usuario</option>
-                                  <option value="VIEWER">Viewer</option>
-                                  <option value="ADMIN">Administrador</option>
-                                </>
-                              )}
-                            </select>
-                          </div>
-                          <div style={{ marginBottom: 12 }}>
-                            <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contraseña {editUser.id ? "(opcional)" : "(obligatoria)"}</label>
-                            <input
-                              type="password"
-                              value={editUser.password || ""}
-                              onChange={e => setEditUser({ ...editUser, password: e.target.value })}
-                              placeholder="Mínimo 8 caracteres"
-                              style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }}
-                            />
-                          </div>
-                        </>
-                      )}
-
-                      {editUser.isSubscriber && (
-                        <div style={{ marginTop: 6, border: `1px solid ${C.gray200}`, borderRadius: 8, padding: 14, background: C.gray50 }}>
-                          <div style={{ marginBottom: 10 }}>
-                            <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email de notificación</label>
-                            <Input value={editUser.notificationEmail || ""} onChange={v => setEditUser({ ...editUser, notificationEmail: v })} placeholder="destinatario@empresa.com" icon="mail" />
-                          </div>
-
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 14 }}>
-                            <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", maxHeight: 300, overflow: "auto" }}>
-                              <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray100}`, fontSize: 11, fontWeight: 700, color: C.gray600 }}>Fabricantes</div>
-                              {subscriptionCatalog.length === 0 && <div style={{ padding: 10, fontSize: 11, color: C.gray500 }}>Sin catálogo disponible aún.</div>}
-                              {subscriptionCatalog.map(item => {
-                                const checked = subscriberVendors.includes(item.vendor);
-                                return (
-                                  <label key={item.vendor} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderBottom: `1px solid ${C.gray100}`, cursor: "pointer", fontSize: 12 }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      onChange={e => toggleVendorSelection(item.vendor, e.target.checked)}
-                                    />
-                                    <span onClick={() => setActiveVendor(item.vendor)} style={{ color: activeVendor === item.vendor ? C.navy : C.text, fontWeight: activeVendor === item.vendor ? 700 : 500 }}>
-                                      {item.vendor}
-                                    </span>
-                                  </label>
-                                );
-                              })}
-                            </div>
-
-                            <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", maxHeight: 300, overflow: "auto" }}>
-                              <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray100}`, fontSize: 11, fontWeight: 700, color: C.gray600 }}>
-                                Software {activeVendor ? `de ${activeVendor}` : ""}
-                              </div>
-                              {!activeVendor && <div style={{ padding: 10, fontSize: 11, color: C.gray500 }}>Selecciona un fabricante.</div>}
-                              {activeVendor && ((subscriptionCatalog.find(v => v.vendor === activeVendor)?.products) || []).map(p => {
-                                const sub = (editUser.subscriptions || []).find(s => s.vendor === activeVendor && s.product === p.product);
-                                const checked = !!sub;
-                                const selectedVersions = sub?.versions || [];
-                                return (
-                                  <div key={`${activeVendor}-${p.product}`} style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray100}` }}>
-                                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600 }}>
-                                      <input type="checkbox" checked={checked} onChange={e => toggleProductSubscription(activeVendor, p.product, e.target.checked)} />
-                                      {p.product}
-                                    </label>
-                                    {checked && (
-                                      <div style={{ marginTop: 6, marginLeft: 22 }}>
-                                        <div style={{ fontSize: 10, color: C.gray500, marginBottom: 4 }}>Versiones (si no marcas ninguna, se notifican todas)</div>
-                                        {(!p.versions || p.versions.length === 0) && <div style={{ fontSize: 10, color: C.gray400 }}>No hay versiones catalogadas.</div>}
-                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                                          {(p.versions || []).map(ver => (
-                                            <label key={ver} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, padding: "2px 6px", background: C.gray50, border: `1px solid ${C.gray200}`, borderRadius: 12 }}>
-                                              <input
-                                                type="checkbox"
-                                                checked={selectedVersions.includes(ver)}
-                                                onChange={e => toggleSubscriptionVersion(activeVendor, p.product, ver, e.target.checked)}
-                                              />
-                                              <span>{ver}</span>
-                                            </label>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
-                        <Btn onClick={() => setShowUserForm(false)}>Cancelar</Btn>
-                        <Btn primary onClick={() => saveUser(editUser)}>Guardar</Btn>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>}
 
               {/* Tags Tab */}
               {settingsTab === "tags" && <Card title="Etiquetas de Vulnerabilidades" icon="edit">
