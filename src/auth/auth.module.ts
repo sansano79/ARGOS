@@ -11,11 +11,16 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { SamlAuthGuard } from './guards/saml-auth.guard';
 import { AzureOidcService } from './azure-oidc.service';
+import { LocalSignupService } from './local-signup.service';
+import { NotificationModule } from '../modules/notification/notification.module';
+import { PasswordResetModule } from '../modules/password-reset/password-reset.module';
 
 @Module({
   imports: [
     PassportModule,
     ConfigModule,
+    NotificationModule,
+    PasswordResetModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -25,7 +30,7 @@ import { AzureOidcService } from './azure-oidc.service';
       }),
     }),
   ],
-  providers: [AuthService, JwtStrategy, LocalStrategy, SamlStrategy, JwtAuthGuard, RolesGuard, SamlAuthGuard, AzureOidcService],
+  providers: [AuthService, JwtStrategy, LocalStrategy, SamlStrategy, JwtAuthGuard, RolesGuard, SamlAuthGuard, AzureOidcService, LocalSignupService],
   controllers: [AuthController],
   exports: [AuthService, JwtAuthGuard, RolesGuard],
 })

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aprobación de alta local</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #0f172a; font-family: 'Segoe UI', Inter, Roboto, -apple-system, sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #0f172a; padding: 40px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background-color: #1e293b; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.3);">
+          <tr>
+            <td style="background: linear-gradient(135deg, #0ea5e9, #6366f1); padding: 32px 40px; text-align: center;">
+              <div style="font-size: 28px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px;">
+                Servicios OCC
+              </div>
+              <div style="font-size: 14px; color: rgba(255,255,255,0.8); margin-top: 6px;">
+                Aprobación de alta local
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px;">
+              <p style="margin: 0 0 16px; font-size: 14px; color: #94a3b8; line-height: 1.7;">
+                Se ha solicitado crear una cuenta local con acceso al sistema.
+              </p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px;">
+                <tr>
+                  <td style="background-color: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.2); border-radius: 10px; padding: 16px 20px;">
+                    <p style="margin: 0; font-size: 13px; color: #cbd5e1; line-height: 1.6;">
+                      <strong>Nombre:</strong> {{ requesterName }}<br />
+                      <strong>Email:</strong> {{ requesterEmail }}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding: 8px 0 10px;">
+                    <a href="{{ approveUrl }}"
+                       target="_blank"
+                       style="display: inline-block; background: linear-gradient(135deg, #22c55e, #16a34a); color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 700; padding: 14px 40px; border-radius: 10px; letter-spacing: 0.3px; box-shadow: 0 4px 14px rgba(34,197,94,0.35);">
+                      Aprobar
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding: 0 0 24px;">
+                    <a href="{{ denyUrl }}"
+                       target="_blank"
+                       style="display: inline-block; background: rgba(239,68,68,0.12); color: #fecaca; text-decoration: none; font-size: 13px; font-weight: 700; padding: 10px 28px; border-radius: 10px; letter-spacing: 0.2px; border: 1px solid rgba(239,68,68,0.25);">
+                      Denegar
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="background-color: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.2); border-radius: 10px; padding: 16px 20px;">
+                    <p style="margin: 0; font-size: 13px; color: #eab308; line-height: 1.6;">
+                      Este enlace expirará en <strong>{{ expiryMinutes }} minutos</strong>.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin: 24px 0 0; font-size: 11px; color: #64748b; line-height: 1.7;">
+                Si no esperabas esta solicitud, ignora este correo.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #0f172a; padding: 24px 40px; text-align: center; border-top: 1px solid rgba(255,255,255,0.05);">
+              <p style="margin: 0; font-size: 11px; color: #475569; line-height: 1.6;">
+                Mensaje automático del sistema. No respondas a este correo.
+              </p>
+              <p style="margin: 10px 0 0; font-size: 11px; color: #334155;">
+                © 2026 OCC Security Team
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+

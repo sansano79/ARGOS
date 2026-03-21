@@ -33,10 +33,11 @@ export class PasswordResetService {
             this.configService.get<string>('PASSWORD_RESET_EXPIRY_MINUTES', '20'),
             10,
         );
-        this.FRONTEND_URL = this.configService.get<string>(
-            'FRONTEND_URL',
-            'http://localhost:5173',
-        );
+        const base =
+            this.configService.get<string>('FRONTEND_BASE_URL') ||
+            this.configService.get<string>('FRONTEND_URL') ||
+            'http://localhost:5173';
+        this.FRONTEND_URL = String(base).trim().replace(/\/+$/, '');
     }
 
     // ──────────────────────────────────────────────────────────────

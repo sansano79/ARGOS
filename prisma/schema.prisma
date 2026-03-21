@@ -99,6 +99,25 @@ model PasswordReset {
   @@map("password_resets")
 }
 
+model LocalSignupRequest {
+  id             Int       @id @default(autoincrement())
+  requesterEmail String    @map("requester_email")
+  requesterName  String    @map("requester_name")
+  tokenHash      String    @map("token_hash")
+  status         String    @default("PENDING")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  expiresAt      DateTime  @map("expires_at")
+  decidedAt      DateTime? @map("decided_at")
+  decidedBy      String?   @map("decided_by")
+  requestIp      String?   @map("request_ip")
+  userAgent      String?   @map("user_agent") @db.Text
+
+  @@index([tokenHash])
+  @@index([requesterEmail, createdAt])
+  @@index([expiresAt])
+  @@map("local_signup_requests")
+}
+
 // ══════════════════════════════════════════════════════════════
 // VULNERABILIDADES
 // ══════════════════════════════════════════════════════════════

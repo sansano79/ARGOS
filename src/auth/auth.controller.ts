@@ -1,4 +1,4 @@
-import { Controller, Post, UseGuards, Request, Get, Res, NotFoundException, UnauthorizedException, Logger } from '@nestjs/common';
+import { Controller, Post, UseGuards, Request, Get, Res, NotFoundException, UnauthorizedException, Logger, Body, Param } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -8,6 +8,8 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { SamlAuthGuard } from './guards/saml-auth.guard';
 import { SamlStrategy } from './strategies/saml.strategy';
 import { AzureOidcService } from './azure-oidc.service';
+import { LocalSignupService } from './local-signup.service';
+import { LocalSignupRequestDto } from './dto/local-signup-request.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -19,6 +21,7 @@ export class AuthController {
     private readonly config: ConfigService,
     private readonly samlStrategy: SamlStrategy,
     private readonly azureOidc: AzureOidcService,
+    private readonly localSignup: LocalSignupService,
   ) {}
 
   @UseGuards(LocalAuthGuard)
@@ -133,5 +136,22 @@ export class AuthController {
     res.clearCookie('occ_oidc_nonce', { path: '/api/auth/azure', domain, secure: cookieSecure, sameSite: 'lax' });
 
     return res.redirect(`${safeBase}#token=${encodeURIComponent(auth.access_token)}`);
+  }
+
+  @Post('local-signup/request')
+  async localSignupRequest(@Request() req, @Body() body: LocalSignupRequestDto) {
+    const ip = String((req as any)?.ip || '');
+    const ua = String((req as any)?.headers?.['user-agent'] || '');
+    return this.localSignup.createRequest({ email: body.email, name: body.name, requestIp: ip, userAgent: ua });
+  }
+
+  @Get('local-signup/approve/:token')
+  async localSignupApprove(@Param('token') token: string) {
+    return this.localSignup.approve(String(token || '').trim());
+  }
+
+  @Get('local-signup/deny/:token')
+  async localSignupDeny(@Param('token') token: string) {
+    return this.localSignup.deny(String(token || '').trim());
   }
 }
