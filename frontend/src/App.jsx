@@ -2553,22 +2553,77 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
               <Card title="KEV Confirmadas — Acción Inmediata" icon="zap" noPad style={{ marginTop: 16 }} action={<span onClick={() => setView("exploited")} style={{ fontSize: 11, color: C.blue, cursor: "pointer", fontWeight: 600 }}>Ver todas →</span>}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: C.gray50 }}>
-                    {["CVE", "CVSS", "EPSS", "Producto", "Equipo IT", "Hace"].map(h => (
-                      <th key={h} style={{ padding: "9px 14px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.8px", borderBottom: `1px solid ${C.gray200}` }}>{h}</th>
+                    {["CVE", "Riesgo", "CVSS", "EPSS", "Explotación", "Producto", "Estado", "Tags", "Publicada", "Actualizada"].map(h => (
+                      <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", borderBottom: `2px solid ${C.gray200}`, whiteSpace: "nowrap" }}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>{(dash?.topExploited || []).map(v => {
-                    const aff = getAffectedContacts(v);
+                    const semantic = getSemanticSummary(v);
+                    const displayContextTags = getDisplayContextTags({
+                      contextTags: semantic.contextTags,
+                      riskSignals: v.riskSignals,
+                      tags: v.tags,
+                    });
+                    const modifiedAt = v.lastModifiedAt ? new Date(v.lastModifiedAt) : null;
+                    const publishedAt = v.publishedAt ? new Date(v.publishedAt) : null;
+                    const hasUpdate = !!(modifiedAt && publishedAt && modifiedAt.getTime() > publishedAt.getTime());
+                    const trend = String(v.updateTrend || "").toLowerCase();
+                    const isUp = hasUpdate && trend === "up";
+                    const arrow = hasUpdate ? (isUp ? "▲" : "▼") : "＝";
+                    const arrowColor = hasUpdate ? (isUp ? C.critical : C.low) : C.gray400;
                     return (
-                      <tr key={v.cveId} className="rh" style={{ cursor: "pointer" }} onClick={() => openVulnerabilityDetail(v)}>
-                        <td style={{ padding: "10px 14px", fontWeight: 700, fontSize: 12, fontFamily: "monospace", color: C.critical }}>{v.cveId}</td>
-                        <td style={{ padding: "10px 14px" }}><SevBadge s={v.cvssV31Severity} small /> <span style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 700, marginLeft: 4 }}>{fmtScore(v.cvssV31Score)}</span></td>
-                        <td style={{ padding: "10px 14px", fontFamily: "monospace", fontSize: 12, fontWeight: 600 }}>{fmtEpss(v.epssScore)}</td>
-                        <td style={{ padding: "10px 14px", minWidth: 220 }}>
-                          <SemanticCompactAffected vuln={v} small contextLimit={1} showPendingNote={false} />
+                      <tr key={v.cveId} className="rh" onClick={() => openVulnerabilityDetail(v)} style={{ cursor: "pointer", ...getRowPriorityStyle(v), transition: "background 0.1s" }}>
+                        <td style={{ padding: "10px 12px" }}>
+                          <div style={{ fontWeight: 700, fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>{v.cveId}</div>
+                          <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                            <SevBadge s={v.cvssV31Severity} small />
+                            {v.isKnownExploited && <SoftBadge label="KEV" bg={C.criticalBg} color={C.critical} border="#FCA5A5" small />}
+                            {v.hasPublicExploit && <SoftBadge label="Exploit" bg={C.highBg} color={C.high} border="#FDBA74" small />}
+                          </div>
                         </td>
-                        <td style={{ padding: "10px 14px" }}>{aff.map(c => <span key={c.id} style={{ display: "inline-block", background: "#F0F0F0", padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, marginRight: 3, color: C.gray700 }}>{c.name.split(" ").slice(1, 3).join(" ")}</span>)}</td>
-                        <td style={{ padding: "10px 14px", fontSize: 10, color: C.gray500, fontFamily: "monospace" }}>{timeAgo(v.firstSeenAt)}</td>
+                        <td style={{ padding: "10px 12px" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                            <RiskTierBadge tier={v.operationalRiskTier} small />
+                            <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: isUrgentRisk(v.operationalRiskTier) ? C.critical : C.text }}>
+                              Score {fmtRiskScore(v.operationalRiskScore)}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 12px" }}>
+                          <div style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700 }}>{fmtScore(v.cvssV31Score)}</div>
+                          <div style={{ fontSize: 10, color: C.gray500 }}>{v.cvssV31Severity || "N/A"}</div>
+                        </td>
+                        <td style={{ padding: "10px 12px", fontFamily: "monospace", fontSize: 11, color: (v.epssScore || 0) > 0.1 ? C.high : C.text }}>{fmtEpss(v.epssScore)}</td>
+                        <td style={{ padding: "10px 12px" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                            <ExploitStatusBadge status={v.exploitStatus} small />
+                            <span style={{ fontSize: 10, color: C.gray500 }}>
+                              {v.exploitConfidence != null ? `${Math.round(v.exploitConfidence * 100)}% confianza` : "Sin confianza"}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 12px" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: semantic.hasReliablePrimaryEntity ? C.text : C.gray600 }}>{semantic.displayTitle}</div>
+                          <div style={{ fontSize: 10, color: C.gray500 }}>{semantic.displaySubtitle}</div>
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+                            <ComponentTypeBadge type={semantic.componentType} small />
+                            {displayContextTags.slice(0, 2).map((tag) => <ContextTagPill key={tag} tag={tag} small />)}
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 12px" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                            <RecordStatusBadge status={v.recordStatus} small />
+                            <span style={{ fontSize: 10, color: hasUnknownPatch(v) ? C.high : C.gray500, fontWeight: hasUnknownPatch(v) ? 700 : 500 }}>
+                              {v.patchAvailable === true ? "Parche disponible" : "Parche no confirmado"}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 12px" }}>{(v.tags || []).map(t => <span key={t.id} style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: t.color, marginRight: 2 }} title={t.name} />)}</td>
+                        <td style={{ padding: "10px 12px", fontSize: 10, color: C.gray500, fontFamily: "monospace" }}>{fmtDate(v.publishedAt).split(",")[0]}</td>
+                        <td style={{ padding: "10px 12px", fontSize: 10, color: C.gray500, fontFamily: "monospace", whiteSpace: "nowrap" }}>
+                          <span style={{ color: arrowColor, fontWeight: 900, marginRight: 6 }}>{arrow}</span>
+                          {hasUpdate ? fmtDate(v.lastModifiedAt).split(",")[0] : ""}
+                        </td>
                       </tr>
                     );
                   })}</tbody>
