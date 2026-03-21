@@ -1,4 +1,4 @@
-import { Controller, Post, UseGuards, Request, Get, Res, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, UseGuards, Request, Get, Res, NotFoundException, UnauthorizedException, Logger } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -12,6 +12,8 @@ import { AzureOidcService } from './azure-oidc.service';
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private readonly authService: AuthService,
     private readonly config: ConfigService,
@@ -76,8 +78,20 @@ export class AuthController {
   @Get('azure/login')
   async azureLogin(@Res() res: Response) {
     if (!this.azureOidc.isEnabled()) throw new NotFoundException();
-    const { codeVerifier, codeChallenge, state, nonce } = await this.azureOidc.createLoginRequest();
-    const url = await this.azureOidc.buildAuthorizationUrl({ codeChallenge, state, nonce });
+    let url = '';
+    let codeVerifier = '';
+    let state = '';
+    let nonce = '';
+    try {
+      const req = await this.azureOidc.createLoginRequest();
+      codeVerifier = req.codeVerifier;
+      state = req.state;
+      nonce = req.nonce;
+      url = await this.azureOidc.buildAuthorizationUrl({ codeChallenge: req.codeChallenge, state, nonce });
+    } catch (e: any) {
+      this.logger.error(`Azure OIDC login init failed: ${String(e?.message || e)}`);
+      throw new UnauthorizedException('Azure login no disponible');
+    }
 
     const cookieSecure = this.config.get<string>('AZURE_OIDC_COOKIE_SECURE') !== 'false';
     const domain = (this.config.get<string>('AZURE_OIDC_COOKIE_DOMAIN') || '').trim() || undefined;
@@ -101,8 +115,14 @@ export class AuthController {
       throw new UnauthorizedException('Missing OIDC callback data');
     }
 
-    const user = await this.azureOidc.handleCallback({ code, state, expectedState, codeVerifier, nonce });
-    const auth = await this.authService.issueAccessToken(user);
+    let auth: any;
+    try {
+      const user = await this.azureOidc.handleCallback({ code, state, expectedState, codeVerifier, nonce });
+      auth = await this.authService.issueAccessToken(user);
+    } catch (e: any) {
+      this.logger.error(`Azure OIDC callback failed: ${String(e?.message || e)}`);
+      throw new UnauthorizedException('Azure login falló');
+    }
     const frontendBase = this.config.get<string>('FRONTEND_BASE_URL') || '/';
     const safeBase = frontendBase.endsWith('/') ? frontendBase : `${frontendBase}/`;
 

@@ -37,6 +37,7 @@ const pickFromClaims = (profile: any, keys: string[]) => {
 };
 
 const normalizePem = (v: string | undefined) => (v ? String(v).replace(/\\n/g, '\n').trim() : '');
+const dummyCert = '-----BEGIN CERTIFICATE-----\nDUMMY\n-----END CERTIFICATE-----';
 
 @Injectable()
 export class SamlStrategy extends PassportStrategy(Strategy, 'saml') {
@@ -48,7 +49,7 @@ export class SamlStrategy extends PassportStrategy(Strategy, 'saml') {
     const entryPoint = config.get<string>('AZURE_SAML_ENTRY_POINT') || '';
     const issuer = config.get<string>('AZURE_SAML_ISSUER') || '';
     const callbackUrl = config.get<string>('AZURE_SAML_CALLBACK_URL') || '';
-    const cert = normalizePem(config.get<string>('AZURE_SAML_CERT'));
+    const cert = enabled ? normalizePem(config.get<string>('AZURE_SAML_CERT')) : dummyCert;
     if (enabled && (!entryPoint || !issuer || !callbackUrl || !cert)) {
       throw new Error('Azure SAML enabled but config is incomplete');
     }
@@ -89,15 +90,6 @@ export class SamlStrategy extends PassportStrategy(Strategy, 'saml') {
       email,
     );
 
-    const objectId = pickFromClaims(raw, [
-      'http://schemas.microsoft.com/identity/claims/objectidentifier',
-      'objectidentifier',
-      'oid',
-    ]);
-
-    const nameId = raw?.nameID;
-    const externalId = String(firstTruthy(objectId, nameId) || '');
-
     const groups = toArray(pickFromClaims(raw, [
       'http://schemas.microsoft.com/ws/2008/06/identity/claims/groups',
       'groups',
@@ -119,7 +111,6 @@ export class SamlStrategy extends PassportStrategy(Strategy, 'saml') {
         name: String(displayName),
         role,
         authProvider: 'AZURE_SAML',
-        externalId: externalId || null,
         isSubscriber,
         canLogin: true,
         isActive: true,
@@ -130,7 +121,6 @@ export class SamlStrategy extends PassportStrategy(Strategy, 'saml') {
         name: String(displayName),
         role,
         authProvider: 'AZURE_SAML',
-        externalId: externalId || null,
         isSubscriber,
         canLogin: true,
         isActive: true,
