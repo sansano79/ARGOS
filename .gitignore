@@ -17,6 +17,9 @@ storage/backups/
 *.sql
 *.sql.gz
 
+# Keep Prisma migrations tracked (they are .sql files)
+!prisma/migrations/**/migration.sql
+
 # IDE
 .idea/
 .vscode/
