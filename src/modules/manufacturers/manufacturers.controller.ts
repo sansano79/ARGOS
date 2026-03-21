@@ -8,7 +8,8 @@ import { ManufacturersService } from './manufacturers.service';
 @ApiTags('Manufacturers')
 @ApiBearerAuth()
 @Controller('manufacturers')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('ADMIN')
 export class ManufacturersController {
   constructor(private readonly manufacturersService: ManufacturersService) {}
 

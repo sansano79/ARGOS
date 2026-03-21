@@ -35,6 +35,12 @@ if (exploitedItem.includes('parent:')) {
   fail('El menú "exploited" debe ser de primer nivel (sin parent)');
 }
 
+const portalItem = findNavItemBlock("portal");
+if (!portalItem) fail('Falta el menú id: "portal"');
+if (!portalItem.includes('label: "Mis Suscripciones"')) {
+  fail('El menú "portal" debe llamarse "Mis Suscripciones"');
+}
+
 const vulnsIdx = allNavBlock.indexOf('id: "vulns"');
 const exploitedIdx = allNavBlock.indexOf('id: "exploited"');
 if (vulnsIdx === -1 || exploitedIdx === -1) fail("No se pudieron localizar los ids en allNav");

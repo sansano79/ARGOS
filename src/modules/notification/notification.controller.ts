@@ -28,6 +28,7 @@ export class NotificationController {
     }
 
     @Get('history')
+    @Roles('ADMIN')
     async getHistory(
         @Query('page') page?: string,
         @Query('limit') limit?: string,
@@ -39,11 +40,13 @@ export class NotificationController {
     }
 
     @Get('history/:id')
+    @Roles('ADMIN')
     async getNotificationDetail(@Param('id', ParseIntPipe) id: number) {
         return await this.notificationService.getNotificationById(id);
     }
 
     @Get('templates')
+    @Roles('ADMIN')
     async getTemplates() {
         return await this.notificationService.getAvailableTemplates();
     }

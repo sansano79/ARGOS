@@ -1,10 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 @Controller()
 export class DashboardController {
-  constructor(private readonly configService: ConfigService) { }
-
   @Get()
   healthCheck() {
     return {
@@ -20,7 +17,6 @@ export class DashboardController {
     return {
       status: 'ok',
       uptime: process.uptime(),
-      bypassAuth: this.configService.get<string>('BYPASS_AUTH') === 'true',
     };
   }
 }

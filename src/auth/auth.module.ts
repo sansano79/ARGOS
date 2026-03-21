@@ -6,12 +6,15 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
+import { SamlStrategy } from './strategies/saml.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
+import { SamlAuthGuard } from './guards/saml-auth.guard';
 
 @Module({
   imports: [
     PassportModule,
+    ConfigModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -21,7 +24,7 @@ import { RolesGuard } from './guards/roles.guard';
       }),
     }),
   ],
-  providers: [AuthService, JwtStrategy, LocalStrategy, JwtAuthGuard, RolesGuard],
+  providers: [AuthService, JwtStrategy, LocalStrategy, SamlStrategy, JwtAuthGuard, RolesGuard, SamlAuthGuard],
   controllers: [AuthController],
   exports: [AuthService, JwtAuthGuard, RolesGuard],
 })

@@ -49,7 +49,6 @@ services:
       JWT_SECRET: ${JWT_SECRET:-OCC_Jwt_S3cr3t_K3y_Ch4ng3_1n_Pr0d!}
       NVD_API_KEY: ${NVD_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      BYPASS_AUTH: ${BYPASS_AUTH:-false}
       ENABLE_SWAGGER: ${ENABLE_SWAGGER:-true}
     ports:
       - "${API_PORT:-3000}:3000"

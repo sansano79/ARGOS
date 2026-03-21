@@ -641,103 +641,7 @@ PRISMASCHEMA
 log "Prisma schema generado"
 
 # ─── 9. Prisma seed ──────────────────────────────────────────────────────────
-info "Generando seed de base de datos..."
-
-cat > prisma/seed.ts << 'PRISMASEED'
-import { PrismaClient, UserRole } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
-
-const prisma = new PrismaClient();
-
-async function main() {
-  console.log('🌱 Seeding database...');
-
-  // Admin user (CAMBIAR PASSWORD EN PRODUCCIÓN)
-  const adminHash = await bcrypt.hash('Admin.OCC.2026!', 12);
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@servicios-occ.local' },
-    update: {},
-    create: {
-      email: 'admin@servicios-occ.local',
-      passwordHash: adminHash,
-      name: 'Administrador OCC',
-      role: UserRole.ADMIN,
-      isActive: true,
-    },
-  });
-  console.log(`  ✔ Admin user: ${admin.email}`);
-
-  // Viewer user
-  const viewerHash = await bcrypt.hash('Viewer.OCC.2026!', 12);
-  const viewer = await prisma.user.upsert({
-    where: { email: 'viewer@servicios-occ.local' },
-    update: {},
-    create: {
-      email: 'viewer@servicios-occ.local',
-      passwordHash: viewerHash,
-      name: 'Viewer OCC',
-      role: UserRole.VIEWER,
-      isActive: true,
-    },
-  });
-  console.log(`  ✔ Viewer user: ${viewer.email}`);
-
-  // API configurations
-  await prisma.apiConfiguration.upsert({
-    where: { slug: 'nvd-nist' },
-    update: {},
-    create: {
-      name: 'NVD - National Vulnerability Database',
-      slug: 'nvd-nist',
-      provider: 'nvd',
-      endpointUrl: 'https://services.nvd.nist.gov/rest/json/cves/2.0',
-      settings: { rateLimit: 50, ratePeriodSeconds: 30 },
-      isActive: true,
-      createdBy: admin.id,
-    },
-  });
-
-  await prisma.apiConfiguration.upsert({
-    where: { slug: 'cisa-kev' },
-    update: {},
-    create: {
-      name: 'CISA Known Exploited Vulnerabilities',
-      slug: 'cisa-kev',
-      provider: 'cisa',
-      endpointUrl: 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json',
-      isActive: true,
-      createdBy: admin.id,
-    },
-  });
-
-  await prisma.apiConfiguration.upsert({
-    where: { slug: 'first-epss' },
-    update: {},
-    create: {
-      name: 'FIRST EPSS - Exploit Prediction Scoring System',
-      slug: 'first-epss',
-      provider: 'first',
-      endpointUrl: 'https://api.first.org/data/v1/epss',
-      isActive: true,
-      createdBy: admin.id,
-    },
-  });
-
-  console.log('  ✔ API configurations created');
-  console.log('🌱 Seed completed!');
-}
-
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
-PRISMASEED
-
-log "Seed generado"
+info "Seed gestionado por prisma/seed.ts"
 
 # ─── 10. Ahora generamos todos los ficheros TypeScript del proyecto ──────────
 info "Generando código fuente NestJS..."
@@ -2555,14 +2459,9 @@ Copiar `.env.example` → `.env` y configurar:
 | GET | `/api/vulnerabilities/runs` | Historial de ejecuciones del collector |
 | GET | `/api/docs` | Swagger UI |
 
-## Usuarios por Defecto
+## Usuarios
 
-| Email | Password | Rol |
-|-------|----------|-----|
-| admin@servicios-occ.local | Admin.OCC.2026! | ADMIN |
-| viewer@servicios-occ.local | Viewer.OCC.2026! | VIEWER |
-
-⚠️ **Cambiar passwords en producción**
+En producción, no se deben usar credenciales por defecto. Provisiona usuarios mediante SSO (Azure SAML) o crea cuentas locales con MFA.
 
 ## Funcionamiento del Collector
 

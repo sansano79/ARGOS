@@ -2,15 +2,10 @@
 set -euo pipefail
 
 BASE_URL="https://localhost"
-EMAIL="admin@servicios-occ.local"
-PASSWORD="Admin.OCC.2026!"
-
-LOGIN_JSON=$(curl -ks --json "{\"email\":\"${EMAIL}\",\"password\":\"${PASSWORD}\"}" "${BASE_URL}/api/auth/login")
-TOKEN=$(printf '%s' "$LOGIN_JSON" | python3 -c 'import sys, json; data=json.load(sys.stdin); print(data.get("access_token", ""))')
+TOKEN="${TOKEN:-}"
 
 if [[ -z "$TOKEN" ]]; then
-  echo "LOGIN_JSON=$LOGIN_JSON"
-  echo "ERROR: no access_token"
+  echo "ERROR: missing TOKEN env var"
   exit 1
 fi
 

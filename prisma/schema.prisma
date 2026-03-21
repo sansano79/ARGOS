@@ -18,6 +18,8 @@ model User {
   passwordHash      String?   @map("password_hash")
   name              String
   role              String    @default("USER")
+  authProvider      String    @default("LOCAL") @map("auth_provider")
+  externalId        String?   @unique @map("external_id")
   canLogin          Boolean   @default(true) @map("can_login")
   isSubscriber      Boolean   @default(false) @map("is_subscriber")
   notificationEmail String?   @map("notification_email")
@@ -26,6 +28,10 @@ model User {
   phone             String?
   notes             String?   @db.Text
   isActive          Boolean   @default(true) @map("is_active")
+  mfaEnabled        Boolean   @default(false) @map("mfa_enabled")
+  mfaSecretEnc      String?   @db.Text @map("mfa_secret_enc")
+  mfaSecretIv       String?   @map("mfa_secret_iv")
+  mfaSecretTag      String?   @map("mfa_secret_tag")
   lastLoginAt       DateTime? @map("last_login_at")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")

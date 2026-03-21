@@ -4,34 +4,65 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 async function main() {
+  const seedEnabled = process.env.SEED_DATA === 'true';
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (!seedEnabled || isProduction) {
+    console.log('🌱 Seeding disabled');
+    return;
+  }
+
   console.log('🌱 Seeding database...');
 
-  // Admin user (CAMBIAR PASSWORD EN PRODUCCIÓN)
-  const adminHash = await bcrypt.hash('Admin.OCC.2026!', 12);
+  const adminEmail = (process.env.SEED_ADMIN_EMAIL || '').trim().toLowerCase();
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD || '';
+  const viewerEmail = (process.env.SEED_VIEWER_EMAIL || '').trim().toLowerCase();
+  const viewerPassword = process.env.SEED_VIEWER_PASSWORD || '';
+
+  if (!adminEmail || !adminPassword) throw new Error('Missing SEED_ADMIN_EMAIL/SEED_ADMIN_PASSWORD');
+  if (!viewerEmail || !viewerPassword) throw new Error('Missing SEED_VIEWER_EMAIL/SEED_VIEWER_PASSWORD');
+
+  const adminHash = await bcrypt.hash(adminPassword, 12);
   const admin = await prisma.user.upsert({
-    where: { email: 'admin@servicios-occ.local' },
-    update: {},
+    where: { email: adminEmail },
+    update: {
+      name: 'Administrador OCC',
+      role: 'ADMIN',
+      isActive: true,
+      canLogin: true,
+      authProvider: 'LOCAL',
+      passwordHash: adminHash,
+    },
     create: {
-      email: 'admin@servicios-occ.local',
+      email: adminEmail,
       passwordHash: adminHash,
       name: 'Administrador OCC',
       role: 'ADMIN',
       isActive: true,
+      canLogin: true,
+      authProvider: 'LOCAL',
     },
   });
   console.log(`  ✔ Admin user: ${admin.email}`);
 
-  // Viewer user
-  const viewerHash = await bcrypt.hash('Viewer.OCC.2026!', 12);
+  const viewerHash = await bcrypt.hash(viewerPassword, 12);
   const viewer = await prisma.user.upsert({
-    where: { email: 'viewer@servicios-occ.local' },
-    update: {},
+    where: { email: viewerEmail },
+    update: {
+      name: 'Viewer OCC',
+      role: 'VIEWER',
+      isActive: true,
+      canLogin: true,
+      authProvider: 'LOCAL',
+      passwordHash: viewerHash,
+    },
     create: {
-      email: 'viewer@servicios-occ.local',
+      email: viewerEmail,
       passwordHash: viewerHash,
       name: 'Viewer OCC',
       role: 'VIEWER',
       isActive: true,
+      canLogin: true,
+      authProvider: 'LOCAL',
     },
   });
   console.log(`  ✔ Viewer user: ${viewer.email}`);
@@ -79,47 +110,53 @@ async function main() {
 
   console.log('  ✔ API configurations created');
 
-  // Test subscriber for AI smart notifications testing
-  console.log('\n🧪 Creating test subscriber for AI testing...');
-  const catalogRows = await prisma.softwareCatalog.findMany({
-    select: { vendor: true, product: true, versions: true },
-  });
+  const seedTestSubscriber = process.env.SEED_TEST_SUBSCRIBER === 'true';
+  if (seedTestSubscriber) {
+    console.log('\n🧪 Creating test subscriber for AI testing...');
+    const testSubscriberEmail = (process.env.SEED_TEST_SUBSCRIBER_EMAIL || '').trim().toLowerCase();
+    if (!testSubscriberEmail) throw new Error('Missing SEED_TEST_SUBSCRIBER_EMAIL');
 
-  if (catalogRows.length > 0) {
-    const testSubscriber = await prisma.user.upsert({
-      where: { email: 'test-subscriber@servicios-occ.local' },
-      update: {
-        name: 'Test Subscriber (ALL Products)',
-        isSubscriber: true,
-        isActive: true,
-        notificationEmail: 'test-subscriber@servicios-occ.local',
-      },
-      create: {
-        email: 'test-subscriber@servicios-occ.local',
-        name: 'Test Subscriber (ALL Products)',
-        role: 'SUBSCRIBER',
-        canLogin: false,
-        isSubscriber: true,
-        isActive: true,
-        notificationEmail: 'test-subscriber@servicios-occ.local',
-        notes: 'Test subscriber auto-generated. Subscribed to ALL products in the catalog for AI smart notification testing.',
-      },
+    const catalogRows = await prisma.softwareCatalog.findMany({
+      select: { vendor: true, product: true, versions: true },
     });
 
-    // Delete existing subscriptions and create new ones for all products
-    await prisma.userSubscription.deleteMany({ where: { userId: testSubscriber.id } });
-    await prisma.userSubscription.createMany({
-      data: catalogRows.map((row) => ({
-        userId: testSubscriber.id,
-        vendor: row.vendor,
-        product: row.product,
-        versions: row.versions,
-        isActive: true,
-      })),
-      skipDuplicates: true,
-    });
+    if (catalogRows.length > 0) {
+      const testSubscriber = await prisma.user.upsert({
+        where: { email: testSubscriberEmail },
+        update: {
+          name: 'Test Subscriber (ALL Products)',
+          isSubscriber: true,
+          isActive: true,
+          notificationEmail: testSubscriberEmail,
+          role: 'SUBSCRIBER',
+          canLogin: false,
+        },
+        create: {
+          email: testSubscriberEmail,
+          name: 'Test Subscriber (ALL Products)',
+          role: 'SUBSCRIBER',
+          canLogin: false,
+          isSubscriber: true,
+          isActive: true,
+          notificationEmail: testSubscriberEmail,
+          notes: 'Test subscriber auto-generated. Subscribed to ALL products in the catalog for AI smart notification testing.',
+        },
+      });
 
-    console.log(`  ✔ Test subscriber: ${testSubscriber.name} (${catalogRows.length} subscriptions)`);
+      await prisma.userSubscription.deleteMany({ where: { userId: testSubscriber.id } });
+      await prisma.userSubscription.createMany({
+        data: catalogRows.map((row) => ({
+          userId: testSubscriber.id,
+          vendor: row.vendor,
+          product: row.product,
+          versions: row.versions,
+          isActive: true,
+        })),
+        skipDuplicates: true,
+      });
+
+      console.log(`  ✔ Test subscriber: ${testSubscriber.name} (${catalogRows.length} subscriptions)`);
+    }
   }
 
   console.log('🌱 Seed completed!');

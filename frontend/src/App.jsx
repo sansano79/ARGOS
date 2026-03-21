@@ -712,6 +712,11 @@ export default function VulnDashboard() {
   const [loginErr, setLoginErr] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [authMode, setAuthMode] = useState(initialResetToken ? "reset" : "login");
+  const [mfaToken, setMfaToken] = useState("");
+  const [mfaQr, setMfaQr] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaErr, setMfaErr] = useState("");
+  const [mfaLoading, setMfaLoading] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotErr, setForgotErr] = useState("");
   const [forgotMsg, setForgotMsg] = useState("");
@@ -744,6 +749,13 @@ export default function VulnDashboard() {
   const [subscriptionCatalog, setSubscriptionCatalog] = useState([]);
   const [subscriberVendors, setSubscriberVendors] = useState([]);
   const [activeVendor, setActiveVendor] = useState("");
+  const [portalProfile, setPortalProfile] = useState(null);
+  const [portalSubscriptions, setPortalSubscriptions] = useState([]);
+  const [portalVendors, setPortalVendors] = useState([]);
+  const [portalActiveVendor, setPortalActiveVendor] = useState("");
+  const [portalLoading, setPortalLoading] = useState(false);
+  const [portalSaving, setPortalSaving] = useState(false);
+  const [portalMsg, setPortalMsg] = useState(null);
   const [tags, setTags] = useState([]);
   const [notifHistory, setNotifHistory] = useState([]);
   const [notifDetail, setNotifDetail] = useState(null);
@@ -883,40 +895,24 @@ export default function VulnDashboard() {
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
   useEffect(() => { aiEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [aiMessages]);
-  useEffect(() => {
-    const checkBypass = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/health`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.bypassAuth && !getToken()) {
-          setUser({ id: 1, email: "admin@servicios-occ.local", role: "ADMIN", name: "Modo Desarrollo" });
-          setIsLoggedIn(true);
-        }
-      } catch (e) {
-        console.error("Health check error:", e);
-      }
-    };
-    if (!isLoggedIn) checkBypass();
-  }, [isLoggedIn]);
 
-  // Auto-login if bypass is active in backend
   useEffect(() => {
-    const checkBypass = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/health`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.bypassAuth && !getToken()) {
-          setUser({ id: 1, email: "admin@servicios-occ.local", role: "ADMIN", name: "Modo Desarrollo" });
+    const hash = String(window.location.hash || "");
+    const m = hash.match(/(?:^#|[&#])token=([^&]+)/);
+    if (!m?.[1]) return;
+    const token = decodeURIComponent(m[1]);
+    if (token) {
+      setToken(token);
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+      apiFetch("/auth/profile")
+        .then((r) => r.json())
+        .then((u) => {
+          if (u) setUser(u);
           setIsLoggedIn(true);
-        }
-      } catch (e) {
-        console.error("Health check error:", e);
-      }
-    };
-    if (!isLoggedIn) checkBypass();
-  }, [isLoggedIn]);
+        })
+        .catch(() => { clearToken(); });
+    }
+  }, []);
 
   useEffect(() => {
     if (view !== "collector") return undefined;
@@ -945,6 +941,34 @@ export default function VulnDashboard() {
         throw new Error(d.message || "Login failed");
       }
       const data = await res.json();
+      if (data?.mfaEnrollRequired) {
+        setMfaErr("");
+        setMfaCode("");
+        setMfaQr("");
+        setMfaToken(String(data.mfaToken || ""));
+        setAuthMode("mfa-enroll");
+        setMfaLoading(true);
+        try {
+          const setupRes = await fetch(`${API_BASE}/auth/mfa/setup`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mfaToken: String(data.mfaToken || "") }),
+          });
+          const setupData = await setupRes.json().catch(() => ({}));
+          if (!setupRes.ok) throw new Error(setupData?.message || "No se pudo iniciar MFA");
+          setMfaQr(String(setupData.qrDataUrl || ""));
+        } finally {
+          setMfaLoading(false);
+        }
+        return;
+      }
+      if (data?.mfaRequired) {
+        setMfaErr("");
+        setMfaCode("");
+        setMfaToken(String(data.mfaToken || ""));
+        setAuthMode("mfa");
+        return;
+      }
       setToken(data.access_token); setUser(data.user); setIsLoggedIn(true);
     } catch (e) {
       const msg = String(e?.message || "");
@@ -955,6 +979,52 @@ export default function VulnDashboard() {
       }
     }
     setLoginLoading(false);
+  };
+
+  const handleMfaEnroll = async (e) => {
+    e.preventDefault();
+    setMfaErr("");
+    setMfaLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/mfa/enroll`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mfaToken, code: mfaCode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "No se pudo activar MFA");
+      setToken(data.access_token); setUser(data.user); setIsLoggedIn(true);
+      setAuthMode("login");
+      setMfaToken("");
+      setMfaCode("");
+    } catch (e) {
+      setMfaErr(String(e?.message || "Código inválido"));
+    } finally {
+      setMfaLoading(false);
+    }
+  };
+
+  const handleMfaVerify = async (e) => {
+    e.preventDefault();
+    setMfaErr("");
+    setMfaLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/mfa/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mfaToken, code: mfaCode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "No se pudo verificar MFA");
+      setToken(data.access_token); setUser(data.user); setIsLoggedIn(true);
+      setAuthMode("login");
+      setMfaToken("");
+      setMfaCode("");
+    } catch (e) {
+      setMfaErr(String(e?.message || "Código inválido"));
+    } finally {
+      setMfaLoading(false);
+    }
   };
   const handleLogout = () => { clearToken(); setIsLoggedIn(false); };
 
@@ -1054,6 +1124,14 @@ export default function VulnDashboard() {
     }
   }, [view]);
 
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const role = (getUser()?.role || "").toUpperCase();
+    if (role === "SUBSCRIBER" && !["vulns", "exploited", "portal"].includes(view)) {
+      setView("vulns");
+    }
+  }, [isLoggedIn, view]);
+
   // Load data when view changes
   const loadVulnerabilityExplorer = useCallback(async ({ page = 1, append = false } = {}) => {
     const params = new URLSearchParams();
@@ -1092,6 +1170,122 @@ export default function VulnDashboard() {
     }
   }, [VULN_PAGE_LIMIT, sevFilter, riskTierFilter, exploitStatusFilter, vendorFilter, productFilter, changedSinceHoursFilter]);
 
+  const loadSubscriberPortal = useCallback(async () => {
+    setPortalLoading(true);
+    try {
+      const [profileR, catalogR] = await Promise.all([
+        apiFetch("/subscriber-portal/profile"),
+        apiFetch("/subscriber-portal/subscription-catalog"),
+      ]);
+      const profile = await profileR.json();
+      const catalog = await catalogR.json();
+      const subs = Array.isArray(profile?.subscriptions)
+        ? profile.subscriptions.map((s) => ({
+          vendor: String(s.vendor || "").toLowerCase(),
+          product: String(s.product || "").toLowerCase(),
+          versions: Array.isArray(s.versions) ? s.versions : [],
+        }))
+        : [];
+      setPortalProfile(profile || null);
+      setPortalSubscriptions(subs);
+      const vendors = [...new Set(subs.map((s) => s.vendor))];
+      setPortalVendors(vendors);
+      setPortalActiveVendor(vendors[0] || (Array.isArray(catalog) ? String(catalog[0]?.vendor || "").toLowerCase() : ""));
+      setSubscriptionCatalog(Array.isArray(catalog) ? catalog.map((v) => ({
+        vendor: String(v.vendor || "").toLowerCase(),
+        products: Array.isArray(v.products) ? v.products.map((p) => ({
+          product: String(p.product || "").toLowerCase(),
+          versions: Array.isArray(p.versions) ? p.versions : [],
+        })) : [],
+      })) : []);
+    } finally {
+      setPortalLoading(false);
+    }
+  }, []);
+
+  const togglePortalVendorSelection = (vendor, checked) => {
+    const normalizedVendor = String(vendor || "").toLowerCase();
+    if (checked) {
+      setPortalVendors((prev) => prev.includes(normalizedVendor) ? prev : [...prev, normalizedVendor]);
+      setPortalActiveVendor(normalizedVendor);
+      return;
+    }
+    setPortalVendors((prev) => {
+      const next = prev.filter((v) => v !== normalizedVendor);
+      setPortalActiveVendor((active) => active === normalizedVendor ? (next[0] || "") : active);
+      return next;
+    });
+    setPortalSubscriptions((prev) => (prev || []).filter((s) => s.vendor !== normalizedVendor));
+  };
+
+  const togglePortalProductSubscription = (vendor, product, checked) => {
+    const normalizedVendor = String(vendor || "").toLowerCase();
+    const normalizedProduct = String(product || "").toLowerCase();
+    setPortalSubscriptions((prev) => {
+      const current = Array.isArray(prev) ? prev : [];
+      const exists = current.find((s) => s.vendor === normalizedVendor && s.product === normalizedProduct);
+      if (checked && !exists) return [...current, { vendor: normalizedVendor, product: normalizedProduct, versions: [] }];
+      if (!checked && exists) return current.filter((s) => !(s.vendor === normalizedVendor && s.product === normalizedProduct));
+      return current;
+    });
+    if (checked) {
+      setPortalVendors((prev) => prev.includes(normalizedVendor) ? prev : [...prev, normalizedVendor]);
+      setPortalActiveVendor(normalizedVendor);
+    }
+  };
+
+  const togglePortalSubscriptionVersion = (vendor, product, version, checked) => {
+    const normalizedVendor = String(vendor || "").toLowerCase();
+    const normalizedProduct = String(product || "").toLowerCase();
+    const ver = String(version || "").trim();
+    if (!ver) return;
+    setPortalSubscriptions((prev) => (prev || []).map((s) => {
+      if (s.vendor !== normalizedVendor || s.product !== normalizedProduct) return s;
+      const currentVersions = Array.isArray(s.versions) ? s.versions : [];
+      const nextVersions = checked
+        ? [...new Set([...currentVersions, ver])]
+        : currentVersions.filter((v) => v !== ver);
+      return { ...s, versions: nextVersions };
+    }));
+  };
+
+  const savePortalSubscriptions = async () => {
+    setPortalSaving(true);
+    setPortalMsg(null);
+    try {
+      const payload = {
+        subscriptions: (portalSubscriptions || []).map((s) => ({
+          vendor: s.vendor,
+          product: s.product,
+          versions: Array.isArray(s.versions) ? s.versions : [],
+        })),
+      };
+      const res = await apiFetch("/subscriber-portal/subscriptions", {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("No se pudo guardar la suscripción");
+      const updated = await res.json();
+      setPortalProfile(updated || null);
+      const subs = Array.isArray(updated?.subscriptions)
+        ? updated.subscriptions.map((s) => ({
+          vendor: String(s.vendor || "").toLowerCase(),
+          product: String(s.product || "").toLowerCase(),
+          versions: Array.isArray(s.versions) ? s.versions : [],
+        }))
+        : [];
+      setPortalSubscriptions(subs);
+      setPortalVendors([...new Set(subs.map((s) => s.vendor))]);
+      setPortalMsg({ type: "success", text: "Suscripción guardada correctamente" });
+      setTimeout(() => setPortalMsg(null), 3000);
+    } catch (e) {
+      setPortalMsg({ type: "error", text: e.message || "Error guardando la suscripción" });
+      setTimeout(() => setPortalMsg(null), 3500);
+    } finally {
+      setPortalSaving(false);
+    }
+  };
+
   const loadData = useCallback(async (v) => {
     try {
       if (v === "overview") {
@@ -1111,6 +1305,8 @@ export default function VulnDashboard() {
         setContacts((Array.isArray(allUsers) ? allUsers : []).filter(u => u.isSubscriber));
       } else if (v === "reports") {
         const r = await apiFetch("/vulnerabilities/reports"); const d = await r.json(); setReports(d.data || []);
+      } else if (v === "portal") {
+        await loadSubscriberPortal();
       } else if (v === "collector") {
         const [runsR, dashR] = await Promise.all([
           apiFetch("/vulnerabilities/runs?limit=30"),
@@ -1229,7 +1425,7 @@ export default function VulnDashboard() {
       setManufacturersLoading(false);
       console.error("Load error:", e.message);
     }
-  }, [loadVulnerabilityExplorer, backfillJobId]);
+  }, [loadVulnerabilityExplorer, loadSubscriberPortal, backfillJobId]);
 
   useEffect(() => { if (isLoggedIn) loadData(view); }, [view, isLoggedIn, loadData]);
 
@@ -1652,9 +1848,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
       setActiveVendor("");
     } else {
       next.notificationEmail = next.notificationEmail || next.email || "";
-      if (next.canLogin && !["ADMIN", "VIEWER"].includes((next.role || "").toUpperCase())) {
-        next.role = "";
-      }
+      next.role = "SUBSCRIBER";
     }
     setEditUser(next);
   };
@@ -1720,18 +1914,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
   };
 
   const saveUser = async (u) => {
-    const subscriberWithLogin = !!u.isSubscriber && !!u.canLogin;
-    if (subscriberWithLogin && !["ADMIN", "VIEWER"].includes((u.role || "").toUpperCase())) {
-      alert('Para suscriptores con inicio de sesión, debes seleccionar rol "Administrador" o "Viewer".');
-      return;
-    }
-
     try {
       const payload = {
         id: u.id,
         name: u.name,
         email: u.email,
-        role: u.canLogin ? (u.role || "USER") : "SUBSCRIBER",
+        role: u.isSubscriber ? "SUBSCRIBER" : (u.canLogin ? (u.role || "USER") : "USER"),
         canLogin: !!u.canLogin,
         isSubscriber: !!u.isSubscriber,
         notificationEmail: u.isSubscriber ? (u.notificationEmail || u.email) : null,
@@ -2014,6 +2202,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     { id: "overview", label: "Visión General", icon: "shield" },
     { id: "vulns", label: "Catálogo de vulnerabilidades", icon: "bug" },
     { id: "exploited", label: "Explotación CVE", icon: "zap" },
+    { id: "portal", label: "Mis Suscripciones", icon: "mail" },
     { id: "manufacturers", label: "Fabricantes", icon: "server" },
     { id: "notifications", label: "Comunicaciones", icon: "mail" },
     { id: "smart-notif", label: "Notif. Inteligentes", icon: "brain" },
@@ -2032,11 +2221,14 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     const exploitedItem = allNav.find((n) => n.id === "exploited");
     if (exploitedItem?.parent) throw new Error("Invalid navigation: exploited must be top-level");
   }
-  const isViewer = (currentUser?.role || "").toUpperCase() === "VIEWER";
-  const viewerAllowedViews = ["overview", "vulns", "exploited", "ai"];
-  const nav = isViewer
-    ? allNav.filter((n) => viewerAllowedViews.includes(n.id))
-    : allNav;
+  const role = (currentUser?.role || "").toUpperCase();
+  const isSubscriber = role === "SUBSCRIBER";
+  const isViewer = role === "VIEWER";
+  const subscriberAllowedViews = ["vulns", "exploited", "portal"];
+  const viewerAllowedViews = ["overview", "vulns", "exploited"];
+  const nav = isSubscriber
+    ? allNav.filter((n) => subscriberAllowedViews.includes(n.id))
+    : (isViewer ? allNav.filter((n) => viewerAllowedViews.includes(n.id)) : allNav);
   const currentSection = nav.find((n) => n.id === view)?.label || "Panel";
   const backfillMetrics = parseMaybeJsonObject(backfillStatus?.metrics || backfillStatus?.job?.metrics);
   const backfillCheckpointSummary = parseMaybeJsonObject(backfillStatus?.checkpointSummary);
@@ -2102,6 +2294,58 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
               </div>
               {loginErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{loginErr}</div>}
               <button type="submit" disabled={loginLoading} style={{ width: "100%", padding: "12px", fontSize: 14, fontWeight: 700, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>{loginLoading ? "Accediendo..." : "Iniciar Sesión"}</button>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0" }}>
+                <div style={{ height: 1, background: C.gray200, flex: 1 }} />
+                <div style={{ fontSize: 11, color: C.gray500, fontWeight: 700 }}>o</div>
+                <div style={{ height: 1, background: C.gray200, flex: 1 }} />
+              </div>
+              <a href={`${API_BASE}/auth/saml/login`} style={{ display: "block", textAlign: "center", width: "100%", padding: "11px", fontSize: 13, fontWeight: 800, background: "#fff", color: C.navy, border: `1px solid ${C.gray300}`, borderRadius: 8, textDecoration: "none" }}>
+                Entrar con Azure (SAML)
+              </a>
+            </form>
+          )}
+
+          {authMode === "mfa-enroll" && (
+            <form onSubmit={handleMfaEnroll}>
+              <div style={{ fontSize: 12, color: C.gray600, marginBottom: 14 }}>
+                Activa MFA para continuar. Escanea el QR con tu autenticador y escribe el código.
+              </div>
+              {mfaQr && (
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+                  <img src={mfaQr} alt="QR MFA" style={{ width: 200, height: 200, borderRadius: 12, border: `1px solid ${C.gray200}` }} />
+                </div>
+              )}
+              {!mfaQr && (
+                <div style={{ background: C.infoBg, color: C.info, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 600 }}>
+                  Generando QR...
+                </div>
+              )}
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Código MFA</label>
+                <input value={mfaCode} onChange={e => setMfaCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
+              </div>
+              {mfaErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 600 }}>{mfaErr}</div>}
+              <button type="submit" disabled={mfaLoading} style={{ width: "100%", padding: "12px", fontSize: 14, fontWeight: 800, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", marginBottom: 10 }}>{mfaLoading ? "Verificando..." : "Activar MFA"}</button>
+              <button type="button" onClick={() => { setAuthMode("login"); setMfaErr(""); setMfaCode(""); setMfaQr(""); setMfaToken(""); }} style={{ width: "100%", padding: "11px", fontSize: 13, fontWeight: 700, background: "#fff", color: C.gray700, border: `1px solid ${C.gray300}`, borderRadius: 8, cursor: "pointer" }}>
+                Volver al login
+              </button>
+            </form>
+          )}
+
+          {authMode === "mfa" && (
+            <form onSubmit={handleMfaVerify}>
+              <div style={{ fontSize: 12, color: C.gray600, marginBottom: 14 }}>
+                Introduce el código de tu autenticador para continuar.
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Código MFA</label>
+                <input value={mfaCode} onChange={e => setMfaCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
+              </div>
+              {mfaErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 600 }}>{mfaErr}</div>}
+              <button type="submit" disabled={mfaLoading} style={{ width: "100%", padding: "12px", fontSize: 14, fontWeight: 800, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", marginBottom: 10 }}>{mfaLoading ? "Verificando..." : "Continuar"}</button>
+              <button type="button" onClick={() => { setAuthMode("login"); setMfaErr(""); setMfaCode(""); setMfaToken(""); }} style={{ width: "100%", padding: "11px", fontSize: 13, fontWeight: 700, background: "#fff", color: C.gray700, border: `1px solid ${C.gray300}`, borderRadius: 8, cursor: "pointer" }}>
+                Volver al login
+              </button>
             </form>
           )}
 
@@ -2843,6 +3087,100 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                   </Card>
                 );
               })}
+            </>}
+
+            {/* ═══ SUBSCRIBER PORTAL ═══ */}
+            {view === "portal" && <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+                <div>
+                  <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Mis Suscripciones</h1>
+                  <p style={{ color: C.gray500, fontSize: 12, margin: 0 }}>Gestiona el software que monitoriza Servicios OCC para tus alertas.</p>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Btn onClick={() => loadData("portal")} disabled={portalLoading || portalSaving}><I name="refresh" size={12} /> Actualizar</Btn>
+                  <Btn primary onClick={savePortalSubscriptions} disabled={portalLoading || portalSaving}>
+                    {portalSaving ? "Guardando..." : "Guardar"}
+                  </Btn>
+                </div>
+              </div>
+
+              {portalMsg && (
+                <div style={{
+                  marginBottom: 12,
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  background: portalMsg.type === "error" ? C.criticalBg : C.lowBg,
+                  color: portalMsg.type === "error" ? C.critical : C.low,
+                  border: `1px solid ${portalMsg.type === "error" ? "#fecaca" : "#bbf7d0"}`,
+                }}>
+                  {portalMsg.text}
+                </div>
+              )}
+
+              <Card>
+                {portalLoading && <div style={{ padding: 10, fontSize: 12, color: C.gray500 }}>Cargando portal...</div>}
+                {!portalLoading && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 14 }}>
+                    <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 8, background: "#fff", maxHeight: 420, overflow: "auto" }}>
+                      <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.gray100}`, fontSize: 11, fontWeight: 800, color: C.gray600 }}>
+                        Fabricantes
+                      </div>
+                      {subscriptionCatalog.length === 0 && <div style={{ padding: 12, fontSize: 11, color: C.gray500 }}>Sin catálogo disponible.</div>}
+                      {subscriptionCatalog.map(item => {
+                        const checked = portalVendors.includes(item.vendor);
+                        return (
+                          <label key={item.vendor} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderBottom: `1px solid ${C.gray100}`, cursor: "pointer", fontSize: 12 }}>
+                            <input type="checkbox" checked={checked} onChange={e => togglePortalVendorSelection(item.vendor, e.target.checked)} />
+                            <span onClick={() => setPortalActiveVendor(item.vendor)} style={{ color: portalActiveVendor === item.vendor ? C.navy : C.text, fontWeight: portalActiveVendor === item.vendor ? 800 : 600 }}>
+                              {item.vendor}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 8, background: "#fff", maxHeight: 420, overflow: "auto" }}>
+                      <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.gray100}`, fontSize: 11, fontWeight: 800, color: C.gray600 }}>
+                        Software {portalActiveVendor ? `de ${portalActiveVendor}` : ""}
+                      </div>
+                      {!portalActiveVendor && <div style={{ padding: 12, fontSize: 11, color: C.gray500 }}>Selecciona un fabricante.</div>}
+                      {portalActiveVendor && ((subscriptionCatalog.find(v => v.vendor === portalActiveVendor)?.products) || []).map(p => {
+                        const sub = (portalSubscriptions || []).find(s => s.vendor === portalActiveVendor && s.product === p.product);
+                        const checked = !!sub;
+                        const selectedVersions = sub?.versions || [];
+                        return (
+                          <div key={`${portalActiveVendor}-${p.product}`} style={{ padding: "10px 12px", borderBottom: `1px solid ${C.gray100}` }}>
+                            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700 }}>
+                              <input type="checkbox" checked={checked} onChange={e => togglePortalProductSubscription(portalActiveVendor, p.product, e.target.checked)} />
+                              {p.product}
+                            </label>
+                            {checked && (
+                              <div style={{ marginTop: 8, marginLeft: 22 }}>
+                                <div style={{ fontSize: 10, color: C.gray500, marginBottom: 6 }}>Versiones (si no marcas ninguna, se notifican todas)</div>
+                                {(!p.versions || p.versions.length === 0) && <div style={{ fontSize: 10, color: C.gray400 }}>No hay versiones catalogadas.</div>}
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                  {(p.versions || []).map(ver => (
+                                    <label key={ver} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, padding: "2px 6px", background: C.gray50, border: `1px solid ${C.gray200}`, borderRadius: 12 }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedVersions.includes(ver)}
+                                        onChange={e => togglePortalSubscriptionVersion(portalActiveVendor, p.product, ver, e.target.checked)}
+                                      />
+                                      <span>{ver}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </Card>
             </>}
 
             {/* ═══ MANUFACTURERS ═══ */}
@@ -3991,10 +4329,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                             ...editUser,
                             canLogin: e.target.checked,
                             role: e.target.checked
-                              ? (editUser.isSubscriber
-                                ? (["ADMIN", "VIEWER"].includes((editUser.role || "").toUpperCase()) ? editUser.role : "")
-                                : (editUser.role === "SUBSCRIBER" ? "USER" : editUser.role || "USER"))
-                              : "SUBSCRIBER",
+                              ? (editUser.isSubscriber ? "SUBSCRIBER" : (editUser.role === "SUBSCRIBER" ? "USER" : editUser.role || "USER"))
+                              : (editUser.isSubscriber ? "SUBSCRIBER" : "USER"),
                           })} />
                           <span style={{ fontSize: 12, color: C.text }}>Permitir inicio de sesión</span>
                         </div>
@@ -4008,12 +4344,11 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         <>
                           <div style={{ marginBottom: 12 }}>
                             <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Rol de acceso</label>
-                            <select value={editUser.role || ""} onChange={e => setEditUser({ ...editUser, role: e.target.value })} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
+                            <select value={editUser.role || ""} onChange={e => setEditUser({ ...editUser, role: e.target.value })} disabled={!!editUser.isSubscriber} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
                               <option value="" disabled>Seleccionar rol...</option>
                               {editUser.isSubscriber ? (
                                 <>
-                                  <option value="VIEWER">Viewer</option>
-                                  <option value="ADMIN">Administrador</option>
+                                  <option value="SUBSCRIBER">Suscriptor</option>
                                 </>
                               ) : (
                                 <>
