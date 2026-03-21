@@ -36,17 +36,26 @@ const pickFromClaims = (profile: any, keys: string[]) => {
   return undefined;
 };
 
+const normalizePem = (v: string | undefined) => (v ? String(v).replace(/\\n/g, '\n').trim() : '');
+
 @Injectable()
 export class SamlStrategy extends PassportStrategy(Strategy, 'saml') {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
   ) {
-    const cert = config.get<string>('AZURE_SAML_CERT') || '';
+    const enabled = config.get<string>('AZURE_SAML_ENABLED') === 'true';
+    const entryPoint = config.get<string>('AZURE_SAML_ENTRY_POINT') || '';
+    const issuer = config.get<string>('AZURE_SAML_ISSUER') || '';
+    const callbackUrl = config.get<string>('AZURE_SAML_CALLBACK_URL') || '';
+    const cert = normalizePem(config.get<string>('AZURE_SAML_CERT'));
+    if (enabled && (!entryPoint || !issuer || !callbackUrl || !cert)) {
+      throw new Error('Azure SAML enabled but config is incomplete');
+    }
     super({
-      entryPoint: config.get<string>('AZURE_SAML_ENTRY_POINT'),
-      issuer: config.get<string>('AZURE_SAML_ISSUER'),
-      callbackUrl: config.get<string>('AZURE_SAML_CALLBACK_URL'),
+      entryPoint: entryPoint || 'https://invalid.local/saml',
+      issuer: issuer || 'invalid-issuer',
+      callbackUrl: callbackUrl || 'https://invalid.local/api/auth/saml/acs',
       cert,
       wantAuthnResponseSigned: true,
       wantAssertionsSigned: true,
@@ -142,4 +151,3 @@ export class SamlStrategy extends PassportStrategy(Strategy, 'saml') {
     return user;
   }
 }
-

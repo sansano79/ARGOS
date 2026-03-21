@@ -10,6 +10,7 @@ import { SamlStrategy } from './strategies/saml.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { SamlAuthGuard } from './guards/saml-auth.guard';
+import { AzureOidcService } from './azure-oidc.service';
 
 @Module({
   imports: [
@@ -24,7 +25,7 @@ import { SamlAuthGuard } from './guards/saml-auth.guard';
       }),
     }),
   ],
-  providers: [AuthService, JwtStrategy, LocalStrategy, SamlStrategy, JwtAuthGuard, RolesGuard, SamlAuthGuard],
+  providers: [AuthService, JwtStrategy, LocalStrategy, SamlStrategy, JwtAuthGuard, RolesGuard, SamlAuthGuard, AzureOidcService],
   controllers: [AuthController],
   exports: [AuthService, JwtAuthGuard, RolesGuard],
 })

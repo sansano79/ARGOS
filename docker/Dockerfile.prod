@@ -15,7 +15,7 @@ COPY . .
 RUN npm run build
 
 # Compile seed.ts to seed.js for database seeding
-RUN npx tsc prisma/seed.ts --target ES2020 --module commonjs --lib es2020 --skipLibCheck --esModuleInterop --resolveJsonModule --outDir prisma --declaration false 2>&1 || true
+RUN npx tsc prisma/seed.ts --target ES2020 --module commonjs --lib es2020 --skipLibCheck --esModuleInterop --resolveJsonModule --outDir prisma --declaration false
 
 # NestJS with rootDir includes compiles to dist/src/
 # Verify it exists
@@ -47,7 +47,6 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./
-COPY prisma/seed.js ./prisma/seed.js
 
 # Copy HBS templates for PDF reports (runtime reference uses __dirname)
 COPY --from=builder /app/src/modules/vulnerability-collector/report/templates ./dist/src/modules/vulnerability-collector/report/templates

@@ -2299,8 +2299,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 <div style={{ fontSize: 11, color: C.gray500, fontWeight: 700 }}>o</div>
                 <div style={{ height: 1, background: C.gray200, flex: 1 }} />
               </div>
-              <a href={`${API_BASE}/auth/saml/login`} style={{ display: "block", textAlign: "center", width: "100%", padding: "11px", fontSize: 13, fontWeight: 800, background: "#fff", color: C.navy, border: `1px solid ${C.gray300}`, borderRadius: 8, textDecoration: "none" }}>
-                Entrar con Azure (SAML)
+              <a href={`${API_BASE}/auth/azure/login`} style={{ display: "block", textAlign: "center", width: "100%", padding: "11px", fontSize: 13, fontWeight: 800, background: "#fff", color: C.navy, border: `1px solid ${C.gray300}`, borderRadius: 8, textDecoration: "none" }}>
+                Entrar con Azure
               </a>
             </form>
           )}

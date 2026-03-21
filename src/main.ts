@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import * as helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 
@@ -43,6 +44,8 @@ async function bootstrap() {
     origin: corsOrigin === '*' ? true : allowedOrigins,
     credentials: true,
   });
+
+  app.use(cookieParser());
 
   // Allow larger JSON payloads (template header image can be base64 data URL)
   const bodyLimit = process.env.BODY_LIMIT || '10mb';
