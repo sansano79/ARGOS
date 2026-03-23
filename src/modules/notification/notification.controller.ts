@@ -107,10 +107,17 @@ export class NotificationController {
         @Body() body: {
             immediateForCritical?: boolean;
             immediateForExploitable?: boolean;
+            minCvssForImmediate?: number;
+            periodicEnabled?: boolean;
+            periodicThresholdCvss?: number;
+            periodicIntervalHours?: number;
+            smartEnabled?: boolean;
+            smartFrequency?: string;
+            smartDayOfWeek?: number;
+            smartHour?: number;
             digestFrequency?: string;
             digestHour?: number;
             digestDayOfWeek?: number;
-            minCvssForImmediate?: number;
             isActive?: boolean;
         },
     ) {
@@ -121,5 +128,25 @@ export class NotificationController {
     @Roles('ADMIN')
     async getAllNotificationPolicies() {
         return await this.notificationService.getAllNotificationPolicies();
+    }
+
+    // ── Test endpoints for each notification level ─────────────────
+
+    @Post('test-instant')
+    @Roles('ADMIN')
+    async testInstantNotification(@Body() body: { email: string; userId?: number }) {
+        return await this.notificationService.testInstantNotification(body.email, body.userId);
+    }
+
+    @Post('test-periodic')
+    @Roles('ADMIN')
+    async testPeriodicNotification(@Body() body: { email: string; userId?: number }) {
+        return await this.notificationService.testPeriodicNotification(body.email, body.userId);
+    }
+
+    @Post('test-smart')
+    @Roles('ADMIN')
+    async testSmartNotification(@Body() body: { email: string; userId?: number }) {
+        return await this.notificationService.testSmartNotification(body.email, body.userId);
     }
 }

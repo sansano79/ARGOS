@@ -1221,6 +1221,18 @@ export default function VulnDashboard() {
     if (checked) {
       setPortalVendors((prev) => prev.includes(normalizedVendor) ? prev : [...prev, normalizedVendor]);
       setPortalActiveVendor(normalizedVendor);
+      // Auto-select all products from this vendor
+      const catalogEntry = subscriptionCatalog.find(v => v.vendor === normalizedVendor);
+      if (catalogEntry?.products?.length) {
+        setPortalSubscriptions((prev) => {
+          const current = Array.isArray(prev) ? prev : [];
+          const existing = new Set(current.filter(s => s.vendor === normalizedVendor).map(s => s.product));
+          const newSubs = catalogEntry.products
+            .filter(p => !existing.has(String(p.product || "").toLowerCase()))
+            .map(p => ({ vendor: normalizedVendor, product: String(p.product || "").toLowerCase(), versions: [] }));
+          return [...current, ...newSubs];
+        });
+      }
       return;
     }
     setPortalVendors((prev) => {

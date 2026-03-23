@@ -703,12 +703,24 @@ model SubscriberPatchedCve {
 model NotificationPolicy {
   id                      Int      @id @default(autoincrement())
   userId                  Int      @unique @map("user_id")
+  // Level 1: Instant — critical / exploitable
   immediateForCritical    Boolean  @default(true) @map("immediate_for_critical")
   immediateForExploitable Boolean  @default(true) @map("immediate_for_exploitable")
+  minCvssForImmediate     Float    @default(9.0) @map("min_cvss_for_immediate")
+  // Level 2: Periodic — grouped by vendor/product
+  periodicEnabled         Boolean  @default(true) @map("periodic_enabled")
+  periodicThresholdCvss   Float    @default(7.0) @map("periodic_threshold_cvss")
+  periodicIntervalHours   Int      @default(12) @map("periodic_interval_hours")
+  periodicLastSentAt      DateTime? @map("periodic_last_sent_at")
+  // Level 3: Smart — AI weekly reports
+  smartEnabled            Boolean  @default(true) @map("smart_enabled")
+  smartFrequency          String   @default("weekly") @map("smart_frequency")
+  smartDayOfWeek          Int      @default(1) @map("smart_day_of_week")
+  smartHour               Int      @default(8) @map("smart_hour")
+  // Legacy (kept for backward compat)
   digestFrequency         String   @default("daily") @map("digest_frequency")
   digestHour              Int      @default(8) @map("digest_hour")
   digestDayOfWeek         Int?     @map("digest_day_of_week")
-  minCvssForImmediate     Float    @default(9.0) @map("min_cvss_for_immediate")
   isActive                Boolean  @default(true) @map("is_active")
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")

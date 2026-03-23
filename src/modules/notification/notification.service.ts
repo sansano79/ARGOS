@@ -938,25 +938,33 @@ export class NotificationService {
     async upsertNotificationPolicy(userId: number, data: {
         immediateForCritical?: boolean;
         immediateForExploitable?: boolean;
+        minCvssForImmediate?: number;
+        periodicEnabled?: boolean;
+        periodicThresholdCvss?: number;
+        periodicIntervalHours?: number;
+        smartEnabled?: boolean;
+        smartFrequency?: string;
+        smartDayOfWeek?: number;
+        smartHour?: number;
         digestFrequency?: string;
         digestHour?: number;
         digestDayOfWeek?: number;
-        minCvssForImmediate?: number;
         isActive?: boolean;
     }) {
         // Validate user exists and is subscriber
         const user = await this.prisma.user.findUnique({ where: { id: userId } });
         if (!user) throw new NotFoundException(`User with id ${userId} not found`);
 
-        const updateData = {
-            ...(data.immediateForCritical !== undefined && { immediateForCritical: data.immediateForCritical }),
-            ...(data.immediateForExploitable !== undefined && { immediateForExploitable: data.immediateForExploitable }),
-            ...(data.digestFrequency !== undefined && { digestFrequency: data.digestFrequency }),
-            ...(data.digestHour !== undefined && { digestHour: data.digestHour }),
-            ...(data.digestDayOfWeek !== undefined && { digestDayOfWeek: data.digestDayOfWeek }),
-            ...(data.minCvssForImmediate !== undefined && { minCvssForImmediate: data.minCvssForImmediate }),
-            ...(data.isActive !== undefined && { isActive: data.isActive }),
-        };
+        const updateData: any = {};
+        const fields = [
+            'immediateForCritical', 'immediateForExploitable', 'minCvssForImmediate',
+            'periodicEnabled', 'periodicThresholdCvss', 'periodicIntervalHours',
+            'smartEnabled', 'smartFrequency', 'smartDayOfWeek', 'smartHour',
+            'digestFrequency', 'digestHour', 'digestDayOfWeek', 'isActive',
+        ];
+        for (const f of fields) {
+            if (data[f] !== undefined) updateData[f] = data[f];
+        }
 
         const policy = await this.prisma.notificationPolicy.upsert({
             where: { userId },
@@ -964,10 +972,17 @@ export class NotificationService {
                 userId,
                 immediateForCritical: data.immediateForCritical ?? true,
                 immediateForExploitable: data.immediateForExploitable ?? true,
+                minCvssForImmediate: data.minCvssForImmediate ?? 9.0,
+                periodicEnabled: data.periodicEnabled ?? true,
+                periodicThresholdCvss: data.periodicThresholdCvss ?? 7.0,
+                periodicIntervalHours: data.periodicIntervalHours ?? 12,
+                smartEnabled: data.smartEnabled ?? true,
+                smartFrequency: data.smartFrequency ?? 'weekly',
+                smartDayOfWeek: data.smartDayOfWeek ?? 1,
+                smartHour: data.smartHour ?? 8,
                 digestFrequency: data.digestFrequency ?? 'daily',
                 digestHour: data.digestHour ?? 8,
                 digestDayOfWeek: data.digestDayOfWeek ?? null,
-                minCvssForImmediate: data.minCvssForImmediate ?? 9.0,
                 isActive: data.isActive ?? true,
             },
             update: updateData,
@@ -1228,5 +1243,181 @@ export class NotificationService {
             seen.add(r.url);
             return true;
         });
+    }
+
+    // ── Test methods for each notification level ──────────────────────
+
+    /**
+     * Level 1 test: Sends an instant notification with a recent CRITICAL/exploitable CVE.
+     */
+    async testInstantNotification(to: string, userId?: number) {
+        if (!this.transporter) {
+            await this.loadConfig();
+            if (!this.transporter) throw new NotFoundException('SMTP not configured');
+        }
+
+        // Find a real critical CVE to use as sample
+        const sample = await this.prisma.vulnerability.findFirst({
+            where: {
+                OR: [
+                    { cvssV31Severity: 'CRITICAL' },
+                    { isKnownExploited: true },
+                ],
+            },
+            orderBy: { publishedAt: 'desc' },
+        });
+
+        if (!sample) throw new NotFoundException('No critical CVE found for test');
+
+        const cfg = await this.getTemplateConfig();
+        const html = await this.renderConfiguredCveTemplate(sample, cfg);
+
+        const subject = `[TEST] Alerta Instantanea: ${sample.cveId} — ${sample.cvssV31Severity || 'CRITICAL'}`;
+        const info = await this.transporter.sendMail({
+            from: this.smtpConfig?.from || 'noreply@occ.local',
+            to,
+            subject,
+            html,
+        });
+
+        await this.logNotification(to, 'Test Instant', subject, html, [sample.cveId]);
+        return { success: true, messageId: info.messageId, cveId: sample.cveId, level: 'instant' };
+    }
+
+    /**
+     * Level 2 test: Sends a periodic grouped notification with recent CVEs above threshold.
+     */
+    async testPeriodicNotification(to: string, userId?: number) {
+        if (!this.transporter) {
+            await this.loadConfig();
+            if (!this.transporter) throw new NotFoundException('SMTP not configured');
+        }
+
+        const policy = userId
+            ? await this.prisma.notificationPolicy.findUnique({ where: { userId } })
+            : null;
+        const threshold = policy?.periodicThresholdCvss ?? 7.0;
+
+        // Get recent CVEs above threshold, grouped by vendor
+        const samples = await this.prisma.vulnerability.findMany({
+            where: {
+                cvssV31Score: { gte: threshold },
+                publishedAt: { gte: new Date(Date.now() - 7 * 86400000) },
+            },
+            orderBy: { cvssV31Score: 'desc' },
+            take: 10,
+        });
+
+        if (samples.length === 0) throw new NotFoundException(`No CVEs with CVSS >= ${threshold} found in last 7 days`);
+
+        // Group by vendor
+        const byVendor: Record<string, any[]> = {};
+        for (const v of samples) {
+            const vendor = v.primaryVendor || 'Unknown';
+            if (!byVendor[vendor]) byVendor[vendor] = [];
+            byVendor[vendor].push(v);
+        }
+
+        // Use the first vendor group to send a sample grouped email
+        const [vendor, vulns] = Object.entries(byVendor)[0];
+        const mapped = vulns.map((v) => ({
+            cveId: v.cveId,
+            severity: v.cvssV31Severity || 'MEDIUM',
+            cvssScore: v.cvssV31Score,
+            epssScore: v.epssScore,
+            hasPublicExploit: v.hasPublicExploit || false,
+            description: v.description || '',
+            affectedProducts: this.parseJsonField(v.affectedProducts),
+            references: this.parseJsonField(v.references),
+            remediationInfo: this.parseJsonField(v.remediationInfo),
+            publishedAt: v.publishedAt,
+        }));
+
+        await this.sendGroupedCveEmail(to, 'Test User', vendor, mapped);
+        return {
+            success: true,
+            level: 'periodic',
+            vendor,
+            cveCount: mapped.length,
+            threshold,
+        };
+    }
+
+    /**
+     * Level 3 test: Sends a smart/AI notification wrapped with ordinary branding.
+     */
+    async testSmartNotification(to: string, userId?: number) {
+        if (!this.transporter) {
+            await this.loadConfig();
+            if (!this.transporter) throw new NotFoundException('SMTP not configured');
+        }
+
+        // Build a sample smart notification HTML
+        const cfg = await this.getTemplateConfig();
+        const headerSrc = cfg.headerImageUrl
+            ? (cfg.headerImageUrl.startsWith('data:image/') ? 'cid:occ-header-banner' : this.escapeHtml(cfg.headerImageUrl))
+            : '';
+
+        const smartBody = `
+            <div style="padding:16px 24px;">
+                <h2 style="color:#1B2A4A;font-size:18px;margin:0 0 12px;">Informe Inteligente Semanal (TEST)</h2>
+                <p style="color:#4A5568;font-size:14px;line-height:1.6;">
+                    Este es un email de prueba del nivel 3 — Notificaciones Inteligentes.
+                    En produccion, este contenido sera generado por IA con analisis de correlacion,
+                    cadenas de explotacion y recomendaciones priorizadas.
+                </p>
+                <div style="background:#EFF6FF;border-left:4px solid #3B82F6;padding:12px 16px;border-radius:4px;margin:16px 0;">
+                    <strong style="color:#1E40AF;">Resumen ejecutivo</strong>
+                    <p style="color:#4A5568;font-size:13px;margin:6px 0 0;">
+                        Se han detectado vulnerabilidades con potencial de encadenamiento
+                        en los productos suscritos. Se recomienda priorizar la mitigacion
+                        segun el plan detallado en el informe completo.
+                    </p>
+                </div>
+                <div style="background:#FEF3C7;border-left:4px solid #D97706;padding:12px 16px;border-radius:4px;margin:16px 0;">
+                    <strong style="color:#92400E;">Top 3 Riesgos</strong>
+                    <ol style="color:#4A5568;font-size:13px;margin:8px 0 0;padding-left:20px;">
+                        <li>Cadena de explotacion RCE + escalada de privilegios en software critico</li>
+                        <li>Vulnerabilidad activamente explotada sin parche disponible</li>
+                        <li>Multiples CVEs en el mismo componente con exploit publico</li>
+                    </ol>
+                </div>
+            </div>`;
+
+        const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#F3F4F6;font-family:Arial,sans-serif;color:#111827;">
+  <div style="max-width:920px;margin:0 auto;padding:16px;">
+    <div style="background:#fff;border:1px solid #D1D5DB;">
+      ${headerSrc ? `<img src="${headerSrc}" alt="Cabecera" style="width:100%;display:block;" />` : ''}
+      ${smartBody}
+    </div>
+    <p style="color:#9CA3AF;font-size:11px;text-align:center;margin:16px 0 0;">
+      Este mensaje ha sido generado automaticamente por el sistema de Gestion de Vulnerabilidades OCC.<br>
+      No respondas a este correo.
+    </p>
+  </div>
+</body>
+</html>`;
+
+        const attachments = await this.getInlineTemplateAttachments('cve-alert');
+        const subject = '[TEST] Informe Inteligente Semanal — Servicios OCC';
+        const info = await this.transporter.sendMail({
+            from: this.smtpConfig?.from || 'noreply@occ.local',
+            to,
+            subject,
+            html,
+            attachments,
+        });
+
+        await this.logNotification(to, 'Test Smart', subject, html);
+        return { success: true, messageId: info.messageId, level: 'smart' };
+    }
+
+    private parseJsonField(value: any): any {
+        if (!value) return [];
+        if (typeof value === 'object') return value;
+        try { return JSON.parse(value); } catch { return []; }
     }
 }
