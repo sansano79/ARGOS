@@ -1289,7 +1289,11 @@ export default function VulnDashboard() {
         method: "PUT",
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error("No se pudo guardar la suscripción");
+      if (!res.ok) {
+        const data = await readResponsePayload(res);
+        const msg = data?.json?.message || data?.json?.error || data?.raw || "No se pudo guardar la suscripción";
+        throw new Error(msg);
+      }
       const updated = await res.json();
       setPortalProfile(updated || null);
       const subs = Array.isArray(updated?.subscriptions)

@@ -46,14 +46,38 @@ export class SubscriberPortalService {
         userId: number,
         subscriptions: Array<{ vendor: string; product: string; versions?: string[] }>,
     ) {
-        const user = await this.prisma.user.findUnique({
-            where: { id: userId, isSubscriber: true, isActive: true },
+        const user = await this.prisma.user.findFirst({
+            where: {
+                id: userId,
+                isActive: true,
+                OR: [
+                    { isSubscriber: true },
+                    { role: 'SUBSCRIBER' },
+                ],
+            },
+            select: {
+                id: true,
+                role: true,
+                isSubscriber: true,
+                notificationEmail: true,
+                email: true,
+            },
         });
         if (!user) throw new NotFoundException('Subscriber not found');
 
         const normalized = this.normalizeSubscriptions(subscriptions);
 
         await this.prisma.$transaction(async (tx) => {
+            if (!user.isSubscriber) {
+                await tx.user.update({
+                    where: { id: userId },
+                    data: {
+                        isSubscriber: true,
+                        role: user.role === 'SUBSCRIBER' ? 'SUBSCRIBER' : user.role,
+                        notificationEmail: user.notificationEmail || user.email,
+                    },
+                });
+            }
             await tx.userSubscription.deleteMany({ where: { userId } });
             if (normalized.length > 0) {
                 await tx.userSubscription.createMany({
