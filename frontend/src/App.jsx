@@ -1150,6 +1150,12 @@ export default function VulnDashboard() {
     if (vendorFilter.trim()) params.set("vendor", vendorFilter.trim().toLowerCase());
     if (productFilter.trim()) params.set("product", productFilter.trim().toLowerCase());
     if (changedSinceHoursFilter) params.set("changedSinceHours", changedSinceHoursFilter);
+    // Server-side search filters
+    if (searchQ.trim().length >= 2) params.set("search", searchQ.trim());
+    if (searchTagId) params.set("tag", searchTagId);
+    if (searchMinScore) { const n = parseFloat(searchMinScore); if (!Number.isNaN(n)) params.set("minCvss", String(n)); }
+    if (searchPublishedFrom) params.set("publishedFrom", searchPublishedFrom);
+    if (searchPublishedTo) params.set("publishedTo", searchPublishedTo);
 
     if (append) setVulnsLoadingMore(true);
     else setVulnsLoading(true);
@@ -1175,7 +1181,7 @@ export default function VulnDashboard() {
       setVulnsLoading(false);
       setVulnsLoadingMore(false);
     }
-  }, [VULN_PAGE_LIMIT, sevFilter, riskTierFilter, exploitStatusFilter, vendorFilter, productFilter, changedSinceHoursFilter]);
+  }, [VULN_PAGE_LIMIT, sevFilter, riskTierFilter, exploitStatusFilter, vendorFilter, productFilter, changedSinceHoursFilter, searchQ, searchTagId, searchMinScore, searchPublishedFrom, searchPublishedTo]);
 
   const loadSubscriberPortal = useCallback(async () => {
     setPortalLoading(true);
@@ -1463,6 +1469,17 @@ export default function VulnDashboard() {
 
   useEffect(() => { if (isLoggedIn) loadData(view); }, [view, isLoggedIn, loadData]);
 
+  // Debounced server-side search: re-fetch when search filters change
+  const searchDebounceRef = useRef(null);
+  useEffect(() => {
+    if (!isLoggedIn || (view !== "vulns" && view !== "search")) return;
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      loadVulnerabilityExplorer({ page: 1, append: false });
+    }, 400);
+    return () => clearTimeout(searchDebounceRef.current);
+  }, [searchQ, searchTagId, searchMinScore, searchPublishedFrom, searchPublishedTo]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleCreateTest = async () => {
     if (!testEmail) return;
     setTestSending(true);
@@ -1538,9 +1555,9 @@ export default function VulnDashboard() {
   const gc = (arr, sev) => (arr || []).find(c => c?.cvssV31Severity === sev)?._count || 0;
   const nextRun = () => { if (!dash?.lastRun?.finishedAt) return "-"; return Math.max(0, Math.floor((new Date(dash?.lastRun?.finishedAt).getTime() + 1800000 - now) / 60000)) + "m"; };
 
-  // Search logic (live filtering)
+  // Search criteria detection (server-side search — results come from API)
   const hasSearchCriteria = (
-    searchQ.trim().length > 0 ||
+    searchQ.trim().length >= 2 ||
     searchTagId !== "" ||
     searchPublishedFrom !== "" ||
     searchPublishedTo !== "" ||
@@ -1549,51 +1566,15 @@ export default function VulnDashboard() {
     searchSeverity !== ""
   );
 
+  // Client-side exploit/severity filtering (lightweight, applied on top of server results)
   const searchResults = vulns.filter(v => {
-    const q = searchQ.trim().toLowerCase();
-    let textMatch = true;
-    if (q) {
-      const semantic = getSemanticSummary(v);
-      const semanticTerms = [
-        semantic.semanticPrimaryVendor,
-        semantic.semanticPrimaryProduct,
-        semantic.componentType,
-        ...semantic.contextTags,
-      ].filter(Boolean).map((value) => String(value).toLowerCase());
-      const affectedProductTerms = getOperationalAffectedPairs(v).map(
-        (product) => `${product.vendor} ${product.product}`.toLowerCase(),
-      );
-      if (searchType === "cve") {
-        textMatch = v.cveId.toLowerCase().includes(q);
-      } else if (searchType === "product") {
-        textMatch = semanticTerms.some((value) => value.includes(q)) ||
-          affectedProductTerms.some((value) => value.includes(q));
-      } else {
-        textMatch =
-          v.cveId.toLowerCase().includes(q) ||
-          (v.description || "").toLowerCase().includes(q) ||
-          semanticTerms.some((value) => value.includes(q)) ||
-          affectedProductTerms.some((value) => value.includes(q));
-      }
-    }
-
-    const tagMatch = searchTagId === "" || (v.tags || []).some(t => String(t.id) === String(searchTagId));
     const severityMatch = searchSeverity === "" || v.cvssV31Severity === searchSeverity;
-
-    const minScore = parseFloat(searchMinScore);
-    const scoreMatch = Number.isNaN(minScore) || (Number(v.cvssV31Score || 0) >= minScore);
-
-    const publishedAt = v.publishedAt ? new Date(v.publishedAt) : null;
-    const fromMatch = !searchPublishedFrom || (publishedAt && publishedAt >= new Date(`${searchPublishedFrom}T00:00:00`));
-    const toMatch = !searchPublishedTo || (publishedAt && publishedAt <= new Date(`${searchPublishedTo}T23:59:59`));
-
     let exploitMatch = true;
     if (searchExploit === "known") exploitMatch = !!v.isKnownExploited;
     else if (searchExploit === "public") exploitMatch = !!v.hasPublicExploit;
     else if (searchExploit === "any") exploitMatch = !!v.isKnownExploited || !!v.hasPublicExploit;
     else if (searchExploit === "none") exploitMatch = !v.isKnownExploited && !v.hasPublicExploit;
-
-    return textMatch && tagMatch && severityMatch && scoreMatch && fromMatch && toMatch && exploitMatch;
+    return severityMatch && exploitMatch;
   });
   const clearExplorerFilters = () => {
     setSearchQ("");
@@ -1650,9 +1631,9 @@ export default function VulnDashboard() {
       .slice(0, 4)
       .join(", ")
     : "";
-  const explorerRows = hasSearchCriteria ? searchResults : vulns;
+  const explorerRows = (searchExploit !== "all" || searchSeverity !== "") ? searchResults : vulns;
   const explorerResultLabel = hasSearchCriteria
-    ? `${searchResults.length} coincidencias sobre ${vulns.length} CVEs cargadas`
+    ? `${explorerRows.length} resultados de ${vulnsTotal} CVEs (búsqueda servidor)`
     : `Mostrando ${vulns.length} de ${vulnsTotal} CVEs`;
 
   // Find contacts (subscribers) affected by a CVE
@@ -2729,7 +2710,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                     <div style={{ fontSize: 11, color: C.gray500 }}>
-                      {explorerResultLabel}. {hasSearchCriteria && vulnsHasMore ? "La búsqueda opera sobre lo cargado; usa “Cargar más” para ampliar el universo explorado." : "Se priorizan explotación conocida, riesgo operativo y CVSS."}
+                      {explorerResultLabel}. {hasSearchCriteria ? "Busqueda sobre toda la base de datos." : "Se priorizan explotacion conocida, riesgo operativo y CVSS."}
                     </div>
                     <Btn small onClick={clearExplorerFilters}>Limpiar filtros</Btn>
                   </div>
@@ -2738,7 +2719,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 <Card noPad>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead><tr style={{ background: C.gray50 }}>
-                      {["CVE", "Riesgo", "CVSS", "EPSS", "Explotación", "Producto", "Estado", "Tags", "Publicada"].map(h => (
+                      {["CVE", "Riesgo", "CVSS", "EPSS", "Explotación", "Producto", "Estado", "Tags", "Origen", "Publicada"].map(h => (
                         <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", borderBottom: `2px solid ${C.gray200}`, whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr></thead>
@@ -2797,6 +2778,35 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                           </div>
                         </td>
                         <td style={{ padding: "10px 12px" }}>{(v.tags || []).map(t => <span key={t.id} style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: t.color, marginRight: 2 }} title={t.name} />)}</td>
+                        <td style={{ padding: "10px 12px" }}>
+                          <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+                            {(() => {
+                              const src = normalizeFieldList(v.sourcesPresent).map(s => String(s).toLowerCase());
+                              const sourceMap = [
+                                { key: "nvd", label: "NVD", bg: "#DBEAFE", color: "#1E40AF" },
+                                { key: "cveorg", label: "MITRE", bg: "#E0E7FF", color: "#4338CA" },
+                                { key: "mitre", label: "MITRE", bg: "#E0E7FF", color: "#4338CA" },
+                                { key: "kev", label: "KEV", bg: "#FEE2E2", color: "#991B1B" },
+                                { key: "epss", label: "EPSS", bg: "#FEF3C7", color: "#92400E" },
+                                { key: "github", label: "GitHub", bg: "#F3F4F6", color: "#1F2937" },
+                                { key: "exploitdb", label: "EDB", bg: "#FDE68A", color: "#78350F" },
+                                { key: "osv", label: "OSV", bg: "#D1FAE5", color: "#065F46" },
+                              ];
+                              const seen = new Set();
+                              const badges = [];
+                              for (const m of sourceMap) {
+                                if (src.some(s => s.includes(m.key)) && !seen.has(m.label)) {
+                                  seen.add(m.label);
+                                  badges.push(m);
+                                }
+                              }
+                              if (badges.length === 0) badges.push({ label: "NVD", bg: "#DBEAFE", color: "#1E40AF" });
+                              return badges.map(b => (
+                                <span key={b.label} style={{ padding: "1px 5px", borderRadius: 3, fontSize: 8, fontWeight: 700, background: b.bg, color: b.color, whiteSpace: "nowrap" }}>{b.label}</span>
+                              ));
+                            })()}
+                          </div>
+                        </td>
                         <td style={{ padding: "10px 12px", fontSize: 10, color: C.gray500, fontFamily: "monospace" }}>{fmtDate(v.publishedAt).split(",")[0]}</td>
                       </tr>
                       );
@@ -4705,7 +4715,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
               <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Collector</h1>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 18 }}>
                 <Metric icon="clock" label="Intervalo" value="30m" sub="*/30 * * * *" color={C.navy} />
-                <Metric icon="server" label="Fuentes" value="4" sub="NVD · KEV · EPSS · GitHub" color={C.blue} />
+                <Metric icon="server" label="Fuentes" value="7" sub="NVD · MITRE · KEV · EPSS · GitHub · ExploitDB · OSV" color={C.blue} />
                 <Metric icon="check" label="Estado" value={dash.lastRun?.status || "-"} sub={timeAgo(dash.lastRun?.finishedAt) + " ago"} color={C.low} />
                 <Metric icon="activity" label="Duración" value={fmtMs(dash.lastRun?.durationMs)} color={C.high} />
               </div>
@@ -4714,9 +4724,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 <div style={{ display: "flex", gap: 0, alignItems: "center" }}>
                   {[
                     { label: "NVD API", desc: "CVE + CVSS + CPE", color: C.blue, icon: "shield" },
+                    { label: "MITRE CVE.org", desc: "Backup / Early detect", color: "#6366F1", icon: "globe" },
                     { label: "CISA KEV", desc: "Explotación activa", color: C.critical, icon: "zap" },
                     { label: "EPSS", desc: "Prob. explotación", color: C.high, icon: "activity" },
                     { label: "GitHub PoC", desc: "Exploits públicos", color: C.navy, icon: "bug" },
+                    { label: "ExploitDB", desc: "Exploits curados", color: "#D97706", icon: "code" },
+                    { label: "OSV Google", desc: "Open Source vulns", color: "#059669", icon: "package" },
                     { label: "MySQL", desc: "Persistencia", color: C.low, icon: "server" },
                   ].map((s, i, a) => (
                     <div key={s.label} style={{ display: "flex", alignItems: "center", flex: 1 }}>
