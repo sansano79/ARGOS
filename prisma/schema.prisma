@@ -133,6 +133,10 @@ model Vulnerability {
   cvssV31Score    Float?  @map("cvss_v31_score")
   cvssV31Vector   String? @map("cvss_v31_vector")
   cvssV31Severity String? @map("cvss_v31_severity")
+  cvssV40Score    Float?  @map("cvss_v40_score")
+  cvssV40Vector   String? @map("cvss_v40_vector") @db.VarChar(255)
+  cvssV40Severity String? @map("cvss_v40_severity") @db.VarChar(20)
+  cvssVersion     String? @map("cvss_version") @db.VarChar(10)
   epssScore       Float?  @map("epss_score")
   epssPercentile  Float?  @map("epss_percentile")
 
@@ -154,6 +158,10 @@ model Vulnerability {
   exploitConfidence    Float?    @map("exploit_confidence")
   exploitFirstSeenAt   DateTime? @map("exploit_first_seen_at")
   exploitLastCheckedAt DateTime? @map("exploit_last_checked_at")
+
+  cweIds            String? @map("cwe_ids") @db.Text
+  cweNames          String? @map("cwe_names") @db.Text
+  weaknessCategory  String? @map("weakness_category") @db.VarChar(50)
 
   primaryVendor            String? @map("primary_vendor")
   primaryProduct           String? @map("primary_product")
@@ -201,6 +209,8 @@ model Vulnerability {
   @@index([primaryVendor])
   @@index([primaryProduct])
   @@index([exploitStatus])
+  @@index([weaknessCategory])
+  @@index([cvssVersion])
   @@index([recordStatus])
   @@index([lastChangeDetectedAt])
   @@map("vulnerabilities")
