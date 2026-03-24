@@ -17,6 +17,10 @@ export class UsersService {
                 canLogin: true,
                 isSubscriber: true,
                 notificationEmail: true,
+                canReceiveNotifications: true,
+                notificationsPaused: true,
+                notificationsPausedUntil: true,
+                lastNotificationSentAt: true,
                 contactPerson: true,
                 department: true,
                 phone: true,
@@ -51,6 +55,10 @@ export class UsersService {
                 canLogin: true,
                 isSubscriber: true,
                 notificationEmail: true,
+                canReceiveNotifications: true,
+                notificationsPaused: true,
+                notificationsPausedUntil: true,
+                lastNotificationSentAt: true,
                 contactPerson: true,
                 department: true,
                 phone: true,
@@ -114,6 +122,9 @@ export class UsersService {
         canLogin?: boolean;
         isSubscriber?: boolean;
         notificationEmail?: string;
+        canReceiveNotifications?: boolean;
+        notificationsPaused?: boolean;
+        notificationsPausedUntil?: string | Date | null;
         contactPerson?: string;
         department?: string;
         phone?: string;
@@ -129,7 +140,10 @@ export class UsersService {
         const isSubscriber = data.isSubscriber === true;
         const role = isSubscriber ? 'SUBSCRIBER' : (canLogin ? (data.role || 'USER') : 'SUBSCRIBER');
         const subscriptionItems = this.normalizeSubscriptions(data.subscriptions || []);
-        const notificationEmail = isSubscriber ? (data.notificationEmail || data.email) : null;
+        const canReceiveNotifications = data.canReceiveNotifications !== false;
+        const notificationEmail = canReceiveNotifications ? (data.notificationEmail || data.email) : null;
+        const notificationsPaused = data.notificationsPaused === true;
+        const notificationsPausedUntil = data.notificationsPausedUntil ? new Date(data.notificationsPausedUntil) : null;
 
         let passwordHash: string | null = null;
         if (canLogin) {
@@ -148,6 +162,9 @@ export class UsersService {
                 canLogin,
                 isSubscriber,
                 notificationEmail,
+                canReceiveNotifications,
+                notificationsPaused,
+                notificationsPausedUntil,
                 contactPerson: data.contactPerson || null,
                 department: data.department || null,
                 phone: data.phone || null,
@@ -182,6 +199,9 @@ export class UsersService {
         canLogin?: boolean;
         isSubscriber?: boolean;
         notificationEmail?: string;
+        canReceiveNotifications?: boolean;
+        notificationsPaused?: boolean;
+        notificationsPausedUntil?: string | Date | null;
         contactPerson?: string;
         department?: string;
         phone?: string;
@@ -205,9 +225,14 @@ export class UsersService {
         const isSubscriber = data.isSubscriber ?? existing.isSubscriber;
         const role = isSubscriber ? 'SUBSCRIBER' : (data.role ?? (canLogin ? existing.role : 'SUBSCRIBER'));
         const userEmail = data.email ?? existing.email;
-        const notificationEmail = isSubscriber
+        const canReceiveNotifications = data.canReceiveNotifications ?? existing.canReceiveNotifications;
+        const notificationEmail = canReceiveNotifications
             ? (data.notificationEmail || existing.notificationEmail || userEmail)
             : null;
+        const notificationsPaused = data.notificationsPaused ?? existing.notificationsPaused;
+        const notificationsPausedUntil = data.notificationsPausedUntil !== undefined
+            ? (data.notificationsPausedUntil ? new Date(data.notificationsPausedUntil) : null)
+            : existing.notificationsPausedUntil;
         const subscriptionItems = this.normalizeSubscriptions(data.subscriptions || []);
 
         const updateData: any = {};
@@ -217,6 +242,9 @@ export class UsersService {
         updateData.canLogin = canLogin;
         updateData.isSubscriber = isSubscriber;
         updateData.notificationEmail = notificationEmail;
+        updateData.canReceiveNotifications = canReceiveNotifications;
+        updateData.notificationsPaused = notificationsPaused;
+        updateData.notificationsPausedUntil = notificationsPausedUntil;
         if (data.isActive !== undefined) updateData.isActive = data.isActive;
         if (data.contactPerson !== undefined) updateData.contactPerson = data.contactPerson || null;
         if (data.department !== undefined) updateData.department = data.department || null;

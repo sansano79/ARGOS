@@ -60,6 +60,10 @@ export class AuthController {
         createdAt: true,
         updatedAt: true,
         notificationEmail: true,
+        canReceiveNotifications: true,
+        notificationsPaused: true,
+        notificationsPausedUntil: true,
+        lastNotificationSentAt: true,
         contactPerson: true,
         department: true,
         phone: true,
@@ -93,6 +97,11 @@ export class AuthController {
     const data: any = {};
     if (body?.name != null) data.name = String(body.name).trim();
     if (body?.notificationEmail != null) data.notificationEmail = String(body.notificationEmail).trim().toLowerCase();
+    if (body?.canReceiveNotifications != null) data.canReceiveNotifications = !!body.canReceiveNotifications;
+    if (body?.notificationsPaused != null) data.notificationsPaused = !!body.notificationsPaused;
+    if (body?.notificationsPausedUntil !== undefined) {
+      data.notificationsPausedUntil = body.notificationsPausedUntil ? new Date(String(body.notificationsPausedUntil)) : null;
+    }
     if (body?.contactPerson != null) data.contactPerson = String(body.contactPerson).trim();
     if (body?.department != null) data.department = String(body.department).trim();
     if (body?.phone != null) data.phone = String(body.phone).trim();

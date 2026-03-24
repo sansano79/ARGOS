@@ -45,6 +45,50 @@ export class NotificationController {
         return await this.notificationService.getNotificationById(id);
     }
 
+    @Post('history/:id/resend')
+    @Roles('ADMIN')
+    async resendNotification(@Param('id', ParseIntPipe) id: number) {
+        return await this.notificationService.resendNotification(id);
+    }
+
+    @Get('settings-center')
+    @Roles('ADMIN')
+    async getNotificationCenterSettings() {
+        return await this.notificationService.getNotificationCenterSettings();
+    }
+
+    @Post('settings-center')
+    @Roles('ADMIN')
+    async saveNotificationCenterSettings(@Body() body: any) {
+        return await this.notificationService.saveNotificationCenterSettings(body || {});
+    }
+
+    @Get('process-health')
+    @Roles('ADMIN')
+    async getProcessHealth() {
+        return await this.notificationService.getNotificationProcessHealth();
+    }
+
+    @Post('process/run-now')
+    @Roles('ADMIN')
+    async runProcessNow(@Body() body: { jobType?: string }) {
+        const jobType = String(body?.jobType || '').trim();
+        if (jobType === 'digest_notification_job') {
+            return await this.notificationService.runDigestNotificationJob('manual');
+        }
+        if (jobType === 'immediate_notification_job') {
+            return {
+                success: true,
+                mode: 'hook',
+                message: 'La notificación inmediata se ejecuta tras la recolección; usa "Probar" para validar la plantilla y el canal.',
+            };
+        }
+        return {
+            success: false,
+            message: 'Usa el proceso inteligente desde sus endpoints dedicados.',
+        };
+    }
+
     @Get('templates')
     @Roles('ADMIN')
     async getTemplates() {

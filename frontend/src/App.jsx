@@ -20,6 +20,13 @@ import {
   isReferenceUrl,
   normalizeVulnerabilityReferences,
 } from "./utils/vulnerabilityReferences.js";
+import {
+  DIGEST_INTERVAL_OPTIONS,
+  NOTIFICATION_JOB_LABELS,
+  NOTIFICATION_SETTINGS_TABS,
+  createDefaultNotificationCenterState,
+  normalizeNotificationCenterSettings,
+} from "./utils/notificationCenter.js";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const API_BASE = "/api";
@@ -126,6 +133,11 @@ const normalizeFieldList = (value) => {
   if (normalized == null) return [];
   return Array.isArray(normalized) ? normalized.filter((item) => hasValue(item)) : [normalized];
 };
+const csvStringToList = (value) => String(value || "")
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean);
+const listToCsvString = (value) => (Array.isArray(value) ? value.filter(Boolean).join(", ") : "");
 const yesNoUnknown = (value) => value === true ? "Sí" : value === false ? "No" : "No informado";
 const fmtConfidence = (value) => value != null ? `${Math.round(parseFloat(value) * 100)}%` : "No informado";
 const describePatchStatus = (value) => value === true ? "Parche disponible" : value === false ? "Sin parche confirmado" : "Estado de parche no informado";
@@ -998,6 +1010,7 @@ export default function VulnDashboard() {
   const [tags, setTags] = useState([]);
   const [notifHistory, setNotifHistory] = useState([]);
   const [notifDetail, setNotifDetail] = useState(null);
+  const [notifMsg, setNotifMsg] = useState(null);
   const [templateConfig, setTemplateConfig] = useState({
     headerImageUrl: "",
     introMessage: "",
@@ -1017,6 +1030,14 @@ export default function VulnDashboard() {
   const [templatePreviewHtml, setTemplatePreviewHtml] = useState("");
   const [templatePreviewMeta, setTemplatePreviewMeta] = useState({ cveId: "", manufacturer: "" });
   const [templatePreviewLoading, setTemplatePreviewLoading] = useState(false);
+  const [notificationSettingsTab, setNotificationSettingsTab] = useState("general");
+  const [notificationCenterLoading, setNotificationCenterLoading] = useState(false);
+  const [notificationCenterSaving, setNotificationCenterSaving] = useState(false);
+  const [notificationCenterMsg, setNotificationCenterMsg] = useState(null);
+  const [notificationProcessRunning, setNotificationProcessRunning] = useState("");
+  const [notificationTestRunning, setNotificationTestRunning] = useState("");
+  const [notificationOpsEmail, setNotificationOpsEmail] = useState("");
+  const [notificationCenter, setNotificationCenter] = useState(createDefaultNotificationCenterState());
   const [manufacturers, setManufacturers] = useState([]);
   const [allManufacturers, setAllManufacturers] = useState([]);
   const [manufacturersCatalogMeta, setManufacturersCatalogMeta] = useState(null);
@@ -1121,15 +1142,6 @@ export default function VulnDashboard() {
   const [notifSending, setNotifSending] = useState(false);
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [notifContactsLoading, setNotifContactsLoading] = useState(false);
-
-  // Smart Notifications
-  const [smartTab, setSmartTab] = useState("subscribers"); // subscribers | history | config
-  const [smartSubscribers, setSmartSubscribers] = useState([]);
-  const [smartHistory, setSmartHistory] = useState({ data: [], total: 0 });
-  const [smartLoading, setSmartLoading] = useState(false);
-  const [smartRunning, setSmartRunning] = useState(null); // subscriberId or "all"
-  const [smartPreview, setSmartPreview] = useState(null);
-  const [smartMsg, setSmartMsg] = useState(null);
 
   const aiEndRef = useRef(null);
   const validatedTokenRef = useRef("");
@@ -1656,7 +1668,6 @@ export default function VulnDashboard() {
         }
         setManufacturersLoading(false);
       } else if (v === "settings") {
-        if (settingsTab === "users") setSettingsTab("smtp");
         setSmtpLoading(true);
         try {
           const smtpR = await apiFetch("/notifications/config");
@@ -1692,37 +1703,65 @@ export default function VulnDashboard() {
           setAiModels(models);
         }
         setAiConfigLoading(false);
+        if (settingsTab === "notifications") {
+          setNotificationCenterLoading(true);
+          const [centerRes, usersRes, templateRes, vulnsRes] = await Promise.allSettled([
+            apiFetch("/notifications/settings-center").then(r => r.json()),
+            apiFetch("/users").then(r => r.json()),
+            apiFetch("/notifications/template-config").then(r => r.json()),
+            apiFetch("/vulnerabilities?limit=300").then(r => r.json()),
+          ]);
+          if (centerRes.status === "fulfilled") {
+            const normalized = normalizeNotificationCenterSettings(centerRes.value);
+            setNotificationCenter(normalized);
+            const activeLegacyId = normalized.templates?.activeLegacyTemplateId;
+            if (activeLegacyId) setSelectedTemplateId(String(activeLegacyId));
+            if (Array.isArray(normalized.templates?.legacyTemplateConfigs)) {
+              setTemplateList(normalized.templates.legacyTemplateConfigs);
+            }
+          }
+          if (usersRes.status === "fulfilled") {
+            const allUsers = Array.isArray(usersRes.value) ? usersRes.value : [];
+            setUsers(allUsers);
+            if (!notificationOpsEmail) {
+              const preferredUser = allUsers.find((user) => user.canReceiveNotifications && !user.notificationsPaused)
+                || allUsers.find((user) => !!user.notificationEmail)
+                || allUsers[0];
+              if (preferredUser) {
+                setNotificationOpsEmail(preferredUser.notificationEmail || preferredUser.email || "");
+              }
+            }
+          }
+          if (templateRes.status === "fulfilled" && templateRes.value) {
+            setTemplateConfig(prev => ({ ...prev, ...templateRes.value }));
+            setTemplateName(templateRes.value?.name || "Plantilla CVE");
+          }
+          if (vulnsRes.status === "fulfilled") {
+            setVulns(Array.isArray(vulnsRes.value?.data) ? vulnsRes.value.data : []);
+          }
+          setNotificationCenterLoading(false);
+        }
       } else if (v === "notifications") {
-        setTemplateLoading(true);
-        const [historyRes, templateRes, templatesRes, vulnsRes] = await Promise.allSettled([
+        const [historyRes, healthRes] = await Promise.allSettled([
           apiFetch("/notifications/history").then(r => r.json()),
-          apiFetch("/notifications/template-config").then(r => r.json()),
-          apiFetch("/notifications/template-configs").then(r => r.json()),
-          apiFetch("/vulnerabilities?limit=300").then(r => r.json()),
+          apiFetch("/notifications/process-health").then(r => r.json()),
         ]);
         if (historyRes.status === "fulfilled") {
           setNotifHistory(historyRes.value?.data || []);
         }
-        if (templateRes.status === "fulfilled" && templateRes.value) {
-          setTemplateConfig(prev => ({ ...prev, ...templateRes.value }));
-          setTemplateName(templateRes.value?.name || "Plantilla CVE");
+        if (healthRes.status === "fulfilled") {
+          setNotificationCenter((prev) => normalizeNotificationCenterSettings({
+            ...prev,
+            processHealth: healthRes.value,
+          }));
         }
-        if (templatesRes.status === "fulfilled") {
-          const list = Array.isArray(templatesRes.value) ? templatesRes.value : [];
-          setTemplateList(list);
-          const active = list.find(t => t.isActive);
-          setSelectedTemplateId(active ? String(active.id) : "");
-        }
-        if (vulnsRes.status === "fulfilled") {
-          setVulns(Array.isArray(vulnsRes.value?.data) ? vulnsRes.value.data : []);
-        }
-        setTemplateLoading(false);
       }
     } catch (e) {
       setSmtpLoading(false);
       setAiConfigLoading(false);
       setTemplateLoading(false);
       setManufacturersLoading(false);
+      setNotificationCenterLoading(false);
       console.error("Load error:", e.message);
     }
   }, [loadVulnerabilityExplorer, loadSubscriberPortal, backfillJobId, settingsTab]);
@@ -2643,6 +2682,9 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     canLogin: u.canLogin !== false,
     isSubscriber: u.isSubscriber === true,
     notificationEmail: u.notificationEmail || u.email || "",
+    canReceiveNotifications: u.canReceiveNotifications !== false,
+    notificationsPaused: u.notificationsPaused === true,
+    notificationsPausedUntil: u.notificationsPausedUntil ? String(u.notificationsPausedUntil).slice(0, 16) : "",
     subscriptions: Array.isArray(u.subscriptions) ? u.subscriptions.map(s => ({
       vendor: String(s.vendor || "").toLowerCase(),
       product: String(s.product || "").toLowerCase(),
@@ -2744,7 +2786,10 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         role: u.isSubscriber ? "SUBSCRIBER" : (u.canLogin ? (u.role || "USER") : "USER"),
         canLogin: !!u.canLogin,
         isSubscriber: !!u.isSubscriber,
-        notificationEmail: u.isSubscriber ? (u.notificationEmail || u.email) : null,
+        notificationEmail: u.canReceiveNotifications ? (u.notificationEmail || u.email) : null,
+        canReceiveNotifications: !!u.canReceiveNotifications,
+        notificationsPaused: !!u.notificationsPaused,
+        notificationsPausedUntil: u.notificationsPausedUntil || null,
         subscriptions: u.isSubscriber ? (u.subscriptions || []) : [],
         isActive: u.isActive !== false,
       };
@@ -2938,6 +2983,106 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     try { const r = await apiFetch(`/notifications/history/${id}`); setNotifDetail(await r.json()); } catch (e) { console.error(e); }
   };
 
+  const updateNotificationCenterSection = (section, patch) => {
+    setNotificationCenter((prev) => normalizeNotificationCenterSettings({
+      ...prev,
+      [section]: {
+        ...(prev?.[section] || {}),
+        ...(patch || {}),
+      },
+    }));
+  };
+
+  const saveNotificationCenterSettings = async () => {
+    setNotificationCenterSaving(true);
+    setNotificationCenterMsg(null);
+    try {
+      const res = await apiFetch("/notifications/settings-center", {
+        method: "POST",
+        body: JSON.stringify(notificationCenter),
+      });
+      if (!res.ok) throw new Error("No se pudo guardar la configuración de notificaciones");
+      const data = await res.json();
+      setNotificationCenter(normalizeNotificationCenterSettings(data));
+      setNotificationCenterMsg({ type: "success", text: "Configuración de notificaciones actualizada" });
+    } catch (e) {
+      setNotificationCenterMsg({ type: "error", text: e?.message || "Error guardando la configuración" });
+    } finally {
+      setNotificationCenterSaving(false);
+      setTimeout(() => setNotificationCenterMsg(null), 3500);
+    }
+  };
+
+  const runNotificationJobNow = async (jobType) => {
+    setNotificationProcessRunning(jobType);
+    setNotificationCenterMsg(null);
+    try {
+      let res;
+      if (jobType === "intelligent_notification_job") {
+        res = await apiFetch("/smart-notifications/weekly/run-all", { method: "POST" });
+      } else {
+        res = await apiFetch("/notifications/process/run-now", {
+          method: "POST",
+          body: JSON.stringify({ jobType }),
+        });
+      }
+      const data = await res.json();
+      if (!res.ok || data?.success === false) throw new Error(data?.message || "No se pudo ejecutar el proceso");
+      setNotificationCenterMsg({ type: "success", text: data?.message || "Proceso ejecutado correctamente" });
+      await loadData("settings");
+      await loadData("notifications");
+    } catch (e) {
+      setNotificationCenterMsg({ type: "error", text: e?.message || "Error ejecutando el proceso" });
+    } finally {
+      setNotificationProcessRunning("");
+      setTimeout(() => setNotificationCenterMsg(null), 4000);
+    }
+  };
+
+  const sendNotificationProcessTest = async (jobType) => {
+    if (!notificationOpsEmail.trim()) {
+      setNotificationCenterMsg({ type: "error", text: "Indica un email de prueba" });
+      return;
+    }
+    setNotificationTestRunning(jobType);
+    setNotificationCenterMsg(null);
+    try {
+      const endpoint = jobType === "immediate_notification_job"
+        ? "/notifications/test-instant"
+        : jobType === "digest_notification_job"
+          ? "/notifications/test-periodic"
+          : "/notifications/test-smart";
+      const res = await apiFetch(endpoint, {
+        method: "POST",
+        body: JSON.stringify({ email: notificationOpsEmail.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "No se pudo enviar la prueba");
+      setNotificationCenterMsg({ type: "success", text: `Prueba enviada a ${notificationOpsEmail.trim()}` });
+      await loadData("notifications");
+      await loadData("settings");
+    } catch (e) {
+      setNotificationCenterMsg({ type: "error", text: e?.message || "Error enviando la prueba" });
+    } finally {
+      setNotificationTestRunning("");
+      setTimeout(() => setNotificationCenterMsg(null), 4000);
+    }
+  };
+
+  const resendCommunication = async (id) => {
+    try {
+      const res = await apiFetch(`/notifications/history/${id}/resend`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "No se pudo reenviar la comunicación");
+      setNotifMsg({ type: "success", text: "Comunicación reenviada correctamente" });
+      await loadData("notifications");
+    } catch (e) {
+      setNotifMsg({ type: "error", text: e?.message || "Error reenviando la comunicación" });
+    } finally {
+      setTimeout(() => setNotifMsg(null), 3500);
+    }
+  };
+
   const saveTemplateConfig = async () => {
     setTemplateSaving(true);
     try {
@@ -2950,13 +3095,13 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         }),
       });
       if (!res.ok) throw new Error("Error guardando plantilla");
-      setSmtpMsg({ type: "success", text: "Plantilla guardada correctamente" });
-      await loadData("notifications");
+      setNotificationCenterMsg({ type: "success", text: "Plantilla guardada correctamente" });
+      await loadData("settings");
     } catch (e) {
-      setSmtpMsg({ type: "error", text: "Error guardando plantilla" });
+      setNotificationCenterMsg({ type: "error", text: "Error guardando plantilla" });
     } finally {
       setTemplateSaving(false);
-      setTimeout(() => setSmtpMsg(null), 3000);
+      setTimeout(() => setNotificationCenterMsg(null), 3000);
     }
   };
 
@@ -2971,8 +3116,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
       setTemplateName(data?.name || "Plantilla CVE");
       setSelectedTemplateId(String(id));
     } catch (e) {
-      setSmtpMsg({ type: "error", text: "Error cargando plantilla" });
-      setTimeout(() => setSmtpMsg(null), 3000);
+      setNotificationCenterMsg({ type: "error", text: "Error cargando plantilla" });
+      setTimeout(() => setNotificationCenterMsg(null), 3000);
     } finally {
       setTemplateLoading(false);
     }
@@ -2985,20 +3130,20 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         method: "POST",
       });
       if (!res.ok) throw new Error("Error activando plantilla");
-      setSmtpMsg({ type: "success", text: "Plantilla activada" });
-      await loadData("notifications");
+      setNotificationCenterMsg({ type: "success", text: "Plantilla activada" });
+      await loadData("settings");
     } catch (e) {
-      setSmtpMsg({ type: "error", text: "Error activando plantilla" });
+      setNotificationCenterMsg({ type: "error", text: "Error activando plantilla" });
     } finally {
-      setTimeout(() => setSmtpMsg(null), 3000);
+      setTimeout(() => setNotificationCenterMsg(null), 3000);
     }
   };
 
   const onTemplateHeaderUpload = (file) => {
     if (!file) return;
     if (file.size > 1.5 * 1024 * 1024) {
-      setSmtpMsg({ type: "error", text: "La imagen de cabecera es demasiado grande (máx. 1.5MB)" });
-      setTimeout(() => setSmtpMsg(null), 3500);
+      setNotificationCenterMsg({ type: "error", text: "La imagen de cabecera es demasiado grande (máx. 1.5MB)" });
+      setTimeout(() => setNotificationCenterMsg(null), 3500);
       return;
     }
     const reader = new FileReader();
@@ -3027,8 +3172,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         manufacturer: data.manufacturer || "",
       });
     } catch {
-      setSmtpMsg({ type: "error", text: "Error generando vista previa" });
-      setTimeout(() => setSmtpMsg(null), 3000);
+      setNotificationCenterMsg({ type: "error", text: "Error generando vista previa" });
+      setTimeout(() => setNotificationCenterMsg(null), 3000);
     } finally {
       setTemplatePreviewLoading(false);
     }
@@ -3044,7 +3189,6 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     { id: "account", label: "Tu cuenta", icon: "users" },
     { id: "manufacturers", label: "Fabricantes", icon: "server" },
     { id: "notifications", label: "Comunicaciones", icon: "mail" },
-    { id: "smart-notif", label: "Notif. Inteligentes", icon: "brain" },
     { id: "reports", label: "Informes", icon: "file" },
     { id: "ai", label: "Asistente IA", icon: "brain" },
     { id: "collector", label: "Collector", icon: "server" },
@@ -4700,153 +4844,37 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
             {/* ═══ NOTIFICATIONS HISTORY ═══ */}
             {view === "notifications" && <>
               <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Comunicaciones</h1>
-              <Card title="Plantilla de Notificación de Vulnerabilidades" icon="mail" style={{ marginBottom: 16 }}>
-                {templateLoading ? (
-                  <div style={{ padding: 20, textAlign: "center", color: C.gray500 }}>Cargando plantilla...</div>
-                ) : (
-                  <>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto", gap: 8, alignItems: "end", marginBottom: 12 }}>
-                      <div>
-                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Plantillas guardadas</label>
-                        <select value={selectedTemplateId} onChange={e => loadTemplateById(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
-                          <option value="">(Nueva plantilla)</option>
-                          {templateList.map(t => (
-                            <option key={t.id} value={String(t.id)}>
-                              {t.name}{t.isActive ? " (activa)" : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Nombre de plantilla</label>
-                        <Input value={templateName} onChange={setTemplateName} placeholder="Ej: Comunicados críticos" />
-                      </div>
-                      <Btn onClick={() => {
-                        setSelectedTemplateId("");
-                        setTemplateName("Plantilla CVE");
-                        setTemplateConfig({
-                          headerImageUrl: "",
-                          introMessage: "La Oficina de Ciberseguridad Corporativa informa de la publicación de nuevas Vulnerabilidades del Fabricante {{fabricante}} en los siguientes CVE con una estimación de Impacto CVSS superior a 7.5 sobre 10.\n\nSe recomienda proceder a la identificación de los activos afectados y ejecutar las correspondientes tareas de mitigación y actuación recomendadas por el fabricante.\n\nImportante: La lista de versiones afectadas que aparecen en este comunicado ha sido simplificada, por favor, consulte la lista Oficial del fabricante en los enlaces que aparecen en el apartado de referencias.",
-                          showExploitProbability: true,
-                          showExploitExists: true,
-                          showAffectedSoftware: true,
-                          showDescription: true,
-                          showReferences: true,
-                          showPatchLink: true,
-                        });
-                      }}>Nueva</Btn>
-                      <Btn onClick={activateTemplate} disabled={!selectedTemplateId}>Activar</Btn>
-                    </div>
-
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Encabezado (imagen)</label>
-                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={e => onTemplateHeaderUpload(e.target.files?.[0])}
-                          style={{ fontSize: 12 }}
-                        />
-                        {templateConfig.headerImageUrl && (
-                          <Btn small onClick={() => setTemplateConfig({ ...templateConfig, headerImageUrl: "" })}>Quitar imagen</Btn>
-                        )}
-                      </div>
-                      {templateConfig.headerImageUrl && (
-                        <img src={templateConfig.headerImageUrl} alt="Cabecera plantilla" style={{ maxWidth: "100%", maxHeight: 130, marginTop: 8, borderRadius: 6, border: `1px solid ${C.gray200}` }} />
-                      )}
-                    </div>
-
-                    <div style={{ background: C.gray50, border: `1px solid ${C.gray200}`, borderRadius: 6, padding: "10px 12px", fontSize: 11, color: C.gray600, marginBottom: 12 }}>
-                      El fabricante se incorpora automáticamente desde la vulnerabilidad (vendor detectado en software afectado). Puedes usar <code>{"{{fabricante}}"}</code> en el mensaje.
-                    </div>
-
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Mensaje inicial</label>
-                      <textarea
-                        value={templateConfig.introMessage}
-                        onChange={e => setTemplateConfig({ ...templateConfig, introMessage: e.target.value })}
-                        rows={6}
-                        style={{ width: "100%", padding: "10px 12px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }}
-                      />
-                    </div>
-
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: C.gray600, marginBottom: 6 }}>Bloques por vulnerabilidad</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                        {[
-                          ["showExploitProbability", "Posibilidad de explotación"],
-                          ["showExploitExists", "Existencia de exploit (sí/no)"],
-                          ["showAffectedSoftware", "Listado de software afectado"],
-                          ["showDescription", "Descripción de la vulnerabilidad"],
-                          ["showReferences", "Enlaces de información"],
-                          ["showPatchLink", "Enlace del parche"],
-                        ].map(([key, label]) => (
-                          <label key={key} style={{ fontSize: 12, color: C.gray700, display: "flex", alignItems: "center", gap: 6 }}>
-                            <input
-                              type="checkbox"
-                              checked={!!templateConfig[key]}
-                              onChange={e => setTemplateConfig({ ...templateConfig, [key]: e.target.checked })}
-                            />
-                            {label}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                      <Btn onClick={() => loadData("notifications")}>Recargar</Btn>
-                      <Btn primary onClick={saveTemplateConfig} disabled={templateSaving}>
-                        {templateSaving ? "Guardando..." : "Guardar plantilla"}
-                      </Btn>
-                    </div>
-
-                    <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${C.gray100}` }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end", marginBottom: 10 }}>
-                        <div>
-                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Vulnerabilidad para vista previa</label>
-                          <select value={previewVulnId} onChange={e => setPreviewVulnId(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
-                            <option value="">Selecciona un CVE...</option>
-                            {vulns.map(v => (
-                              <option key={v.id} value={String(v.id)}>{v.cveId} ({v.cvssV31Severity || "N/A"})</option>
-                            ))}
-                          </select>
-                        </div>
-                        <Btn primary onClick={generateTemplatePreview} disabled={!previewVulnId || templatePreviewLoading}>
-                          {templatePreviewLoading ? "Generando..." : "Generar vista previa"}
-                        </Btn>
-                      </div>
-                      {templatePreviewMeta.cveId && (
-                        <div style={{ fontSize: 11, color: C.gray600, marginBottom: 8 }}>
-                          Vista previa para <strong>{templatePreviewMeta.cveId}</strong> · Fabricante detectado: <strong>{templatePreviewMeta.manufacturer || "N/D"}</strong>
-                        </div>
-                      )}
-                      <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, overflow: "hidden", background: "#fff" }}>
-                        {templatePreviewHtml ? (
-                          <iframe title="Preview plantilla" srcDoc={templatePreviewHtml} style={{ width: "100%", height: 520, border: 0 }} />
-                        ) : (
-                          <div style={{ padding: 16, fontSize: 12, color: C.gray500 }}>Genera una vista previa para revisar la plantilla antes de enviar.</div>
-                        )}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </Card>
-              <Card title="Historial de Notificaciones" icon="mail" noPad>
+              {notifMsg && (
+                <div className="fade" style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 6, fontSize: 12, fontWeight: 700, background: notifMsg.type === "success" ? C.lowBg : C.criticalBg, color: notifMsg.type === "success" ? C.low : C.critical }}>
+                  {notifMsg.text}
+                </div>
+              )}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+                <Metric icon="mail" label="Enviadas" value={notifHistory.filter((item) => item.status === "sent").length} color={C.low} />
+                <Metric icon="x" label="Fallidas" value={notifHistory.filter((item) => item.status !== "sent").length} color={C.critical} />
+                <Metric icon="activity" label="Cola pendiente" value={notificationCenter.processHealth?.queuePending || 0} color={C.high} />
+                <Metric icon="settings" label="Proceso" value={notificationCenter.processHealth?.enabled ? "Activo" : "Pausado"} sub={notificationCenter.processHealth?.smtpConfigured ? "SMTP OK" : "SMTP pendiente"} color={notificationCenter.processHealth?.enabled ? C.blue : C.gray500} />
+              </div>
+              <Card title="Histórico operativo de envíos" icon="mail" noPad>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: C.gray50 }}>
-                    {["Fecha", "Destinatario", "Asunto", "Template", "Estado"].map(h => (
+                    {["Fecha/Hora", "Tipo", "Destinatario", "Asunto", "Plantilla", "Vulns", "Canal", "Estado", "Motivo"].map(h => (
                       <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", borderBottom: `2px solid ${C.gray200}` }}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>{notifHistory.length === 0 ? (
-                    <tr><td colSpan={5} style={{ padding: 30, textAlign: "center", color: C.gray400, fontSize: 12 }}>No hay notificaciones enviadas aún</td></tr>
+                    <tr><td colSpan={9} style={{ padding: 30, textAlign: "center", color: C.gray400, fontSize: 12 }}>No hay comunicaciones registradas aún</td></tr>
                   ) : notifHistory.map(n => (
                     <tr key={n.id} className="rh" style={{ cursor: "pointer" }} onClick={() => viewNotification(n.id)}>
                       <td style={{ padding: "8px 12px", fontSize: 10, fontFamily: "monospace" }}>{fmtDate(n.sentAt)}</td>
+                      <td style={{ padding: "8px 12px", fontSize: 11, fontWeight: 700 }}>{toSentence(n.notificationType || n.type || "normal")}</td>
                       <td style={{ padding: "8px 12px", fontSize: 11 }}>{n.to}</td>
                       <td style={{ padding: "8px 12px", fontSize: 11, fontWeight: 500 }}>{n.subject}</td>
-                      <td style={{ padding: "8px 12px" }}><span style={{ padding: "2px 8px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: C.bluePale, color: C.blue }}>{n.template || "custom"}</span></td>
+                      <td style={{ padding: "8px 12px" }}><span style={{ padding: "2px 8px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: C.bluePale, color: C.blue }}>{n.template || "legacy"}</span></td>
+                      <td style={{ padding: "8px 12px", fontSize: 11, fontWeight: 700 }}>{n.vulnerabilityCount || (Array.isArray(n.cveIds) ? n.cveIds.length : 0)}</td>
+                      <td style={{ padding: "8px 12px", fontSize: 11 }}>{String(n.channel || "email").toUpperCase()}</td>
                       <td style={{ padding: "8px 12px" }}><span style={{ color: n.status === "sent" ? C.low : C.critical, fontWeight: 600, fontSize: 10 }}>{n.status === "sent" ? "✓ Enviado" : "✗ Error"}</span></td>
+                      <td style={{ padding: "8px 12px", fontSize: 10, color: C.gray500 }}>{n.triggerReason || "-"}</td>
                     </tr>
                   ))}</tbody>
                 </table>
@@ -4856,280 +4884,42 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                   <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 560, maxHeight: "80vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                       <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Detalle de Notificación</h3>
-                      <span style={{ cursor: "pointer" }} onClick={() => setNotifDetail(null)}><I name="x" size={18} /></span>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <Btn small onClick={() => resendCommunication(notifDetail.id)}>Reenviar</Btn>
+                        <span style={{ cursor: "pointer" }} onClick={() => setNotifDetail(null)}><I name="x" size={18} /></span>
+                      </div>
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
                       <div><span style={{ fontSize: 10, fontWeight: 600, color: C.gray500 }}>DESTINATARIO</span><div style={{ fontSize: 12 }}>{notifDetail.to}</div></div>
                       <div><span style={{ fontSize: 10, fontWeight: 600, color: C.gray500 }}>FECHA</span><div style={{ fontSize: 12 }}>{fmtDate(notifDetail.sentAt)}</div></div>
                       <div><span style={{ fontSize: 10, fontWeight: 600, color: C.gray500 }}>ASUNTO</span><div style={{ fontSize: 12 }}>{notifDetail.subject}</div></div>
+                      <div><span style={{ fontSize: 10, fontWeight: 600, color: C.gray500 }}>TIPO</span><div style={{ fontSize: 12 }}>{toSentence(notifDetail.notificationType || notifDetail.type || "normal")}</div></div>
+                      <div><span style={{ fontSize: 10, fontWeight: 600, color: C.gray500 }}>PLANTILLA</span><div style={{ fontSize: 12 }}>{notifDetail.templateKey || notifDetail.template || "legacy"}</div></div>
+                      <div><span style={{ fontSize: 10, fontWeight: 600, color: C.gray500 }}>VULNERABILIDADES</span><div style={{ fontSize: 12 }}>{notifDetail.vulnerabilityCount || ensureArray(notifDetail.cveIds).length}</div></div>
+                      <div><span style={{ fontSize: 10, fontWeight: 600, color: C.gray500 }}>CANAL</span><div style={{ fontSize: 12 }}>{String(notifDetail.channel || "email").toUpperCase()}</div></div>
+                      <div><span style={{ fontSize: 10, fontWeight: 600, color: C.gray500 }}>MOTIVO</span><div style={{ fontSize: 12 }}>{notifDetail.triggerReason || "-"}</div></div>
                       <div><span style={{ fontSize: 10, fontWeight: 600, color: C.gray500 }}>ESTADO</span><div style={{ fontSize: 12, color: notifDetail.status === "sent" ? C.low : C.critical, fontWeight: 600 }}>{notifDetail.status}</div></div>
                     </div>
-                    {notifDetail.error && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 12 }}>Error: {notifDetail.error}</div>}
-                  </div>
-                </div>
-              )}
-            </>}
-
-            {/* ═══ SMART NOTIFICATIONS ═══ */}
-            {view === "smart-notif" && <>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Notificaciones Inteligentes</h1>
-              <p style={{ color: C.gray500, fontSize: 12, marginBottom: 14 }}>Análisis AI de cadenas de explotación, riesgo acumulado y patrones de vulnerabilidad por suscriptor.</p>
-
-              {/* Tabs */}
-              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4, marginBottom: 16 }}>
-                <div style={{ display: "flex", gap: 4 }}>
-                  {[
-                    { id: "subscribers", label: "Suscriptores" },
-                    { id: "history", label: "Historial" },
-                    { id: "config", label: "Configuración AI" },
-                  ].map(t => (
-                    <button key={t.id} onClick={() => {
-                      setSmartTab(t.id);
-                      setSmartPreview(null);
-                      setSmartMsg(null);
-                      if (t.id === "subscribers" && smartSubscribers.length === 0) {
-                        setSmartLoading(true);
-                        apiFetch("/users?role=subscriber").then(r => r.json()).then(d => setSmartSubscribers(Array.isArray(d) ? d : d.data || [])).catch(() => {}).finally(() => setSmartLoading(false));
-                      }
-                      if (t.id === "history") {
-                        setSmartLoading(true);
-                        apiFetch("/smart-notifications/weekly/history?limit=30").then(r => r.json()).then(d => setSmartHistory(d || { data: [], total: 0 })).catch(() => {}).finally(() => setSmartLoading(false));
-                      }
-                    }} style={{
-                      padding: "8px 18px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "none",
-                      background: smartTab === t.id ? C.navy : C.gray100, color: smartTab === t.id ? "#fff" : C.gray600,
-                      cursor: "pointer", transition: "all 0.15s",
-                    }}>{t.label}</button>
-                  ))}
-                </div>
-                <div style={{ flex: 1, minWidth: 20 }} />
-                <Btn primary onClick={async () => {
-                  if (smartRunning) return;
-                  setSmartRunning("all");
-                  setSmartMsg(null);
-                  try {
-                    const res = await apiFetch("/smart-notifications/weekly/run-all", { method: "POST" });
-                    const raw = await res.text();
-                    let data;
-                    try { data = JSON.parse(raw); } catch { throw new Error(!res.ok ? `HTTP ${res.status}: ${raw.slice(0, 120)}` : "La respuesta del servidor no es JSON válido"); }
-                    if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
-                    const ok = (data.results || []).filter(r => r.status === "sent").length;
-                    const fail = (data.results || []).filter(r => r.status === "failed").length;
-                    setSmartMsg({ type: "success", text: `Ejecución completada: ${ok} enviados, ${fail} fallidos de ${data.results?.length || 0} suscriptores` });
-                  } catch (e) {
-                    setSmartMsg({ type: "error", text: `Error: ${e.message}` });
-                  } finally { setSmartRunning(null); }
-                }} disabled={!!smartRunning} style={{ fontSize: 12, whiteSpace: "nowrap" }}>
-                  {smartRunning === "all" ? "⏳ Ejecutando..." : "▶ Ejecutar todos"}
-                </Btn>
-              </div>
-
-              {smartMsg && (
-                <div style={{ padding: "10px 14px", borderRadius: 6, marginBottom: 14, fontSize: 12, fontWeight: 600, background: smartMsg.type === "error" ? C.criticalBg : "#ECFDF5", color: smartMsg.type === "error" ? C.critical : "#065F46", border: `1px solid ${smartMsg.type === "error" ? "#FECACA" : "#A7F3D0"}` }}>
-                  {smartMsg.text}
-                  <button onClick={() => setSmartMsg(null)} style={{ float: "right", background: "none", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 14, lineHeight: 1 }}>×</button>
-                </div>
-              )}
-
-              {/* ── Tab: Subscribers ── */}
-              {smartTab === "subscribers" && (
-                <Card title="Suscriptores — Análisis Inteligente" icon="brain" noPad>
-                  {smartLoading ? (
-                    <div style={{ padding: 30, textAlign: "center", color: C.gray500 }}>Cargando suscriptores...</div>
-                  ) : smartSubscribers.length === 0 ? (
-                    <div style={{ padding: 30, textAlign: "center" }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: C.gray600, marginBottom: 8 }}>No hay suscriptores activos</div>
-                      <div style={{ fontSize: 12, color: C.gray400 }}>Crea suscriptores en Configuración → Gestión de Usuarios</div>
-                    </div>
-                  ) : (
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                        <thead>
-                          <tr style={{ background: C.gray50, borderBottom: `2px solid ${C.gray200}` }}>
-                            <th style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: C.gray700 }}>Suscriptor</th>
-                            <th style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: C.gray700 }}>Email</th>
-                            <th style={{ padding: "10px 14px", textAlign: "center", fontWeight: 700, color: C.gray700 }}>Suscripciones</th>
-                            <th style={{ padding: "10px 14px", textAlign: "right", fontWeight: 700, color: C.gray700 }}>Acciones</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {smartSubscribers.map(sub => (
-                            <tr key={sub.id} style={{ borderBottom: `1px solid ${C.gray100}` }}>
-                              <td style={{ padding: "10px 14px", fontWeight: 600 }}>{sub.name}</td>
-                              <td style={{ padding: "10px 14px", color: C.gray500 }}>{sub.notificationEmail || sub.email}</td>
-                              <td style={{ padding: "10px 14px", textAlign: "center" }}>
-                                <span style={{ background: C.bluePale, color: C.blue, padding: "2px 10px", borderRadius: 10, fontSize: 12, fontWeight: 600 }}>
-                                  {sub.subscriptions?.length || sub._count?.subscriptions || 0}
-                                </span>
-                              </td>
-                              <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                                  <Btn small onClick={async () => {
-                                    setSmartPreview(null);
-                                    setSmartMsg(null);
-                                    setSmartRunning(sub.id);
-                                    try {
-                                      const res = await apiFetch(`/smart-notifications/weekly/preview/${sub.id}`, { method: "POST" });
-                                      const raw = await res.text();
-                                      let data;
-                                      try { data = JSON.parse(raw); } catch { throw new Error(!res.ok ? `HTTP ${res.status}: ${raw.slice(0, 120)}` : "La respuesta del servidor no es JSON válido"); }
-                                      if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
-                                      if (data.status === "failed") throw new Error(data.reason || "Error desconocido");
-                                      setSmartPreview({ subscriberId: sub.id, subscriberName: sub.name, ...data });
-                                    } catch (e) {
-                                      setSmartMsg({ type: "error", text: `Preview ${sub.name}: ${e.message}` });
-                                    } finally { setSmartRunning(null); }
-                                  }} disabled={!!smartRunning}>
-                                    {smartRunning === sub.id ? "⏳" : "👁️"} Preview
-                                  </Btn>
-                                  <Btn small primary onClick={async () => {
-                                    setSmartMsg(null);
-                                    setSmartRunning(sub.id);
-                                    try {
-                                      const res = await apiFetch(`/smart-notifications/weekly/run/${sub.id}`, { method: "POST" });
-                                      const raw = await res.text();
-                                      let data;
-                                      try { data = JSON.parse(raw); } catch { throw new Error(!res.ok ? `HTTP ${res.status}: ${raw.slice(0, 120)}` : "La respuesta del servidor no es JSON válido"); }
-                                      if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
-                                      if (data.status === "failed") setSmartMsg({ type: "error", text: `${sub.name}: ${data.reason || "Error"}` });
-                                      else setSmartMsg({ type: "success", text: `${sub.name}: ${data.status || "completado"} — ${data.emailSent ? "email enviado ✓" : "email no enviado"}` });
-                                    } catch (e) {
-                                      setSmartMsg({ type: "error", text: `${sub.name}: ${e.message}` });
-                                    } finally { setSmartRunning(null); }
-                                  }} disabled={!!smartRunning}>
-                                    ▶ Ejecutar
-                                  </Btn>
-                                  <Btn small danger onClick={async () => {
-                                    setSmartMsg(null);
-                                    setSmartRunning(sub.id);
-                                    try {
-                                      const res = await apiFetch(`/smart-notifications/weekly/test/${sub.id}`, { method: "POST" });
-                                      const raw = await res.text();
-                                      let data;
-                                      try { data = JSON.parse(raw); } catch { throw new Error(!res.ok ? `HTTP ${res.status}: ${raw.slice(0, 120)}` : "La respuesta del servidor no es JSON válido"); }
-                                      if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
-                                      if (data.status === "failed") setSmartMsg({ type: "error", text: `Test ${sub.name}: ${data.reason || "Error"}` });
-                                      else setSmartMsg({ type: "success", text: `Test ${sub.name}: email enviado ✓` });
-                                    } catch (e) {
-                                      setSmartMsg({ type: "error", text: `Test ${sub.name}: ${e.message}` });
-                                    } finally { setSmartRunning(null); }
-                                  }} disabled={!!smartRunning}>
-                                    📧 Test
-                                  </Btn>
-                                </div>
-                              </td>
-                            </tr>
+                    {Array.isArray(notifDetail.cveIds) && notifDetail.cveIds.length > 0 && (
+                      <div style={{ marginBottom: 12 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.gray500, marginBottom: 6 }}>CVEs incluidas</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {notifDetail.cveIds.map((cveId) => (
+                            <span key={cveId} style={{ padding: "3px 8px", borderRadius: 999, background: C.gray100, fontSize: 11, fontFamily: "monospace", color: C.gray700 }}>{cveId}</span>
                           ))}
-                        </tbody>
-                      </table>
+                        </div>
+                      </div>
+                    )}
+                    {(notifDetail.errorMessage || notifDetail.error) && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 12 }}>Error: {notifDetail.errorMessage || notifDetail.error}</div>}
+                    <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 8, overflow: "hidden", background: "#fff" }}>
+                      {notifDetail.htmlContent ? (
+                        <iframe title="Vista previa de comunicación" srcDoc={notifDetail.htmlContent} style={{ width: "100%", height: 460, border: 0 }} />
+                      ) : (
+                        <div style={{ padding: 16, fontSize: 12, color: C.gray500 }}>No hay vista previa HTML almacenada para esta comunicación.</div>
+                      )}
                     </div>
-                  )}
-                </Card>
-              )}
-
-              {/* ── Preview panel ── */}
-              {smartPreview && (
-                <Card title={`Preview — ${smartPreview.subscriberName}`} icon="brain" style={{ marginTop: 16 }}
-                  action={<button onClick={() => setSmartPreview(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: C.gray400 }}>×</button>}>
-                  <div style={{ fontSize: 12, color: C.gray500, marginBottom: 12 }}>
-                    Período: {smartPreview.periodStart ? fmtDate(smartPreview.periodStart) : "—"} → {smartPreview.periodEnd ? fmtDate(smartPreview.periodEnd) : "—"}
-                    {" | "}Vulnerabilidades analizadas: <strong>{smartPreview.totalVulnerabilities ?? "—"}</strong>
-                    {" | "}Cadenas detectadas: <strong>{smartPreview.analysis?.exploitChains?.length ?? smartPreview.analysis?.chains?.length ?? "—"}</strong>
                   </div>
-                  {smartPreview.html ? (
-                    <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, overflow: "hidden" }}>
-                      <iframe srcDoc={smartPreview.html} style={{ width: "100%", height: 600, border: "none" }} title="Smart notification preview" />
-                    </div>
-                  ) : smartPreview.analysis ? (
-                    <div style={{ background: C.gray50, padding: 16, borderRadius: 6, fontSize: 12, fontFamily: "monospace", whiteSpace: "pre-wrap", maxHeight: 500, overflow: "auto" }}>
-                      {JSON.stringify(smartPreview.analysis, null, 2)}
-                    </div>
-                  ) : (
-                    <div style={{ padding: 20, textAlign: "center", color: C.gray500 }}>Sin datos de preview disponibles. Compruebe que el suscriptor tiene suscripciones activas y que existen vulnerabilidades recientes.</div>
-                  )}
-                </Card>
-              )}
-
-              {/* ── Tab: History ── */}
-              {smartTab === "history" && (
-                <Card title="Historial de Informes Inteligentes" icon="file" noPad>
-                  {smartLoading ? (
-                    <div style={{ padding: 30, textAlign: "center", color: C.gray500 }}>Cargando historial...</div>
-                  ) : (smartHistory.data || []).length === 0 ? (
-                    <div style={{ padding: 30, textAlign: "center", color: C.gray500 }}>No se han generado informes inteligentes aún. Ejecute un análisis desde la pestaña Suscriptores.</div>
-                  ) : (
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                        <thead>
-                          <tr style={{ background: C.gray50, borderBottom: `2px solid ${C.gray200}` }}>
-                            <th style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700 }}>Fecha</th>
-                            <th style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700 }}>Suscriptor</th>
-                            <th style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700 }}>Asunto</th>
-                            <th style={{ padding: "10px 14px", textAlign: "center", fontWeight: 700 }}>Estado</th>
-                            <th style={{ padding: "10px 14px", textAlign: "center", fontWeight: 700 }}>AI</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(smartHistory.data || []).map((h, i) => (
-                            <tr key={h.id || i} style={{ borderBottom: `1px solid ${C.gray100}` }}>
-                              <td style={{ padding: "10px 14px", fontSize: 12 }}>{fmtDate(h.createdAt || h.sentAt)}</td>
-                              <td style={{ padding: "10px 14px", fontWeight: 600 }}>{h.subscriber?.name || h.recipientEmail || "—"}</td>
-                              <td style={{ padding: "10px 14px", color: C.gray600, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.subject || "—"}</td>
-                              <td style={{ padding: "10px 14px", textAlign: "center" }}>
-                                <span style={{
-                                  padding: "3px 10px", borderRadius: 10, fontSize: 11, fontWeight: 700,
-                                  background: h.status === "sent" ? "#ECFDF5" : h.status === "generated" ? C.bluePale : C.criticalBg,
-                                  color: h.status === "sent" ? "#065F46" : h.status === "generated" ? C.blue : C.critical,
-                                }}>{h.status === "sent" ? "Enviado" : h.status === "generated" ? "Generado" : h.status || "—"}</span>
-                              </td>
-                              <td style={{ padding: "10px 14px", textAlign: "center", fontSize: 11, color: C.gray500 }}>{h.aiModel || h.aiProvider || "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </Card>
-              )}
-
-              {/* ── Tab: Config ── */}
-              {smartTab === "config" && (
-                <Card title="Configuración del Motor AI" icon="settings">
-                  <div style={{ fontSize: 13, color: C.gray600, marginBottom: 16 }}>
-                    La configuración AI se gestiona desde <strong>Configuración → Motor de IA</strong>. Aquí puede ver el perfil activo y exportar/importar perfiles de análisis.
-                  </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <Btn onClick={async () => {
-                      setSmartMsg(null);
-                      try {
-                        const res = await apiFetch("/smart-notifications/config");
-                        const data = await res.json();
-                        setSmartPreview({ configData: data });
-                        setSmartMsg({ type: "success", text: "Configuración cargada" });
-                      } catch (e) {
-                        setSmartMsg({ type: "error", text: e.message });
-                      }
-                    }}>📋 Ver configuración actual</Btn>
-                    <Btn onClick={async () => {
-                      try {
-                        const res = await apiFetch("/smart-notifications/config/export?format=json");
-                        const data = await res.json();
-                        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement("a");
-                        a.href = url; a.download = "smart-notif-config.json"; a.click();
-                        URL.revokeObjectURL(url);
-                      } catch (e) {
-                        setSmartMsg({ type: "error", text: e.message });
-                      }
-                    }}>💾 Exportar perfil (JSON)</Btn>
-                  </div>
-                  {smartPreview?.configData && (
-                    <div style={{ marginTop: 16, background: C.gray50, padding: 16, borderRadius: 6, fontSize: 12, fontFamily: "monospace", whiteSpace: "pre-wrap", maxHeight: 400, overflow: "auto" }}>
-                      {JSON.stringify(smartPreview.configData, null, 2)}
-                    </div>
-                  )}
-                </Card>
+                </div>
               )}
             </>}
 
@@ -5272,6 +5062,34 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                       </div>
                     </div>
 
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 8, background: C.gray50, border: `1px solid ${C.gray200}` }}>
+                        <input
+                          type="checkbox"
+                          checked={!!accountProfile?.canReceiveNotifications}
+                          onChange={(e) => setAccountProfile((p) => ({ ...(p || {}), canReceiveNotifications: e.target.checked }))}
+                        />
+                        <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>Puede recibir notificaciones</span>
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 8, background: C.gray50, border: `1px solid ${C.gray200}` }}>
+                        <input
+                          type="checkbox"
+                          checked={!!accountProfile?.notificationsPaused}
+                          onChange={(e) => setAccountProfile((p) => ({ ...(p || {}), notificationsPaused: e.target.checked }))}
+                        />
+                        <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>Notificaciones en pausa</span>
+                      </label>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Pausa hasta</label>
+                        <input
+                          type="datetime-local"
+                          value={accountProfile?.notificationsPausedUntil ? String(accountProfile.notificationsPausedUntil).slice(0, 16) : ""}
+                          onChange={(e) => setAccountProfile((p) => ({ ...(p || {}), notificationsPausedUntil: e.target.value || null }))}
+                          style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }}
+                        />
+                      </div>
+                    </div>
+
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
                       <div>
                         <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Persona de contacto</label>
@@ -5301,6 +5119,9 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                             const payload = {
                               name: accountProfile?.name || "",
                               notificationEmail: accountProfile?.notificationEmail || "",
+                              canReceiveNotifications: !!accountProfile?.canReceiveNotifications,
+                              notificationsPaused: !!accountProfile?.notificationsPaused,
+                              notificationsPausedUntil: accountProfile?.notificationsPausedUntil || null,
                               contactPerson: accountProfile?.contactPerson || "",
                               department: accountProfile?.department || "",
                               phone: accountProfile?.phone || "",
@@ -5359,7 +5180,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
               <Card title="Gestión de Usuarios" icon="users" action={<Btn small primary onClick={() => openUserForm()}><I name="plus" size={14} /> Nuevo</Btn>}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: C.gray50 }}>
-                    {["Nombre", "Email", "Rol", "Estado", "Último acceso", "Acciones"].map(h => (
+                    {["Nombre", "Email", "Rol", "Notif.", "Estado", "Último acceso", "Acciones"].map(h => (
                       <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", borderBottom: `2px solid ${C.gray200}` }}>{h}</th>
                     ))}
                   </tr></thead>
@@ -5373,6 +5194,15 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                       </td>
                       <td style={{ padding: "8px 12px", fontSize: 11, fontFamily: "monospace" }}>{u.email}</td>
                       <td style={{ padding: "8px 12px" }}><span style={{ padding: "2px 8px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: u.role === "ADMIN" ? C.bluePale : C.gray100, color: u.role === "ADMIN" ? C.blue : C.gray600 }}>{u.role}</span></td>
+                      <td style={{ padding: "8px 12px", fontSize: 10 }}>
+                        {!u.canReceiveNotifications ? (
+                          <span style={{ color: C.gray500, fontWeight: 600 }}>Desactivadas</span>
+                        ) : u.notificationsPaused ? (
+                          <span style={{ color: C.high, fontWeight: 700 }}>Pausadas</span>
+                        ) : (
+                          <span style={{ color: C.low, fontWeight: 700 }}>Activas</span>
+                        )}
+                      </td>
                       <td style={{ padding: "8px 12px" }}><span style={{ color: u.isActive ? C.low : C.critical, fontWeight: 600, fontSize: 10 }}>{u.isActive ? "● Activo" : "○ Inactivo"}</span></td>
                       <td style={{ padding: "8px 12px", fontSize: 10, color: C.gray400 }}>{fmtDate(u.lastLoginAt)}</td>
                       <td style={{ padding: "8px 12px" }}>
@@ -5411,6 +5241,33 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         <span style={{ fontSize: 12, color: C.text }}>Usuario suscriptor de alertas</span>
                       </div>
                     </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={!!editUser.canReceiveNotifications}
+                          onChange={e => setEditUser({ ...editUser, canReceiveNotifications: e.target.checked, notificationEmail: e.target.checked ? (editUser.notificationEmail || editUser.email || "") : "" })}
+                        />
+                        <span style={{ fontSize: 12, color: C.text }}>Puede recibir notificaciones</span>
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={!!editUser.notificationsPaused}
+                          onChange={e => setEditUser({ ...editUser, notificationsPaused: e.target.checked })}
+                        />
+                        <span style={{ fontSize: 12, color: C.text }}>Notificaciones en pausa</span>
+                      </label>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Pausa hasta</label>
+                        <input
+                          type="datetime-local"
+                          value={editUser.notificationsPausedUntil || ""}
+                          onChange={e => setEditUser({ ...editUser, notificationsPausedUntil: e.target.value })}
+                          style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }}
+                        />
+                      </div>
+                    </div>
                     {editUser.canLogin && (
                       <>
                         <div style={{ marginBottom: 12 }}>
@@ -5442,12 +5299,14 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         </div>
                       </>
                     )}
+                    {editUser.canReceiveNotifications && (
+                      <div style={{ marginTop: 6, marginBottom: 10 }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email de notificación</label>
+                        <Input value={editUser.notificationEmail || ""} onChange={v => setEditUser({ ...editUser, notificationEmail: v })} placeholder="destinatario@empresa.com" icon="mail" />
+                      </div>
+                    )}
                     {editUser.isSubscriber && (
                       <div style={{ marginTop: 6, border: `1px solid ${C.gray200}`, borderRadius: 8, padding: 14, background: C.gray50 }}>
-                        <div style={{ marginBottom: 10 }}>
-                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email de notificación</label>
-                          <Input value={editUser.notificationEmail || ""} onChange={v => setEditUser({ ...editUser, notificationEmail: v })} placeholder="destinatario@empresa.com" icon="mail" />
-                        </div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 14 }}>
                           <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", maxHeight: 300, overflow: "auto" }}>
                             <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray100}`, fontSize: 11, fontWeight: 700, color: C.gray600 }}>Fabricantes</div>
@@ -5521,7 +5380,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
             {view === "settings" && <>
               <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Configuración</h1>
               <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                {[{ id: "smtp", label: "SMTP" }, { id: "ia", label: "IA" }, { id: "tags", label: "Etiquetas" }].map(t => (
+                {[{ id: "smtp", label: "SMTP" }, { id: "notifications", label: "Notificaciones" }, { id: "ia", label: "IA" }, { id: "tags", label: "Etiquetas" }].map(t => (
                   <div key={t.id} onClick={() => setSettingsTab(t.id)} style={{ padding: "8px 18px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: settingsTab === t.id ? C.navy : C.gray100, color: settingsTab === t.id ? "#fff" : C.gray600, transition: "all 0.15s" }}>{t.label}</div>
                 ))}
               </div>
@@ -5575,6 +5434,349 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                   </>
                 )}
               </Card>}
+
+              {settingsTab === "notifications" && <>
+                <Card title="Centro de Notificaciones" icon="mail" style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+                    {NOTIFICATION_SETTINGS_TABS.map((tab) => (
+                      <div
+                        key={tab.id}
+                        onClick={() => setNotificationSettingsTab(tab.id)}
+                        style={{
+                          padding: "8px 14px",
+                          borderRadius: 999,
+                          cursor: "pointer",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          background: notificationSettingsTab === tab.id ? C.navy : C.gray100,
+                          color: notificationSettingsTab === tab.id ? "#fff" : C.gray600,
+                        }}
+                      >
+                        {tab.label}
+                      </div>
+                    ))}
+                  </div>
+
+                  {notificationCenterMsg && (
+                    <div className="fade" style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 6, fontSize: 12, fontWeight: 700, background: notificationCenterMsg.type === "success" ? C.lowBg : C.criticalBg, color: notificationCenterMsg.type === "success" ? C.low : C.critical }}>
+                      {notificationCenterMsg.text}
+                    </div>
+                  )}
+
+                  {notificationCenterLoading ? (
+                    <div style={{ padding: 20, textAlign: "center", color: C.gray500 }}>Cargando configuración de notificaciones...</div>
+                  ) : (
+                    <>
+                      {notificationSettingsTab === "general" && (
+                        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 14 }}>
+                          <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 10, padding: 14, background: C.gray50 }}>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: C.text, marginBottom: 10 }}>Gobierno del proceso</div>
+                            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                              <input type="checkbox" checked={!!notificationCenter.general.processEnabled} onChange={(e) => updateNotificationCenterSection("general", { processEnabled: e.target.checked })} />
+                              <span style={{ fontSize: 12, fontWeight: 600 }}>Proceso de envío habilitado</span>
+                            </label>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                              <div>
+                                <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Ventana dedupe (h)</label>
+                                <Input value={String(notificationCenter.general.dedupeWindowHours || 24)} onChange={(v) => updateNotificationCenterSection("general", { dedupeWindowHours: Number(v) || 24 })} />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Template por defecto</label>
+                                <select value={notificationCenter.general.activeTemplateKey || "normal_v2"} onChange={(e) => updateNotificationCenterSection("general", { activeTemplateKey: e.target.value })} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
+                                  {(notificationCenter.templates.available || []).map((item) => <option key={item.key} value={item.key}>{item.name}</option>)}
+                                </select>
+                              </div>
+                            </div>
+                            <div style={{ marginTop: 10 }}>
+                              <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Backoff de reintentos (min)</label>
+                              <Input value={listToCsvString(notificationCenter.general.retryBackoffMinutes)} onChange={(v) => updateNotificationCenterSection("general", { retryBackoffMinutes: csvStringToList(v).map((item) => Number(item)).filter((item) => Number.isFinite(item) && item > 0) })} placeholder="5, 15, 30" />
+                            </div>
+                          </div>
+                          <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 10, padding: 14 }}>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: C.text, marginBottom: 10 }}>Estado operativo</div>
+                            <div style={{ fontSize: 12, color: C.gray600, lineHeight: 1.7 }}>
+                              <div>SMTP: <strong>{notificationCenter.general.smtpConfigured ? "Configurado" : "Pendiente"}</strong></div>
+                              <div>Última enviada: <strong>{fmtDate(notificationCenter.processHealth.lastSent?.sentAt)}</strong></div>
+                              <div>Última fallida: <strong>{fmtDate(notificationCenter.processHealth.lastFailed?.sentAt)}</strong></div>
+                              <div>Cola pendiente: <strong>{notificationCenter.processHealth.queuePending || 0}</strong></div>
+                            </div>
+                          </div>
+                          <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 10, padding: 14 }}>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: C.text, marginBottom: 10 }}>Receptores</div>
+                            <div style={{ fontSize: 12, color: C.gray600, lineHeight: 1.7 }}>
+                              <div>Usuarios activos: <strong>{notificationCenter.recipients.totalUsers || 0}</strong></div>
+                              <div>Con recepción activa: <strong>{notificationCenter.recipients.enabledRecipients || 0}</strong></div>
+                              <div>En pausa: <strong>{notificationCenter.recipients.pausedRecipients || 0}</strong></div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {notificationSettingsTab === "immediate" && (
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.immediate.enabled} onChange={(e) => updateNotificationCenterSection("immediate", { enabled: e.target.checked })} /> <span style={{ fontSize: 12, fontWeight: 600 }}>Habilitada</span></label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.immediate.kevOnly} onChange={(e) => updateNotificationCenterSection("immediate", { kevOnly: e.target.checked })} /> <span style={{ fontSize: 12 }}>Solo KEV</span></label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.immediate.publicExploitOnly} onChange={(e) => updateNotificationCenterSection("immediate", { publicExploitOnly: e.target.checked })} /> <span style={{ fontSize: 12 }}>Solo exploit público</span></label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.immediate.activeExploitationOnly} onChange={(e) => updateNotificationCenterSection("immediate", { activeExploitationOnly: e.target.checked })} /> <span style={{ fontSize: 12 }}>Solo explotación activa</span></label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.immediate.patchUnconfirmedOnly} onChange={(e) => updateNotificationCenterSection("immediate", { patchUnconfirmedOnly: e.target.checked })} /> <span style={{ fontSize: 12 }}>Parche no confirmado</span></label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.immediate.onlySubscribedSystems} onChange={(e) => updateNotificationCenterSection("immediate", { onlySubscribedSystems: e.target.checked })} /> <span style={{ fontSize: 12 }}>Solo sistemas suscritos</span></label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.immediate.newVulnerabilityOnly} onChange={(e) => updateNotificationCenterSection("immediate", { newVulnerabilityOnly: e.target.checked })} /> <span style={{ fontSize: 12 }}>Solo vulnerabilidad nueva</span></label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.immediate.onSeverityChange} onChange={(e) => updateNotificationCenterSection("immediate", { onSeverityChange: e.target.checked })} /> <span style={{ fontSize: 12 }}>Cambio de criticidad</span></label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.immediate.onExploitChange} onChange={(e) => updateNotificationCenterSection("immediate", { onExploitChange: e.target.checked })} /> <span style={{ fontSize: 12 }}>Cambio de explotación</span></label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.immediate.onPatchChange} onChange={(e) => updateNotificationCenterSection("immediate", { onPatchChange: e.target.checked })} /> <span style={{ fontSize: 12 }}>Cambio de patch status</span></label>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Severidad mínima</label><select value={notificationCenter.immediate.minSeverity || "HIGH"} onChange={(e) => updateNotificationCenterSection("immediate", { minSeverity: e.target.value })} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>CVSS mínimo</label><Input value={String(notificationCenter.immediate.minCvss || 0)} onChange={(v) => updateNotificationCenterSection("immediate", { minCvss: Number(v) || 0 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>EPSS mínimo</label><Input value={String(notificationCenter.immediate.minEpss || 0)} onChange={(v) => updateNotificationCenterSection("immediate", { minEpss: Number(v) || 0 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Percentil EPSS mínimo</label><Input value={String(notificationCenter.immediate.minEpssPercentile || 0)} onChange={(v) => updateNotificationCenterSection("immediate", { minEpssPercentile: Number(v) || 0 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Confianza mínima</label><Input value={String(notificationCenter.immediate.minConfidence || 0)} onChange={(v) => updateNotificationCenterSection("immediate", { minConfidence: Number(v) || 0 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Mínimo de fuentes</label><Input value={String(notificationCenter.immediate.minSources || 1)} onChange={(v) => updateNotificationCenterSection("immediate", { minSources: Number(v) || 1 })} /></div>
+                          <div style={{ gridColumn: "1 / -1" }}><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Fabricantes / productos / categorías / exclusiones</label><div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}><Input value={listToCsvString(notificationCenter.immediate.vendorFilters)} onChange={(v) => updateNotificationCenterSection("immediate", { vendorFilters: csvStringToList(v) })} placeholder="microsoft, vmware" /><Input value={listToCsvString(notificationCenter.immediate.productFilters)} onChange={(v) => updateNotificationCenterSection("immediate", { productFilters: csvStringToList(v) })} placeholder="exchange, esxi" /><Input value={listToCsvString(notificationCenter.immediate.categoryFilters)} onChange={(v) => updateNotificationCenterSection("immediate", { categoryFilters: csvStringToList(v) })} placeholder="rce, auth-bypass" /><Input value={listToCsvString(notificationCenter.immediate.exclusions)} onChange={(v) => updateNotificationCenterSection("immediate", { exclusions: csvStringToList(v) })} placeholder="cve-2026-1234" /></div></div>
+                        </div>
+                      )}
+
+                      {notificationSettingsTab === "digest" && (
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.digest.enabled} onChange={(e) => updateNotificationCenterSection("digest", { enabled: e.target.checked })} /> <span style={{ fontSize: 12, fontWeight: 600 }}>Digest habilitado</span></label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.digest.onlySubscribedSystems} onChange={(e) => updateNotificationCenterSection("digest", { onlySubscribedSystems: e.target.checked })} /> <span style={{ fontSize: 12 }}>Solo sistemas suscritos</span></label>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Frecuencia</label><select value={String(notificationCenter.digest.intervalHours || 12)} onChange={(e) => updateNotificationCenterSection("digest", { intervalHours: Number(e.target.value) || 12 })} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>{DIGEST_INTERVAL_OPTIONS.map((hours) => <option key={hours} value={String(hours)}>{hours} horas</option>)}</select></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Severidad mínima</label><select value={notificationCenter.digest.minSeverity || "MEDIUM"} onChange={(e) => updateNotificationCenterSection("digest", { minSeverity: e.target.value })} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>CVSS mínimo</label><Input value={String(notificationCenter.digest.minCvss || 0)} onChange={(v) => updateNotificationCenterSection("digest", { minCvss: Number(v) || 0 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>EPSS mínimo</label><Input value={String(notificationCenter.digest.minEpss || 0)} onChange={(v) => updateNotificationCenterSection("digest", { minEpss: Number(v) || 0 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Confianza mínima</label><Input value={String(notificationCenter.digest.minConfidence || 0)} onChange={(v) => updateNotificationCenterSection("digest", { minConfidence: Number(v) || 0 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Mínimo de fuentes</label><Input value={String(notificationCenter.digest.minSources || 1)} onChange={(v) => updateNotificationCenterSection("digest", { minSources: Number(v) || 1 })} /></div>
+                          <div style={{ gridColumn: "1 / -1" }}><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Filtros y exclusiones</label><div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}><Input value={listToCsvString(notificationCenter.digest.vendorFilters)} onChange={(v) => updateNotificationCenterSection("digest", { vendorFilters: csvStringToList(v) })} placeholder="fabricantes" /><Input value={listToCsvString(notificationCenter.digest.productFilters)} onChange={(v) => updateNotificationCenterSection("digest", { productFilters: csvStringToList(v) })} placeholder="productos" /><Input value={listToCsvString(notificationCenter.digest.categoryFilters)} onChange={(v) => updateNotificationCenterSection("digest", { categoryFilters: csvStringToList(v) })} placeholder="categorías" /><Input value={listToCsvString(notificationCenter.digest.exclusions)} onChange={(v) => updateNotificationCenterSection("digest", { exclusions: csvStringToList(v) })} placeholder="exclusiones" /></div></div>
+                        </div>
+                      )}
+
+                      {notificationSettingsTab === "intelligent" && (
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.intelligent.enabled} onChange={(e) => updateNotificationCenterSection("intelligent", { enabled: e.target.checked })} /> <span style={{ fontSize: 12, fontWeight: 600 }}>Evaluación inteligente habilitada</span></label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.intelligent.onlyWhenFinding} onChange={(e) => updateNotificationCenterSection("intelligent", { onlyWhenFinding: e.target.checked })} /> <span style={{ fontSize: 12 }}>Solo si hay hallazgo relevante</span></label>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Hora diaria</label><Input value={String(notificationCenter.intelligent.evaluationHour || 8)} onChange={(v) => updateNotificationCenterSection("intelligent", { evaluationHour: Number(v) || 8 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Ventana reciente (h)</label><Input value={String(notificationCenter.intelligent.recentWindowHours || 24)} onChange={(v) => updateNotificationCenterSection("intelligent", { recentWindowHours: Number(v) || 24 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contexto ampliado (días)</label><Input value={String(notificationCenter.intelligent.contextWindowDays || 7)} onChange={(v) => updateNotificationCenterSection("intelligent", { contextWindowDays: Number(v) || 7 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Confianza mínima</label><Input value={String(notificationCenter.intelligent.minConfidence || 0)} onChange={(v) => updateNotificationCenterSection("intelligent", { minConfidence: Number(v) || 0 })} /></div>
+                          {[
+                            ["attackPath", "Attack path plausible"],
+                            ["campaignCluster", "Campaña o clúster"],
+                            ["compoundRisk", "KEV + exploit + EPSS + riesgo"],
+                            ["postureChange", "Cambio fuerte de postura"],
+                          ].map(([key, label]) => (
+                            <label key={key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <input type="checkbox" checked={!!notificationCenter.intelligent.scenarioFlags?.[key]} onChange={(e) => updateNotificationCenterSection("intelligent", { scenarioFlags: { ...(notificationCenter.intelligent.scenarioFlags || {}), [key]: e.target.checked } })} />
+                              <span style={{ fontSize: 12 }}>{label}</span>
+                            </label>
+                          ))}
+                          <div style={{ gridColumn: "1 / -1", padding: "12px 14px", borderRadius: 10, background: C.gray50, border: `1px solid ${C.gray200}`, fontSize: 12, color: C.gray600, lineHeight: 1.6 }}>
+                            Esta capa no envía “IA por rutina” sin valor. La intención operativa es evaluar diariamente la ventana reciente, ampliar contexto a 7 días y emitir solo cuando haya un hallazgo explicable y accionable.
+                          </div>
+                        </div>
+                      )}
+
+                      {notificationSettingsTab === "templates" && (
+                        <>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+                            {(notificationCenter.templates.available || []).map((item) => (
+                              <div key={item.key} style={{ border: `1px solid ${C.gray200}`, borderRadius: 10, padding: 14, background: notificationCenter.general.activeTemplateKey === item.key ? C.bluePale : "#fff" }}>
+                                <div style={{ fontSize: 13, fontWeight: 800, color: C.text, marginBottom: 4 }}>{item.name}</div>
+                                <div style={{ fontSize: 11, color: C.gray600, lineHeight: 1.6 }}>{item.description}</div>
+                                <div style={{ marginTop: 10 }}>
+                                  <Btn small onClick={() => updateNotificationCenterSection("general", { activeTemplateKey: item.key })}>Usar por defecto</Btn>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <Card title="Editor de plantilla normal / compatibilidad" icon="mail">
+                            {templateLoading ? (
+                              <div style={{ padding: 20, textAlign: "center", color: C.gray500 }}>Cargando plantilla...</div>
+                            ) : (
+                              <>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto", gap: 8, alignItems: "end", marginBottom: 12 }}>
+                                  <div>
+                                    <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Plantillas legacy guardadas</label>
+                                    <select value={selectedTemplateId} onChange={e => loadTemplateById(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
+                                      <option value="">(Nueva plantilla)</option>
+                                      {templateList.map(t => (
+                                        <option key={t.id} value={String(t.id)}>{t.name}{t.isActive ? " (activa)" : ""}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Nombre de plantilla</label>
+                                    <Input value={templateName} onChange={setTemplateName} placeholder="Ej: Digest premium" />
+                                  </div>
+                                  <Btn onClick={() => { setSelectedTemplateId(""); setTemplateName("Plantilla CVE"); setTemplateConfig({ headerImageUrl: "", introMessage: "La Oficina de Ciberseguridad Corporativa informa de nuevas vulnerabilidades relevantes para tus activos suscritos.", showExploitProbability: true, showExploitExists: true, showAffectedSoftware: true, showDescription: true, showReferences: true, showPatchLink: true }); }}>Nueva</Btn>
+                                  <Btn onClick={activateTemplate} disabled={!selectedTemplateId}>Activar</Btn>
+                                </div>
+                                <div style={{ marginBottom: 12 }}>
+                                  <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Encabezado (imagen)</label>
+                                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                                    <input type="file" accept="image/*" onChange={e => onTemplateHeaderUpload(e.target.files?.[0])} style={{ fontSize: 12 }} />
+                                    {templateConfig.headerImageUrl && <Btn small onClick={() => setTemplateConfig({ ...templateConfig, headerImageUrl: "" })}>Quitar imagen</Btn>}
+                                  </div>
+                                </div>
+                                <div style={{ marginBottom: 12 }}>
+                                  <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Mensaje inicial</label>
+                                  <textarea value={templateConfig.introMessage} onChange={e => setTemplateConfig({ ...templateConfig, introMessage: e.target.value })} rows={5} style={{ width: "100%", padding: "10px 12px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+                                </div>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
+                                  {[
+                                    ["showExploitProbability", "Posibilidad de explotación"],
+                                    ["showExploitExists", "Existencia de exploit"],
+                                    ["showAffectedSoftware", "Software afectado"],
+                                    ["showDescription", "Descripción"],
+                                    ["showReferences", "Referencias"],
+                                    ["showPatchLink", "Enlace de parche"],
+                                  ].map(([key, label]) => (
+                                    <label key={key} style={{ fontSize: 12, color: C.gray700, display: "flex", alignItems: "center", gap: 6 }}>
+                                      <input type="checkbox" checked={!!templateConfig[key]} onChange={e => setTemplateConfig({ ...templateConfig, [key]: e.target.checked })} />
+                                      {label}
+                                    </label>
+                                  ))}
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 12 }}>
+                                  <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 6 }}>Vista previa con CVE</label>
+                                    <select value={previewVulnId} onChange={e => setPreviewVulnId(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 6, fontSize: 12, background: "#fff" }}>
+                                      <option value="">Selecciona un CVE...</option>
+                                      {vulns.map(v => <option key={v.id} value={String(v.id)}>{v.cveId} ({v.cvssV31Severity || "N/A"})</option>)}
+                                    </select>
+                                  </div>
+                                  <div style={{ display: "flex", gap: 8 }}>
+                                    <Btn onClick={generateTemplatePreview} disabled={!previewVulnId || templatePreviewLoading}>{templatePreviewLoading ? "Generando..." : "Vista previa"}</Btn>
+                                    <Btn primary onClick={saveTemplateConfig} disabled={templateSaving}>{templateSaving ? "Guardando..." : "Guardar plantilla"}</Btn>
+                                  </div>
+                                </div>
+                                <div style={{ marginTop: 12, border: `1px solid ${C.gray200}`, borderRadius: 8, overflow: "hidden", background: "#fff" }}>
+                                  {templatePreviewHtml ? <iframe title="Preview plantilla" srcDoc={templatePreviewHtml} style={{ width: "100%", height: 460, border: 0 }} /> : <div style={{ padding: 16, fontSize: 12, color: C.gray500 }}>Genera una vista previa para revisar la plantilla.</div>}
+                                </div>
+                              </>
+                            )}
+                          </Card>
+                        </>
+                      )}
+
+                      {notificationSettingsTab === "recipients" && (
+                        <div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+                            <Metric icon="users" label="Usuarios" value={notificationCenter.recipients.totalUsers || 0} color={C.navy} />
+                            <Metric icon="mail" label="Activos" value={notificationCenter.recipients.enabledRecipients || 0} color={C.low} />
+                            <Metric icon="clock" label="Pausados" value={notificationCenter.recipients.pausedRecipients || 0} color={C.high} />
+                            <Metric icon="shield" label="Suscriptores" value={notificationCenter.recipients.subscribers || 0} color={C.blue} />
+                          </div>
+                          <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 10, overflow: "hidden" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                              <thead><tr style={{ background: C.gray50 }}>
+                                {["Usuario", "Rol", "Email notif.", "Recepción", "Pausa", "Último envío"].map(h => (
+                                  <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", borderBottom: `1px solid ${C.gray200}` }}>{h}</th>
+                                ))}
+                              </tr></thead>
+                              <tbody>
+                                {(users || []).map((user) => (
+                                  <tr key={user.id}>
+                                    <td style={{ padding: "8px 12px", fontSize: 12, fontWeight: 600 }}>{user.name}</td>
+                                    <td style={{ padding: "8px 12px", fontSize: 11 }}>{user.role}</td>
+                                    <td style={{ padding: "8px 12px", fontSize: 11 }}>{user.notificationEmail || user.email}</td>
+                                    <td style={{ padding: "8px 12px", fontSize: 11 }}>{user.canReceiveNotifications ? "Activa" : "Desactivada"}</td>
+                                    <td style={{ padding: "8px 12px", fontSize: 11 }}>{user.notificationsPaused ? `Hasta ${fmtDate(user.notificationsPausedUntil)}` : "No"}</td>
+                                    <td style={{ padding: "8px 12px", fontSize: 11 }}>{fmtDate(user.lastNotificationSentAt)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {notificationSettingsTab === "health" && (
+                        <div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+                            <Metric icon="settings" label="Proceso" value={notificationCenter.processHealth.enabled ? "Activo" : "Pausado"} sub={notificationCenter.processHealth.smtpConfigured ? "SMTP configurado" : "SMTP pendiente"} color={notificationCenter.processHealth.enabled ? C.blue : C.gray500} />
+                            <Metric icon="mail" label="Última enviada" value={fmtDate(notificationCenter.processHealth.lastSent?.sentAt)} color={C.low} />
+                            <Metric icon="x" label="Última fallida" value={fmtDate(notificationCenter.processHealth.lastFailed?.sentAt)} color={C.critical} />
+                            <Metric icon="activity" label="Reintentos" value={notificationCenter.processHealth.retries || 0} color={C.high} />
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1.25fr 1fr", gap: 16 }}>
+                            <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 10, overflow: "hidden" }}>
+                              <div style={{ padding: "12px 14px", borderBottom: `1px solid ${C.gray200}`, fontSize: 12, fontWeight: 800, color: C.text }}>Jobs y ejecución</div>
+                              <div style={{ padding: 14, display: "grid", gap: 12 }}>
+                                {[
+                                  ["immediate", "immediate_notification_job"],
+                                  ["digest", "digest_notification_job"],
+                                  ["intelligent", "intelligent_notification_job"],
+                                ].map(([labelKey, jobKey]) => {
+                                  const job = notificationCenter.processHealth.jobs?.[labelKey] || {};
+                                  return (
+                                    <div key={jobKey} style={{ border: `1px solid ${C.gray200}`, borderRadius: 10, padding: 12, background: C.gray50 }}>
+                                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+                                        <div>
+                                          <div style={{ fontSize: 13, fontWeight: 800, color: C.text }}>{NOTIFICATION_JOB_LABELS[labelKey]}</div>
+                                          <div style={{ fontSize: 11, color: C.gray500 }}>Próxima ejecución: {job.nextExecution || "N/D"}</div>
+                                        </div>
+                                        <span style={{ padding: "3px 8px", borderRadius: 999, fontSize: 10, fontWeight: 800, background: job.status === "completed" ? C.lowBg : job.status === "failed" ? C.criticalBg : C.gray100, color: job.status === "completed" ? C.low : job.status === "failed" ? C.critical : C.gray600 }}>{toSentence(job.status || "idle")}</span>
+                                      </div>
+                                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, fontSize: 11, color: C.gray600, marginBottom: 10 }}>
+                                        <div>Enviadas: <strong>{job.notificationsSent || 0}</strong></div>
+                                        <div>Fallidas: <strong>{job.notificationsFailed || 0}</strong></div>
+                                        <div>Analizadas: <strong>{job.vulnerabilitiesConsidered || 0}</strong></div>
+                                        <div>Cola: <strong>{job.queuePending || 0}</strong></div>
+                                      </div>
+                                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11, color: C.gray600, marginBottom: 10 }}>
+                                        <div>Último ciclo: <strong>{fmtDate(job.finishedAt || job.startedAt)}</strong></div>
+                                        <div>Modo: <strong>{toSentence(job.mode || "manual")}</strong></div>
+                                        <div style={{ gridColumn: "1 / -1" }}>
+                                          Ventana: <strong>{job.watermarkFrom ? fmtDate(job.watermarkFrom) : "N/D"}</strong>
+                                          {" → "}
+                                          <strong>{job.watermarkTo ? fmtDate(job.watermarkTo) : "N/D"}</strong>
+                                        </div>
+                                      </div>
+                                      {job.errorMessage && <div style={{ fontSize: 11, color: C.critical, marginBottom: 8 }}>{job.errorMessage}</div>}
+                                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                        <Btn small onClick={() => runNotificationJobNow(jobKey)} disabled={notificationProcessRunning === jobKey}>{notificationProcessRunning === jobKey ? "Ejecutando..." : "Ejecutar ahora"}</Btn>
+                                        <Btn small onClick={() => sendNotificationProcessTest(jobKey)} disabled={notificationTestRunning === jobKey}>{notificationTestRunning === jobKey ? "Probando..." : "Probar"}</Btn>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                            <div style={{ display: "grid", gap: 16 }}>
+                              <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 10, padding: 14 }}>
+                                <div style={{ fontSize: 12, fontWeight: 800, color: C.text, marginBottom: 8 }}>Operación rápida</div>
+                                <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email de prueba</label>
+                                <Input value={notificationOpsEmail} onChange={setNotificationOpsEmail} placeholder="operaciones@empresa.com" icon="mail" />
+                              </div>
+                              <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 10, overflow: "hidden" }}>
+                                <div style={{ padding: "12px 14px", borderBottom: `1px solid ${C.gray200}`, fontSize: 12, fontWeight: 800, color: C.text }}>Logs recientes</div>
+                                <div style={{ maxHeight: 320, overflow: "auto" }}>
+                                  {(notificationCenter.processHealth.recentLogs || []).length === 0 ? (
+                                    <div style={{ padding: 14, fontSize: 12, color: C.gray500 }}>Sin logs recientes.</div>
+                                  ) : (notificationCenter.processHealth.recentLogs || []).map((log) => (
+                                    <div key={log.id} style={{ padding: "10px 12px", borderBottom: `1px solid ${C.gray100}` }}>
+                                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{log.subject}</div>
+                                        <div style={{ fontSize: 10, color: C.gray500 }}>{fmtDate(log.sentAt)}</div>
+                                      </div>
+                                      <div style={{ fontSize: 11, color: C.gray600 }}>{toSentence(log.notificationType || "normal")} · {log.recipientEmail}</div>
+                                      <div style={{ fontSize: 11, color: log.status === "sent" ? C.low : C.critical }}>{log.status === "sent" ? "Enviado" : `Fallo${log.errorMessage ? ` · ${log.errorMessage}` : ""}`}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+                        <Btn primary onClick={saveNotificationCenterSettings} disabled={notificationCenterSaving}>
+                          {notificationCenterSaving ? "Guardando..." : "Guardar configuración de notificaciones"}
+                        </Btn>
+                      </div>
+                    </>
+                  )}
+                </Card>
+              </>}
 
               {/* IA Tab */}
               {settingsTab === "ia" && <Card title="Configuración IA (Ollama)" icon="brain">

@@ -23,6 +23,10 @@ model User {
   canLogin          Boolean   @default(true) @map("can_login")
   isSubscriber      Boolean   @default(false) @map("is_subscriber")
   notificationEmail String?   @map("notification_email")
+  canReceiveNotifications Boolean   @default(true) @map("can_receive_notifications")
+  notificationsPaused     Boolean   @default(false) @map("notifications_paused")
+  notificationsPausedUntil DateTime? @map("notifications_paused_until")
+  lastNotificationSentAt  DateTime? @map("last_notification_sent_at")
   contactPerson     String?   @map("contact_person")
   department        String?
   phone             String?
@@ -504,13 +508,47 @@ model NotificationLog {
   recipientEmail String   @map("recipient_email")
   recipientName  String?  @map("recipient_name")
   subject        String
+  notificationType String @default("normal") @map("notification_type")
+  templateKey   String?   @map("template_key")
+  channel       String    @default("email")
+  vulnerabilityCount Int  @default(0) @map("vulnerability_count")
+  triggerReason String?   @map("trigger_reason")
   htmlContent    String   @map("html_content") @db.Text
   cveIds         String   @default("[]") @map("cve_ids")
   status         String   @default("sent")
+  errorMessage   String?  @map("error_message") @db.Text
+  metadataJson   String?  @map("metadata_json") @db.LongText
   sentAt         DateTime @default(now()) @map("sent_at")
 
+  @@index([notificationType])
+  @@index([status])
   @@index([sentAt(sort: Desc)])
   @@map("notification_logs")
+}
+
+model NotificationJobRun {
+  id                       Int       @id @default(autoincrement())
+  jobType                  String    @map("job_type")
+  triggerMode              String    @default("manual") @map("trigger_mode")
+  status                   String    @default("running")
+  startedAt                DateTime  @default(now()) @map("started_at")
+  finishedAt               DateTime? @map("finished_at")
+  watermarkFrom            DateTime? @map("watermark_from")
+  watermarkTo              DateTime? @map("watermark_to")
+  notificationsSent        Int       @default(0) @map("notifications_sent")
+  notificationsFailed      Int       @default(0) @map("notifications_failed")
+  vulnerabilitiesConsidered Int      @default(0) @map("vulnerabilities_considered")
+  queuePending             Int       @default(0) @map("queue_pending")
+  retryCount               Int       @default(0) @map("retry_count")
+  errorMessage             String?   @map("error_message") @db.Text
+  details                  String?   @db.LongText
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  @@index([jobType])
+  @@index([status])
+  @@index([startedAt(sort: Desc)])
+  @@map("notification_job_runs")
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -703,15 +741,55 @@ model SubscriberPatchedCve {
 model NotificationPolicy {
   id                      Int      @id @default(autoincrement())
   userId                  Int      @unique @map("user_id")
+  immediateEnabled        Boolean  @default(true) @map("immediate_enabled")
+  immediateMinSeverity    String?  @map("immediate_min_severity")
+  immediateMinCvss        Float?   @map("immediate_min_cvss")
+  immediateMinEpss        Float?   @map("immediate_min_epss")
+  immediateMinEpssPercentile Float? @map("immediate_min_epss_percentile")
+  immediateKevOnly        Boolean  @default(false) @map("immediate_kev_only")
+  immediatePublicExploitOnly Boolean @default(false) @map("immediate_public_exploit_only")
+  immediateActiveExploitationOnly Boolean @default(false) @map("immediate_active_exploitation_only")
+  immediatePatchUnconfirmedOnly Boolean @default(false) @map("immediate_patch_unconfirmed_only")
+  immediateOnlyNewVulnerabilities Boolean @default(true) @map("immediate_only_new_vulnerabilities")
+  immediateOnSeverityChange Boolean @default(true) @map("immediate_on_severity_change")
+  immediateOnExploitChange Boolean @default(true) @map("immediate_on_exploit_change")
+  immediateOnPatchChange  Boolean  @default(true) @map("immediate_on_patch_change")
+  immediateOnlySubscribedSystems Boolean @default(true) @map("immediate_only_subscribed_systems")
+  immediateMinConfidence  Float?   @map("immediate_min_confidence")
+  immediateMinSources     Int?     @map("immediate_min_sources")
+  immediateVendorFilters  String?  @map("immediate_vendor_filters") @db.Text
+  immediateProductFilters String?  @map("immediate_product_filters") @db.Text
+  immediateCategoryFilters String? @map("immediate_category_filters") @db.Text
+  immediateExclusions     String?  @db.Text
   // Level 1: Instant — critical / exploitable
   immediateForCritical    Boolean  @default(true) @map("immediate_for_critical")
   immediateForExploitable Boolean  @default(true) @map("immediate_for_exploitable")
   minCvssForImmediate     Float    @default(9.0) @map("min_cvss_for_immediate")
+  digestEnabled           Boolean  @default(true) @map("digest_enabled")
+  digestMinSeverity       String?  @map("digest_min_severity")
+  digestMinCvss           Float?   @map("digest_min_cvss")
+  digestMinEpss           Float?   @map("digest_min_epss")
+  digestOnlySubscribedSystems Boolean @default(true) @map("digest_only_subscribed_systems")
+  digestMinConfidence     Float?   @map("digest_min_confidence")
+  digestMinSources        Int?     @map("digest_min_sources")
+  digestVendorFilters     String?  @map("digest_vendor_filters") @db.Text
+  digestProductFilters    String?  @map("digest_product_filters") @db.Text
+  digestCategoryFilters   String?  @map("digest_category_filters") @db.Text
+  digestExclusions        String?  @db.Text
+  digestLastWatermarkAt   DateTime? @map("digest_last_watermark_at")
   // Level 2: Periodic — grouped by vendor/product
   periodicEnabled         Boolean  @default(true) @map("periodic_enabled")
   periodicThresholdCvss   Float    @default(7.0) @map("periodic_threshold_cvss")
   periodicIntervalHours   Int      @default(12) @map("periodic_interval_hours")
   periodicLastSentAt      DateTime? @map("periodic_last_sent_at")
+  intelligentEnabled      Boolean  @default(true) @map("intelligent_enabled")
+  intelligentDailyHour    Int      @default(8) @map("intelligent_daily_hour")
+  intelligentLookbackHours Int     @default(24) @map("intelligent_lookback_hours")
+  intelligentContextDays  Int      @default(7) @map("intelligent_context_days")
+  intelligentMinConfidence Float?  @map("intelligent_min_confidence")
+  intelligentOnlyWhenFinding Boolean @default(true) @map("intelligent_only_when_finding")
+  intelligentScenarioFlags String? @map("intelligent_scenario_flags") @db.Text
+  intelligentLastWatermarkAt DateTime? @map("intelligent_last_watermark_at")
   // Level 3: Smart — AI weekly reports
   smartEnabled            Boolean  @default(true) @map("smart_enabled")
   smartFrequency          String   @default("weekly") @map("smart_frequency")

@@ -103,6 +103,8 @@ type WeeklyRunResult = {
     status: 'sent' | 'skipped' | 'failed';
     reason?: string;
     totalVulnerabilities?: number;
+    periodStart?: Date;
+    periodEnd?: Date;
 };
 
 type SmartNotificationConfig = {
@@ -185,9 +187,9 @@ export class SmartNotificationsService {
         promptLanguage: 'es',
         promptExtraInstructions: '',
         aiModelOverride: '',
-        subjectPrefix: '[OCC] Informe inteligente semanal',
-        emailTitle: '🧠 Informe Inteligente Semanal',
-        introText: 'Este informe resume el análisis inteligente de las vulnerabilidades detectadas en tus activos durante los últimos {{lookbackDays}} días.',
+        subjectPrefix: '[OCC] Hallazgo inteligente de vulnerabilidades',
+        emailTitle: '🧠 Hallazgo Inteligente OCC',
+        introText: 'Este informe resume hallazgos inteligentes y correlaciones relevantes detectadas en tus activos durante la ventana analizada.',
         footerText: 'Servicios OCC — Informe inteligente generado automáticamente',
         sectionExecutiveTitle: 'Resumen Ejecutivo',
         sectionTopRiskTitle: 'Top Riesgo Real',
@@ -493,9 +495,19 @@ export class SmartNotificationsService {
         };
     }
 
-    @Cron('0 0 8 * * 1')
+    @Cron('0 0 * * * *')
     async runScheduledWeeklyReports() {
-        this.logger.log('Starting scheduled smart weekly notifications');
+        const centerSettings = await this.notificationService.getNotificationCenterSettings().catch(() => null);
+        if (centerSettings?.general?.processEnabled === false || centerSettings?.intelligent?.enabled === false) {
+            return;
+        }
+
+        const scheduledHour = Number(centerSettings?.intelligent?.evaluationHour ?? 8);
+        if (new Date().getHours() !== scheduledHour) {
+            return;
+        }
+
+        this.logger.log('Starting scheduled intelligent notifications');
         await this.runWeeklyForAllSubscribers('cron');
     }
 
@@ -784,41 +796,108 @@ export class SmartNotificationsService {
     }
 
     async runWeeklyForAllSubscribers(trigger: 'manual' | 'cron' = 'manual') {
-        const subscribers = await this.prisma.user.findMany({
-            where: {
-                isActive: true,
-                isSubscriber: true,
-            },
-            select: {
-                id: true,
-            },
-            orderBy: { id: 'asc' },
-        });
-
-        const results: WeeklyRunResult[] = [];
-        for (const subscriber of subscribers) {
-            try {
-                const result = await this.runWeeklyForSubscriber(subscriber.id, { trigger });
-                results.push(result);
-            } catch (error) {
-                const message = error instanceof Error ? error.message : 'Unknown error';
-                this.logger.error(`Smart weekly report failed for subscriber=${subscriber.id}: ${message}`);
-                results.push({
-                    subscriberId: subscriber.id,
-                    status: 'failed',
-                    reason: message,
-                } as WeeklyRunResult);
-            }
+        const centerSettings = await this.notificationService.getNotificationCenterSettings().catch(() => null);
+        if (centerSettings?.general?.processEnabled === false || centerSettings?.intelligent?.enabled === false) {
+            return {
+                trigger,
+                processed: 0,
+                sent: 0,
+                skipped: 0,
+                failed: 0,
+                skippedByPolicy: true,
+                reason: 'intelligent_notifications_disabled',
+                results: [],
+            };
         }
 
-        return {
-            trigger,
-            processed: results.length,
-            sent: results.filter((r) => r.status === 'sent').length,
-            skipped: results.filter((r) => r.status === 'skipped').length,
-            failed: results.filter((r) => r.status === 'failed').length,
-            results,
-        };
+        let jobRunId: number | null = null;
+        try {
+            const job = await this.notificationService.startNotificationJobRun('intelligent_notification_job', trigger === 'cron' ? 'cron' : 'manual', {
+                source: 'smart-notifications',
+            });
+            jobRunId = Number(job?.id || 0) || null;
+        } catch (error) {
+            this.logger.warn(`Intelligent notification job already running or unavailable: ${error instanceof Error ? error.message : error}`);
+        }
+
+        try {
+            const subscribers = await this.prisma.user.findMany({
+                where: {
+                    isActive: true,
+                    isSubscriber: true,
+                    canReceiveNotifications: true,
+                    notificationsPaused: false,
+                },
+                select: {
+                    id: true,
+                    notificationsPausedUntil: true,
+                },
+                orderBy: { id: 'asc' },
+            });
+
+            const results: WeeklyRunResult[] = [];
+            for (const subscriber of subscribers) {
+                if (subscriber.notificationsPausedUntil && new Date(subscriber.notificationsPausedUntil).getTime() > Date.now()) {
+                    results.push({
+                        subscriberId: subscriber.id,
+                        status: 'skipped',
+                        reason: 'Notifications paused until future date',
+                    });
+                    continue;
+                }
+                try {
+                    const result = await this.runWeeklyForSubscriber(subscriber.id, { trigger });
+                    results.push(result);
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : 'Unknown error';
+                    this.logger.error(`Smart weekly report failed for subscriber=${subscriber.id}: ${message}`);
+                    results.push({
+                        subscriberId: subscriber.id,
+                        status: 'failed',
+                        reason: message,
+                    } as WeeklyRunResult);
+                }
+            }
+
+            const response = {
+                trigger,
+                processed: results.length,
+                sent: results.filter((r) => r.status === 'sent').length,
+                skipped: results.filter((r) => r.status === 'skipped').length,
+                failed: results.filter((r) => r.status === 'failed').length,
+                results,
+            };
+            if (jobRunId) {
+                const watermarkStarts = results
+                    .map((item) => item.periodStart)
+                    .filter((item): item is Date => item instanceof Date && !Number.isNaN(item.getTime()))
+                    .sort((a, b) => a.getTime() - b.getTime());
+                const watermarkEnds = results
+                    .map((item) => item.periodEnd)
+                    .filter((item): item is Date => item instanceof Date && !Number.isNaN(item.getTime()))
+                    .sort((a, b) => a.getTime() - b.getTime());
+                await this.notificationService.completeNotificationJobRun(jobRunId, {
+                    notificationsSent: response.sent,
+                    notificationsFailed: response.failed,
+                    vulnerabilitiesConsidered: results.reduce((sum, item) => sum + Number(item.totalVulnerabilities || 0), 0),
+                    queuePending: 0,
+                    watermarkFrom: watermarkStarts[0] || null,
+                    watermarkTo: watermarkEnds[watermarkEnds.length - 1] || null,
+                    details: response,
+                }).catch(() => undefined);
+            }
+            return response;
+        } catch (error) {
+            if (jobRunId) {
+                await this.notificationService.failNotificationJobRun(jobRunId, error, {
+                    details: {
+                        source: 'smart-notifications',
+                        trigger,
+                    },
+                }).catch(() => undefined);
+            }
+            throw error;
+        }
     }
 
     async runWeeklyForSubscriber(subscriberId: number, options?: { trigger?: 'manual' | 'cron' }) {
@@ -841,6 +920,8 @@ export class SmartNotificationsService {
                     subscriberId,
                     status: 'skipped',
                     reason: `No matching vulnerabilities in ${smartConfig.lookbackDays}-day window`,
+                    periodStart,
+                    periodEnd,
                 } as WeeklyRunResult;
             }
 
@@ -913,6 +994,8 @@ export class SmartNotificationsService {
                     status: sent ? 'sent' : 'failed',
                     reason: sent ? undefined : 'SMTP send failed',
                     totalVulnerabilities: dataset.vulnerabilities.length,
+                    periodStart,
+                    periodEnd,
                     emailSent: !!sent,
                 } as WeeklyRunResult;
             } catch (error) {
@@ -932,6 +1015,8 @@ export class SmartNotificationsService {
                     reportId: report.id,
                     status: 'failed',
                     reason: message,
+                    periodStart,
+                    periodEnd,
                 } as WeeklyRunResult;
             }
         } catch (error) {

@@ -27,9 +27,90 @@ interface NotificationTemplateConfig {
     showPatchLink: boolean;
 }
 
+type NotificationCenterConfig = {
+    general: {
+        processEnabled: boolean;
+        defaultChannel: 'email';
+        dedupeWindowHours: number;
+        retryBackoffMinutes: number[];
+        activeTemplateKey: 'legacy' | 'normal_v2' | 'intelligent';
+    };
+    immediate: {
+        enabled: boolean;
+        minSeverity: string;
+        minCvss: number;
+        minEpss: number;
+        minEpssPercentile: number;
+        kevOnly: boolean;
+        publicExploitOnly: boolean;
+        activeExploitationOnly: boolean;
+        patchUnconfirmedOnly: boolean;
+        newVulnerabilityOnly: boolean;
+        onSeverityChange: boolean;
+        onExploitChange: boolean;
+        onPatchChange: boolean;
+        onlySubscribedSystems: boolean;
+        minConfidence: number;
+        minSources: number;
+        vendorFilters: string[];
+        productFilters: string[];
+        categoryFilters: string[];
+        exclusions: string[];
+    };
+    digest: {
+        enabled: boolean;
+        intervalHours: number;
+        minSeverity: string;
+        minCvss: number;
+        minEpss: number;
+        onlySubscribedSystems: boolean;
+        minConfidence: number;
+        minSources: number;
+        vendorFilters: string[];
+        productFilters: string[];
+        categoryFilters: string[];
+        exclusions: string[];
+        groupingMode: string;
+    };
+    intelligent: {
+        enabled: boolean;
+        evaluationHour: number;
+        recentWindowHours: number;
+        contextWindowDays: number;
+        onlyWhenFinding: boolean;
+        minConfidence: number;
+        scenarioFlags: {
+            attackPath: boolean;
+            campaignCluster: boolean;
+            compoundRisk: boolean;
+            postureChange: boolean;
+        };
+    };
+    templates: {
+        available: Array<{
+            key: 'legacy' | 'normal_v2' | 'intelligent';
+            name: string;
+            description: string;
+            category: 'legacy' | 'standard' | 'intelligent';
+        }>;
+    };
+};
+
+type NotificationProcessHealth = {
+    enabled: boolean;
+    smtpConfigured: boolean;
+    queuePending: number;
+    retries: number;
+    lastSent: any;
+    lastFailed: any;
+    jobs: Record<string, any>;
+    recentLogs: any[];
+};
+
 @Injectable()
 export class NotificationService {
     private readonly logger = new Logger(NotificationService.name);
+    private static readonly CENTER_SETTINGS_SLUG = 'notification-center-settings';
     private transporter: nodemailer.Transporter | null = null;
     private smtpConfig: SmtpConfig | null = null;
 
@@ -63,6 +144,234 @@ export class NotificationService {
         } catch (error) {
             this.logger.warn('Failed to load SMTP configuration: ' + error.message);
         }
+    }
+
+    private getDefaultNotificationCenterConfig(): NotificationCenterConfig {
+        return {
+            general: {
+                processEnabled: true,
+                defaultChannel: 'email',
+                dedupeWindowHours: 24,
+                retryBackoffMinutes: [5, 15, 30],
+                activeTemplateKey: 'normal_v2',
+            },
+            immediate: {
+                enabled: true,
+                minSeverity: 'HIGH',
+                minCvss: 8.5,
+                minEpss: 0.2,
+                minEpssPercentile: 0.8,
+                kevOnly: false,
+                publicExploitOnly: false,
+                activeExploitationOnly: false,
+                patchUnconfirmedOnly: false,
+                newVulnerabilityOnly: true,
+                onSeverityChange: true,
+                onExploitChange: true,
+                onPatchChange: true,
+                onlySubscribedSystems: true,
+                minConfidence: 0.6,
+                minSources: 1,
+                vendorFilters: [],
+                productFilters: [],
+                categoryFilters: [],
+                exclusions: [],
+            },
+            digest: {
+                enabled: true,
+                intervalHours: 12,
+                minSeverity: 'MEDIUM',
+                minCvss: 7,
+                minEpss: 0,
+                onlySubscribedSystems: true,
+                minConfidence: 0.5,
+                minSources: 1,
+                vendorFilters: [],
+                productFilters: [],
+                categoryFilters: [],
+                exclusions: [],
+                groupingMode: 'priority',
+            },
+            intelligent: {
+                enabled: true,
+                evaluationHour: 8,
+                recentWindowHours: 24,
+                contextWindowDays: 7,
+                onlyWhenFinding: true,
+                minConfidence: 0.65,
+                scenarioFlags: {
+                    attackPath: true,
+                    campaignCluster: true,
+                    compoundRisk: true,
+                    postureChange: true,
+                },
+            },
+            templates: {
+                available: [
+                    {
+                        key: 'legacy',
+                        name: 'Plantilla actual',
+                        description: 'Compatibilidad con la plantilla histórica de CVE.',
+                        category: 'legacy',
+                    },
+                    {
+                        key: 'normal_v2',
+                        name: 'Plantilla normal v2',
+                        description: 'Resumen ejecutivo elegante para alertas inmediatas y digest.',
+                        category: 'standard',
+                    },
+                    {
+                        key: 'intelligent',
+                        name: 'Plantilla inteligente',
+                        description: 'Marco premium para hallazgos de inteligencia y correlaciones.',
+                        category: 'intelligent',
+                    },
+                ],
+            },
+        };
+    }
+
+    private normalizeStringArray(value: any): string[] {
+        if (Array.isArray(value)) {
+            return value.map((item) => String(item || '').trim()).filter(Boolean);
+        }
+        if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (!trimmed) return [];
+            try {
+                const parsed = JSON.parse(trimmed);
+                return this.normalizeStringArray(parsed);
+            } catch {
+                return trimmed
+                    .split(',')
+                    .map((item) => item.trim())
+                    .filter(Boolean);
+            }
+        }
+        return [];
+    }
+
+    private mergeNotificationCenterConfig(input: any): NotificationCenterConfig {
+        const defaults = this.getDefaultNotificationCenterConfig();
+        const source = input && typeof input === 'object' ? input : {};
+        return {
+            general: {
+                ...defaults.general,
+                ...(source.general || {}),
+                retryBackoffMinutes: this.normalizeNumericArray(source?.general?.retryBackoffMinutes, defaults.general.retryBackoffMinutes),
+            },
+            immediate: {
+                ...defaults.immediate,
+                ...(source.immediate || {}),
+                vendorFilters: this.normalizeStringArray(source?.immediate?.vendorFilters ?? defaults.immediate.vendorFilters),
+                productFilters: this.normalizeStringArray(source?.immediate?.productFilters ?? defaults.immediate.productFilters),
+                categoryFilters: this.normalizeStringArray(source?.immediate?.categoryFilters ?? defaults.immediate.categoryFilters),
+                exclusions: this.normalizeStringArray(source?.immediate?.exclusions ?? defaults.immediate.exclusions),
+            },
+            digest: {
+                ...defaults.digest,
+                ...(source.digest || {}),
+                vendorFilters: this.normalizeStringArray(source?.digest?.vendorFilters ?? defaults.digest.vendorFilters),
+                productFilters: this.normalizeStringArray(source?.digest?.productFilters ?? defaults.digest.productFilters),
+                categoryFilters: this.normalizeStringArray(source?.digest?.categoryFilters ?? defaults.digest.categoryFilters),
+                exclusions: this.normalizeStringArray(source?.digest?.exclusions ?? defaults.digest.exclusions),
+            },
+            intelligent: {
+                ...defaults.intelligent,
+                ...(source.intelligent || {}),
+                scenarioFlags: {
+                    ...defaults.intelligent.scenarioFlags,
+                    ...((source.intelligent || {}).scenarioFlags || {}),
+                },
+            },
+            templates: defaults.templates,
+        };
+    }
+
+    private normalizeNumericArray(value: any, fallback: number[]): number[] {
+        const items = Array.isArray(value) ? value : fallback;
+        return items
+            .map((item) => Number(item))
+            .filter((item) => Number.isFinite(item) && item > 0)
+            .map((item) => Math.round(item));
+    }
+
+    async getNotificationCenterSettings() {
+        const [row, templateConfigs, recipientStats, processHealth] = await Promise.all([
+            this.prisma.apiConfiguration.findFirst({
+                where: { slug: NotificationService.CENTER_SETTINGS_SLUG, provider: 'notification-center' },
+            }),
+            this.listTemplateConfigs(),
+            this.getNotificationRecipientSummary(),
+            this.getNotificationProcessHealth(),
+        ]);
+
+        const rawSettings = this.parseJson(row?.settings || '{}');
+        const config = this.mergeNotificationCenterConfig(rawSettings);
+
+        return {
+            ...config,
+            general: {
+                ...config.general,
+                smtpConfigured: !!this.smtpConfig,
+            },
+            templates: {
+                ...config.templates,
+                activeLegacyTemplateId: templateConfigs.find((row) => row.isActive)?.id || null,
+                legacyTemplateConfigs: templateConfigs,
+            },
+            recipients: recipientStats,
+            processHealth,
+        };
+    }
+
+    async saveNotificationCenterSettings(data: any) {
+        const merged = this.mergeNotificationCenterConfig(data);
+        const existing = await this.prisma.apiConfiguration.findFirst({
+            where: { slug: NotificationService.CENTER_SETTINGS_SLUG, provider: 'notification-center' },
+        });
+
+        const payload = {
+            name: 'Notification Center Settings',
+            slug: NotificationService.CENTER_SETTINGS_SLUG,
+            provider: 'notification-center',
+            settings: JSON.stringify(merged),
+            isActive: true,
+        };
+
+        if (existing) {
+            await this.prisma.apiConfiguration.update({
+                where: { id: existing.id },
+                data: payload,
+            });
+        } else {
+            await this.prisma.apiConfiguration.create({ data: payload });
+        }
+
+        return this.getNotificationCenterSettings();
+    }
+
+    private async getNotificationRecipientSummary() {
+        const users = await this.prisma.user.findMany({
+            where: { isActive: true },
+            select: {
+                id: true,
+                role: true,
+                isSubscriber: true,
+                canReceiveNotifications: true,
+                notificationsPaused: true,
+            },
+        });
+
+        const normalized = Array.isArray(users) ? users : [];
+        return {
+            totalUsers: normalized.length,
+            enabledRecipients: normalized.filter((user) => user.canReceiveNotifications).length,
+            pausedRecipients: normalized.filter((user) => user.notificationsPaused).length,
+            admins: normalized.filter((user) => String(user.role || '').toUpperCase() === 'ADMIN').length,
+            viewers: normalized.filter((user) => String(user.role || '').toUpperCase() === 'VIEWER').length,
+            subscribers: normalized.filter((user) => user.isSubscriber).length,
+        };
     }
 
     private createTransporter() {
@@ -398,6 +707,11 @@ export class NotificationService {
             remediationInfo: any;
             publishedAt: any;
         }>,
+        options: {
+            recipientUserId?: number;
+            templateKey?: string;
+            triggerReason?: string;
+        } = {},
     ): Promise<boolean> {
         if (!this.transporter) {
             await this.loadConfig();
@@ -510,6 +824,12 @@ export class NotificationService {
                 subject,
                 html,
                 vulnerabilities.map((v) => v.cveId),
+                {
+                    notificationType: 'digest',
+                    templateKey: options.templateKey || 'legacy',
+                    triggerReason: options.triggerReason || `vendor_group:${vendor}`,
+                    recipientUserId: options.recipientUserId,
+                },
             );
 
             this.logger.log(`Grouped email sent to ${to} (${vendor}, ${vulnerabilities.length} CVEs): ${info.messageId}`);
@@ -541,6 +861,11 @@ export class NotificationService {
             publishedAt: any;
         }>>,
         emailType: 'immediate' | 'digest' = 'immediate',
+        options: {
+            recipientUserId?: number;
+            templateKey?: string;
+            triggerReason?: string;
+        } = {},
     ): Promise<boolean> {
         if (!this.transporter) {
             await this.loadConfig();
@@ -682,7 +1007,16 @@ export class NotificationService {
             });
 
             const allCveIds = Array.from(vendorGroups.values()).flat().map((v) => v.cveId);
-            await this.logNotification(to, recipientName, subject, html, allCveIds);
+            await this.logNotification(to, recipientName, subject, html, allCveIds, {
+                notificationType: emailType,
+                templateKey: options.templateKey || 'normal_v2',
+                triggerReason: options.triggerReason || `${emailType}_notification`,
+                recipientUserId: options.recipientUserId,
+                metadata: {
+                    vendorCount: vendorGroups.size,
+                    vendorNames,
+                },
+            });
 
             this.logger.log(`Consolidated ${emailType} email sent to ${to} (${totalCves} CVEs, ${vendorNames.length} vendors): ${info.messageId}`);
             return true;
@@ -696,9 +1030,58 @@ export class NotificationService {
      * Cron: Send digest emails daily at 08:00.
      * Processes PendingDigestNotification entries for subscribers with matching digestFrequency.
      */
-    @Cron('0 0 8 * * *')
+    @Cron('0 0 */2 * * *')
     async sendScheduledDigests() {
+        return this.runDigestNotificationJob('cron');
+    }
+
+    async runDigestNotificationJob(triggerMode: 'manual' | 'cron' = 'manual') {
         this.logger.log('Digest cron: starting daily digest processing');
+        const centerSettings = await this.getNotificationCenterSettingsRaw();
+        const intervalHours = Number(centerSettings.digest.intervalHours || 12);
+        const latestCompleted = await (this.prisma as any).notificationJobRun.findFirst({
+            where: {
+                jobType: 'digest_notification_job',
+                status: 'completed',
+            },
+            orderBy: { finishedAt: 'desc' },
+        });
+        if (!centerSettings.general.processEnabled || !centerSettings.digest.enabled) {
+            this.logger.log('Digest cron: process disabled by notification center settings');
+            return {
+                success: true,
+                skipped: true,
+                reason: 'process_disabled',
+            };
+        }
+
+        if (triggerMode === 'cron') {
+            if (latestCompleted?.finishedAt) {
+                const elapsedMs = Date.now() - new Date(latestCompleted.finishedAt).getTime();
+                if (elapsedMs < intervalHours * 3600000) {
+                    this.logger.log(`Digest cron: waiting interval ${intervalHours}h before next cycle`);
+                    return {
+                        success: true,
+                        skipped: true,
+                        reason: 'interval_not_reached',
+                    };
+                }
+            }
+        }
+
+        const watermarkTo = new Date();
+        const watermarkFrom = latestCompleted?.watermarkTo
+            ? new Date(latestCompleted.watermarkTo)
+            : latestCompleted?.finishedAt
+                ? new Date(latestCompleted.finishedAt)
+                : new Date(watermarkTo.getTime() - intervalHours * 3600000);
+
+        const job = await this.startNotificationJobRun('digest_notification_job', triggerMode, {
+            source: 'notification-service',
+        });
+        let emailsSent = 0;
+        let totalProcessed = 0;
+        let queuePending = 0;
 
         try {
             // Find subscribers with pending digest notifications
@@ -733,9 +1116,19 @@ export class NotificationService {
                 orderBy: { createdAt: 'asc' },
             });
 
+            queuePending = pendingGrouped.length;
             if (pendingGrouped.length === 0) {
                 this.logger.log('Digest cron: no pending digest notifications');
-                return;
+                await this.completeNotificationJobRun(job.id, {
+                    notificationsSent: 0,
+                    notificationsFailed: 0,
+                    vulnerabilitiesConsidered: 0,
+                    queuePending: 0,
+                    watermarkFrom,
+                    watermarkTo,
+                    details: { message: 'No pending digest notifications' },
+                });
+                return { success: true, emailsSent: 0, totalProcessed: 0 };
             }
 
             // Group by subscriber
@@ -751,8 +1144,6 @@ export class NotificationService {
                 bySubscriber.get(entry.userId)!.entries.push(entry);
             }
 
-            let emailsSent = 0;
-            let totalProcessed = 0;
             const processedIds: number[] = [];
 
             for (const [, { user, entries }] of bySubscriber) {
@@ -809,6 +1200,11 @@ export class NotificationService {
                     user.name,
                     vendorMap,
                     'digest',
+                    {
+                        recipientUserId: user.id,
+                        templateKey: 'normal_v2',
+                        triggerReason: `digest_notification_job:${triggerMode}`,
+                    },
                 );
 
                 // Record VulnerabilityNotification for deduplication
@@ -839,8 +1235,32 @@ export class NotificationService {
             this.logger.log(
                 `Digest cron complete: ${emailsSent} digest emails sent, ${totalProcessed} CVEs processed`,
             );
+            await this.completeNotificationJobRun(job.id, {
+                notificationsSent: emailsSent,
+                notificationsFailed: Math.max(bySubscriber.size - emailsSent, 0),
+                vulnerabilitiesConsidered: totalProcessed,
+                queuePending: Math.max(queuePending - processedIds.length, 0),
+                watermarkFrom,
+                watermarkTo,
+                details: {
+                    subscriberCount: bySubscriber.size,
+                    processedIds,
+                },
+            });
+            return { success: true, emailsSent, totalProcessed };
         } catch (error) {
             this.logger.error('Digest cron failed', error);
+            await this.failNotificationJobRun(job.id, error, {
+                notificationsSent: emailsSent,
+                notificationsFailed: 1,
+                vulnerabilitiesConsidered: totalProcessed,
+                queuePending,
+                details: {
+                    watermarkFrom,
+                    watermarkTo,
+                },
+            });
+            throw error;
         }
     }
 
@@ -850,6 +1270,15 @@ export class NotificationService {
         subject: string,
         htmlContent: string,
         cveIds: string[] = [],
+        options: {
+            notificationType?: string;
+            templateKey?: string;
+            channel?: string;
+            triggerReason?: string;
+            errorMessage?: string | null;
+            metadata?: Record<string, any>;
+            recipientUserId?: number;
+        } = {},
     ) {
         try {
             await this.prisma.notificationLog.create({
@@ -857,13 +1286,97 @@ export class NotificationService {
                     recipientEmail,
                     recipientName,
                     subject,
+                    notificationType: options.notificationType || 'normal',
+                    templateKey: options.templateKey || null,
+                    channel: options.channel || 'email',
+                    vulnerabilityCount: Array.isArray(cveIds) ? cveIds.length : 0,
+                    triggerReason: options.triggerReason || null,
                     htmlContent,
                     cveIds: JSON.stringify(cveIds),
+                    status: options.errorMessage ? 'failed' : 'sent',
+                    errorMessage: options.errorMessage || null,
+                    metadataJson: options.metadata ? JSON.stringify(options.metadata) : null,
                 },
             });
+            if (options.recipientUserId) {
+                await this.prisma.user.update({
+                    where: { id: options.recipientUserId },
+                    data: { lastNotificationSentAt: new Date() },
+                }).catch(() => undefined);
+            }
         } catch (error) {
             this.logger.error('Failed to log notification', error);
         }
+    }
+
+    async startNotificationJobRun(jobType: string, triggerMode: 'manual' | 'cron' | 'hook' = 'manual', details?: Record<string, any>) {
+        const existing = await (this.prisma as any).notificationJobRun.findFirst({
+            where: {
+                jobType,
+                status: 'running',
+            },
+            orderBy: { startedAt: 'desc' },
+        });
+        if (existing) {
+            throw new InternalServerErrorException(`Job already running: ${jobType}`);
+        }
+
+        return (this.prisma as any).notificationJobRun.create({
+            data: {
+                jobType,
+                triggerMode,
+                status: 'running',
+                details: details ? JSON.stringify(details) : null,
+            },
+        });
+    }
+
+    async completeNotificationJobRun(id: number, data: {
+        notificationsSent?: number;
+        notificationsFailed?: number;
+        vulnerabilitiesConsidered?: number;
+        queuePending?: number;
+        watermarkFrom?: Date | null;
+        watermarkTo?: Date | null;
+        details?: Record<string, any>;
+    } = {}) {
+        return (this.prisma as any).notificationJobRun.update({
+            where: { id },
+            data: {
+                status: 'completed',
+                finishedAt: new Date(),
+                notificationsSent: Number(data.notificationsSent || 0),
+                notificationsFailed: Number(data.notificationsFailed || 0),
+                vulnerabilitiesConsidered: Number(data.vulnerabilitiesConsidered || 0),
+                queuePending: Number(data.queuePending || 0),
+                watermarkFrom: data.watermarkFrom || null,
+                watermarkTo: data.watermarkTo || null,
+                details: data.details ? JSON.stringify(data.details) : undefined,
+            },
+        });
+    }
+
+    async failNotificationJobRun(id: number, error: any, data: {
+        notificationsSent?: number;
+        notificationsFailed?: number;
+        vulnerabilitiesConsidered?: number;
+        queuePending?: number;
+        details?: Record<string, any>;
+    } = {}) {
+        return (this.prisma as any).notificationJobRun.update({
+            where: { id },
+            data: {
+                status: 'failed',
+                finishedAt: new Date(),
+                notificationsSent: Number(data.notificationsSent || 0),
+                notificationsFailed: Number(data.notificationsFailed || 0),
+                vulnerabilitiesConsidered: Number(data.vulnerabilitiesConsidered || 0),
+                queuePending: Number(data.queuePending || 0),
+                errorMessage: String(error?.message || error || 'Unknown error'),
+                retryCount: { increment: 1 },
+                details: data.details ? JSON.stringify(data.details) : undefined,
+            },
+        });
     }
 
     async getHistory(page: number = 1, limit: number = 20) {
@@ -880,8 +1393,15 @@ export class NotificationService {
                     recipientEmail: true,
                     recipientName: true,
                     subject: true,
+                    notificationType: true,
+                    templateKey: true,
+                    channel: true,
+                    vulnerabilityCount: true,
+                    triggerReason: true,
                     cveIds: true,
                     status: true,
+                    errorMessage: true,
+                    metadataJson: true,
                     sentAt: true,
                 },
             }),
@@ -891,7 +1411,11 @@ export class NotificationService {
         return {
             data: data.map(d => ({
                 ...d,
+                to: d.recipientEmail,
+                template: d.templateKey,
+                type: d.notificationType,
                 cveIds: this.parseJson(d.cveIds),
+                metadata: this.parseJson(d.metadataJson || '{}'),
             })),
             total,
             page,
@@ -906,8 +1430,206 @@ export class NotificationService {
         if (!notification) throw new NotFoundException('Notification not found');
         return {
             ...notification,
+            to: notification.recipientEmail,
+            template: notification.templateKey,
+            type: notification.notificationType,
             cveIds: this.parseJson(notification.cveIds),
+            metadata: this.parseJson(notification.metadataJson || '{}'),
         };
+    }
+
+    async resendNotification(id: number) {
+        if (!this.transporter) {
+            await this.loadConfig();
+            if (!this.transporter) {
+                throw new NotFoundException('SMTP Configuration not found or invalid');
+            }
+        }
+
+        const notification = await this.prisma.notificationLog.findUnique({
+            where: { id },
+        });
+        if (!notification) {
+            throw new NotFoundException('Notification not found');
+        }
+
+        try {
+            const info = await this.transporter.sendMail({
+                from: this.smtpConfig?.from || 'noreply@occ.local',
+                to: notification.recipientEmail,
+                subject: notification.subject,
+                html: notification.htmlContent,
+            });
+
+            await this.logNotification(
+                notification.recipientEmail,
+                notification.recipientName || notification.recipientEmail,
+                notification.subject,
+                notification.htmlContent,
+                this.parseJson(notification.cveIds) || [],
+                {
+                    notificationType: notification.notificationType || 'normal',
+                    templateKey: notification.templateKey || undefined,
+                    channel: notification.channel || 'email',
+                    triggerReason: `manual_resend:${notification.id}`,
+                    metadata: {
+                        resentFromId: notification.id,
+                        messageId: info.messageId,
+                    },
+                },
+            );
+
+            return { success: true, messageId: info.messageId };
+        } catch (error) {
+            this.logger.error(`Failed to resend notification ${id}`, error);
+            throw new InternalServerErrorException('Failed to resend notification');
+        }
+    }
+
+    async getNotificationProcessHealth(): Promise<NotificationProcessHealth> {
+        const [settings, queuePending, recentLogs, latestRuns, lastSent, lastFailed, latestSmartSent, latestSmartFailed] = await Promise.all([
+            this.getNotificationCenterSettingsRaw(),
+            this.prisma.pendingDigestNotification.count(),
+            this.prisma.notificationLog.findMany({
+                orderBy: { sentAt: 'desc' },
+                take: 12,
+                select: {
+                    id: true,
+                    recipientEmail: true,
+                    subject: true,
+                    notificationType: true,
+                    status: true,
+                    sentAt: true,
+                    vulnerabilityCount: true,
+                    triggerReason: true,
+                    errorMessage: true,
+                },
+            }),
+            (this.prisma as any).notificationJobRun.findMany({
+                orderBy: { startedAt: 'desc' },
+                take: 20,
+            }),
+            this.prisma.notificationLog.findFirst({
+                where: { status: 'sent' },
+                orderBy: { sentAt: 'desc' },
+                select: {
+                    id: true,
+                    subject: true,
+                    notificationType: true,
+                    sentAt: true,
+                    recipientEmail: true,
+                },
+            }),
+            this.prisma.notificationLog.findFirst({
+                where: { status: { not: 'sent' } },
+                orderBy: { sentAt: 'desc' },
+                select: {
+                    id: true,
+                    subject: true,
+                    notificationType: true,
+                    sentAt: true,
+                    recipientEmail: true,
+                    errorMessage: true,
+                },
+            }),
+            (this.prisma as any).smartNotificationReport.findFirst({
+                where: { status: 'sent' },
+                orderBy: { sentAt: 'desc' },
+            }),
+            (this.prisma as any).smartNotificationReport.findFirst({
+                where: { status: 'failed' },
+                orderBy: { updatedAt: 'desc' },
+            }),
+        ]);
+
+        const groupedRuns = new Map<string, any>();
+        for (const run of latestRuns || []) {
+            if (!groupedRuns.has(run.jobType)) {
+                groupedRuns.set(run.jobType, run);
+            }
+        }
+
+        const digestRun = groupedRuns.get('digest_notification_job');
+        const immediateRun = groupedRuns.get('immediate_notification_job');
+        const intelligentRun = groupedRuns.get('intelligent_notification_job') || (latestSmartSent || latestSmartFailed ? {
+            jobType: 'intelligent_notification_job',
+            status: latestSmartSent ? 'completed' : 'failed',
+            startedAt: latestSmartSent?.createdAt || latestSmartFailed?.createdAt || null,
+            finishedAt: latestSmartSent?.sentAt || latestSmartFailed?.updatedAt || null,
+            notificationsSent: latestSmartSent ? 1 : 0,
+            notificationsFailed: latestSmartFailed ? 1 : 0,
+            queuePending: 0,
+            errorMessage: latestSmartFailed?.errorMessage || null,
+        } : null);
+
+        const retries = Number((latestRuns || []).reduce((sum: number, run: any) => sum + Number(run.retryCount || 0), 0));
+        const nextDigestExecution = this.calculateNextDigestExecution(settings.digest, digestRun);
+        const nextIntelligentExecution = this.calculateNextIntelligentExecution(settings.intelligent);
+
+        return {
+            enabled: settings.general.processEnabled,
+            smtpConfigured: !!this.smtpConfig,
+            queuePending,
+            retries,
+            lastSent,
+            lastFailed,
+            jobs: {
+                immediate: this.mapJobHealth('immediate_notification_job', immediateRun, {
+                    nextExecution: 'Tras la siguiente recolección con hallazgos relevantes',
+                    mode: 'hook',
+                }),
+                digest: this.mapJobHealth('digest_notification_job', digestRun, {
+                    nextExecution: nextDigestExecution,
+                    mode: 'scheduled',
+                }),
+                intelligent: this.mapJobHealth('intelligent_notification_job', intelligentRun, {
+                    nextExecution: nextIntelligentExecution,
+                    mode: 'scheduled',
+                }),
+            },
+            recentLogs,
+        };
+    }
+
+    private mapJobHealth(jobType: string, run: any, extras: { nextExecution: string; mode: string }) {
+        return {
+            jobType,
+            mode: extras.mode,
+            status: run?.status || 'idle',
+            startedAt: run?.startedAt || null,
+            finishedAt: run?.finishedAt || null,
+            watermarkFrom: run?.watermarkFrom || null,
+            watermarkTo: run?.watermarkTo || null,
+            notificationsSent: Number(run?.notificationsSent || 0),
+            notificationsFailed: Number(run?.notificationsFailed || 0),
+            vulnerabilitiesConsidered: Number(run?.vulnerabilitiesConsidered || 0),
+            queuePending: Number(run?.queuePending || 0),
+            errorMessage: run?.errorMessage || null,
+            nextExecution: extras.nextExecution,
+        };
+    }
+
+    private calculateNextDigestExecution(digestConfig: NotificationCenterConfig['digest'], run: any): string {
+        const interval = Number(digestConfig?.intervalHours || 12);
+        const lastBase = run?.finishedAt ? new Date(run.finishedAt) : new Date();
+        if (!digestConfig?.enabled) return 'Deshabilitado';
+        lastBase.setHours(lastBase.getHours() + interval);
+        return lastBase.toISOString();
+    }
+
+    private calculateNextIntelligentExecution(intelligentConfig: NotificationCenterConfig['intelligent']): string {
+        if (!intelligentConfig?.enabled) return 'Deshabilitado';
+        const next = new Date();
+        next.setHours(Number(intelligentConfig.evaluationHour || 8), 0, 0, 0);
+        if (next.getTime() <= Date.now()) next.setDate(next.getDate() + 1);
+        return next.toISOString();
+    }
+
+    private async getNotificationCenterSettingsRaw(): Promise<NotificationCenterConfig> {
+        const row = await this.prisma.apiConfiguration.findFirst({
+            where: { slug: NotificationService.CENTER_SETTINGS_SLUG, provider: 'notification-center' },
+        });
+        return this.mergeNotificationCenterConfig(this.parseJson(row?.settings || '{}'));
     }
 
     // ── Notification Policy CRUD ────────────────────────────────────
@@ -921,11 +1643,54 @@ export class NotificationService {
             // Return defaults
             return {
                 userId,
+                immediateEnabled: true,
+                immediateMinSeverity: 'HIGH',
+                immediateMinCvss: 8.5,
+                immediateMinEpss: 0.2,
+                immediateMinEpssPercentile: 0.8,
+                immediateKevOnly: false,
+                immediatePublicExploitOnly: false,
+                immediateActiveExploitationOnly: false,
+                immediatePatchUnconfirmedOnly: false,
+                immediateOnlyNewVulnerabilities: true,
+                immediateOnSeverityChange: true,
+                immediateOnExploitChange: true,
+                immediateOnPatchChange: true,
+                immediateOnlySubscribedSystems: true,
+                immediateMinConfidence: 0.6,
+                immediateMinSources: 1,
+                immediateVendorFilters: '[]',
+                immediateProductFilters: '[]',
+                immediateCategoryFilters: '[]',
+                immediateExclusions: '[]',
                 immediateForCritical: true,
                 immediateForExploitable: true,
+                digestEnabled: true,
+                digestMinSeverity: 'MEDIUM',
+                digestMinCvss: 7.0,
+                digestMinEpss: 0,
+                digestOnlySubscribedSystems: true,
+                digestMinConfidence: 0.5,
+                digestMinSources: 1,
+                digestVendorFilters: '[]',
+                digestProductFilters: '[]',
+                digestCategoryFilters: '[]',
+                digestExclusions: '[]',
                 digestFrequency: 'daily',
                 digestHour: 8,
                 digestDayOfWeek: null,
+                intelligentEnabled: true,
+                intelligentDailyHour: 8,
+                intelligentLookbackHours: 24,
+                intelligentContextDays: 7,
+                intelligentMinConfidence: 0.65,
+                intelligentOnlyWhenFinding: true,
+                intelligentScenarioFlags: JSON.stringify({
+                    attackPath: true,
+                    campaignCluster: true,
+                    compoundRisk: true,
+                    postureChange: true,
+                }),
                 minCvssForImmediate: 9.0,
                 isActive: true,
                 isDefault: true,
@@ -936,12 +1701,50 @@ export class NotificationService {
     }
 
     async upsertNotificationPolicy(userId: number, data: {
+        immediateEnabled?: boolean;
+        immediateMinSeverity?: string;
+        immediateMinCvss?: number;
+        immediateMinEpss?: number;
+        immediateMinEpssPercentile?: number;
+        immediateKevOnly?: boolean;
+        immediatePublicExploitOnly?: boolean;
+        immediateActiveExploitationOnly?: boolean;
+        immediatePatchUnconfirmedOnly?: boolean;
+        immediateOnlyNewVulnerabilities?: boolean;
+        immediateOnSeverityChange?: boolean;
+        immediateOnExploitChange?: boolean;
+        immediateOnPatchChange?: boolean;
+        immediateOnlySubscribedSystems?: boolean;
+        immediateMinConfidence?: number;
+        immediateMinSources?: number;
+        immediateVendorFilters?: string;
+        immediateProductFilters?: string;
+        immediateCategoryFilters?: string;
+        immediateExclusions?: string;
         immediateForCritical?: boolean;
         immediateForExploitable?: boolean;
         minCvssForImmediate?: number;
+        digestEnabled?: boolean;
+        digestMinSeverity?: string;
+        digestMinCvss?: number;
+        digestMinEpss?: number;
+        digestOnlySubscribedSystems?: boolean;
+        digestMinConfidence?: number;
+        digestMinSources?: number;
+        digestVendorFilters?: string;
+        digestProductFilters?: string;
+        digestCategoryFilters?: string;
+        digestExclusions?: string;
         periodicEnabled?: boolean;
         periodicThresholdCvss?: number;
         periodicIntervalHours?: number;
+        intelligentEnabled?: boolean;
+        intelligentDailyHour?: number;
+        intelligentLookbackHours?: number;
+        intelligentContextDays?: number;
+        intelligentMinConfidence?: number;
+        intelligentOnlyWhenFinding?: boolean;
+        intelligentScenarioFlags?: string;
         smartEnabled?: boolean;
         smartFrequency?: string;
         smartDayOfWeek?: number;
@@ -957,8 +1760,18 @@ export class NotificationService {
 
         const updateData: any = {};
         const fields = [
+            'immediateEnabled', 'immediateMinSeverity', 'immediateMinCvss', 'immediateMinEpss', 'immediateMinEpssPercentile',
+            'immediateKevOnly', 'immediatePublicExploitOnly', 'immediateActiveExploitationOnly', 'immediatePatchUnconfirmedOnly',
+            'immediateOnlyNewVulnerabilities', 'immediateOnSeverityChange', 'immediateOnExploitChange', 'immediateOnPatchChange',
+            'immediateOnlySubscribedSystems', 'immediateMinConfidence', 'immediateMinSources', 'immediateVendorFilters',
+            'immediateProductFilters', 'immediateCategoryFilters', 'immediateExclusions',
             'immediateForCritical', 'immediateForExploitable', 'minCvssForImmediate',
+            'digestEnabled', 'digestMinSeverity', 'digestMinCvss', 'digestMinEpss', 'digestOnlySubscribedSystems',
+            'digestMinConfidence', 'digestMinSources', 'digestVendorFilters', 'digestProductFilters', 'digestCategoryFilters',
+            'digestExclusions',
             'periodicEnabled', 'periodicThresholdCvss', 'periodicIntervalHours',
+            'intelligentEnabled', 'intelligentDailyHour', 'intelligentLookbackHours', 'intelligentContextDays',
+            'intelligentMinConfidence', 'intelligentOnlyWhenFinding', 'intelligentScenarioFlags',
             'smartEnabled', 'smartFrequency', 'smartDayOfWeek', 'smartHour',
             'digestFrequency', 'digestHour', 'digestDayOfWeek', 'isActive',
         ];
@@ -970,12 +1783,55 @@ export class NotificationService {
             where: { userId },
             create: {
                 userId,
+                immediateEnabled: data.immediateEnabled ?? true,
+                immediateMinSeverity: data.immediateMinSeverity ?? 'HIGH',
+                immediateMinCvss: data.immediateMinCvss ?? 8.5,
+                immediateMinEpss: data.immediateMinEpss ?? 0.2,
+                immediateMinEpssPercentile: data.immediateMinEpssPercentile ?? 0.8,
+                immediateKevOnly: data.immediateKevOnly ?? false,
+                immediatePublicExploitOnly: data.immediatePublicExploitOnly ?? false,
+                immediateActiveExploitationOnly: data.immediateActiveExploitationOnly ?? false,
+                immediatePatchUnconfirmedOnly: data.immediatePatchUnconfirmedOnly ?? false,
+                immediateOnlyNewVulnerabilities: data.immediateOnlyNewVulnerabilities ?? true,
+                immediateOnSeverityChange: data.immediateOnSeverityChange ?? true,
+                immediateOnExploitChange: data.immediateOnExploitChange ?? true,
+                immediateOnPatchChange: data.immediateOnPatchChange ?? true,
+                immediateOnlySubscribedSystems: data.immediateOnlySubscribedSystems ?? true,
+                immediateMinConfidence: data.immediateMinConfidence ?? 0.6,
+                immediateMinSources: data.immediateMinSources ?? 1,
+                immediateVendorFilters: data.immediateVendorFilters ?? '[]',
+                immediateProductFilters: data.immediateProductFilters ?? '[]',
+                immediateCategoryFilters: data.immediateCategoryFilters ?? '[]',
+                immediateExclusions: data.immediateExclusions ?? '[]',
                 immediateForCritical: data.immediateForCritical ?? true,
                 immediateForExploitable: data.immediateForExploitable ?? true,
                 minCvssForImmediate: data.minCvssForImmediate ?? 9.0,
+                digestEnabled: data.digestEnabled ?? true,
+                digestMinSeverity: data.digestMinSeverity ?? 'MEDIUM',
+                digestMinCvss: data.digestMinCvss ?? 7.0,
+                digestMinEpss: data.digestMinEpss ?? 0,
+                digestOnlySubscribedSystems: data.digestOnlySubscribedSystems ?? true,
+                digestMinConfidence: data.digestMinConfidence ?? 0.5,
+                digestMinSources: data.digestMinSources ?? 1,
+                digestVendorFilters: data.digestVendorFilters ?? '[]',
+                digestProductFilters: data.digestProductFilters ?? '[]',
+                digestCategoryFilters: data.digestCategoryFilters ?? '[]',
+                digestExclusions: data.digestExclusions ?? '[]',
                 periodicEnabled: data.periodicEnabled ?? true,
                 periodicThresholdCvss: data.periodicThresholdCvss ?? 7.0,
                 periodicIntervalHours: data.periodicIntervalHours ?? 12,
+                intelligentEnabled: data.intelligentEnabled ?? true,
+                intelligentDailyHour: data.intelligentDailyHour ?? 8,
+                intelligentLookbackHours: data.intelligentLookbackHours ?? 24,
+                intelligentContextDays: data.intelligentContextDays ?? 7,
+                intelligentMinConfidence: data.intelligentMinConfidence ?? 0.65,
+                intelligentOnlyWhenFinding: data.intelligentOnlyWhenFinding ?? true,
+                intelligentScenarioFlags: data.intelligentScenarioFlags ?? JSON.stringify({
+                    attackPath: true,
+                    campaignCluster: true,
+                    compoundRisk: true,
+                    postureChange: true,
+                }),
                 smartEnabled: data.smartEnabled ?? true,
                 smartFrequency: data.smartFrequency ?? 'weekly',
                 smartDayOfWeek: data.smartDayOfWeek ?? 1,

@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString, Length } from 'class-validator';
+import { IsBoolean, IsDateString, IsEmail, IsOptional, IsString, Length } from 'class-validator';
 
 export class UpdateMeDto {
   @IsOptional()
@@ -9,6 +9,18 @@ export class UpdateMeDto {
   @IsOptional()
   @IsEmail()
   notificationEmail?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  canReceiveNotifications?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  notificationsPaused?: boolean;
+
+  @IsOptional()
+  @IsDateString()
+  notificationsPausedUntil?: string;
 
   @IsOptional()
   @IsString()
@@ -25,4 +37,3 @@ export class UpdateMeDto {
   @Length(0, 60)
   phone?: string;
 }
-
