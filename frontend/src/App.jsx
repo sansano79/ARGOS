@@ -1,12 +1,28 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import occLogo from "./occ-visual-kit/assets/occ-favicon.svg";
+import {
+  ACCOUNT_PATH,
+  DETAIL_VIEW,
+  PORTAL_PATH,
+  VULN_LIST_PATH,
+  KEV_LIST_PATH,
+  getDetailPathForView,
+  getListPathForView,
+  isViewAllowedForRole,
+  normalizeDetailSourceView,
+  parseAppRoute,
+} from "./utils/appNavigation.js";
+import {
+  REFERENCE_CATEGORY_META,
+  extractReferenceAwareValue,
+  groupVulnerabilityReferencesByCategory,
+  inferNormalizedReferenceLabel,
+  isReferenceUrl,
+  normalizeVulnerabilityReferences,
+} from "./utils/vulnerabilityReferences.js";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const API_BASE = "/api";
-const VULN_LIST_PATH = "/vulnerabilities";
-const KEV_LIST_PATH = "/kev";
-const DETAIL_VIEW = "vuln-detail";
-
 // ─── Auth helpers ────────────────────────────────────────────────────────────
 const getToken = () => localStorage.getItem("occ_token");
 const setToken = (t) => localStorage.setItem("occ_token", t);
@@ -17,33 +33,6 @@ const getResetTokenFromPath = () => {
   const m = window.location.pathname.match(/^\/reset-password\/([^/]+)$/);
   return m?.[1] ? decodeURIComponent(m[1]) : "";
 };
-const normalizeDetailSourceView = (value) => value === "exploited" ? "exploited" : "vulns";
-const getListPathForView = (value) => normalizeDetailSourceView(value) === "exploited" ? KEV_LIST_PATH : VULN_LIST_PATH;
-const getDetailPathForView = (value, cveId) => `${getListPathForView(value)}/${encodeURIComponent(String(cveId || "").trim().toUpperCase())}`;
-const parseAppRoute = (pathname) => {
-  const currentPath = String(pathname || "").trim() || "/";
-  if (/^\/reset-password\/[^/]+$/.test(currentPath)) return null;
-  const kevDetail = currentPath.match(/^\/kev\/([^/]+)$/);
-  if (kevDetail?.[1]) {
-    return {
-      view: DETAIL_VIEW,
-      sourceView: "exploited",
-      cveId: decodeURIComponent(kevDetail[1]).trim().toUpperCase(),
-    };
-  }
-  const vulnDetail = currentPath.match(/^\/vulnerabilities\/([^/]+)$/);
-  if (vulnDetail?.[1]) {
-    return {
-      view: DETAIL_VIEW,
-      sourceView: "vulns",
-      cveId: decodeURIComponent(vulnDetail[1]).trim().toUpperCase(),
-    };
-  }
-  if (currentPath === KEV_LIST_PATH) return { view: "exploited" };
-  if (currentPath === VULN_LIST_PATH) return { view: "vulns" };
-  return null;
-};
-
 const apiFetch = async (url, opts = {}) => {
   const token = getToken();
   const headers = { ...opts.headers };
@@ -147,16 +136,7 @@ const summarizeTextValue = (value) => {
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   try { return JSON.stringify(value); } catch { return String(value); }
 };
-const isValidUrl = (value) => {
-  const normalized = String(value || "").trim();
-  if (!normalized) return false;
-  try {
-    const parsed = new URL(normalized);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-};
+const isValidUrl = (value) => isReferenceUrl(value);
 const riskTierMeta = (tier) => ({
   informational: { label: "Informational", bg: C.gray100, color: C.gray600, border: C.gray300 },
   monitor: { label: "Monitor", bg: C.infoBg, color: C.info, border: "#BFDBFE" },
@@ -347,74 +327,6 @@ const getDisplayContextTags = ({ contextTags, riskSignals = [], tags = [] }) => 
   }));
 };
 const getCompactContextTags = (tags, limit = 2) => sortContextTags(tags).slice(0, limit);
-const getReferenceHost = (url) => {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-};
-const getReferenceCategory = ({ url, source = "", label = "", tags = [], defaultCategory = "" }) => {
-  const preferred = String(defaultCategory || "").trim().toLowerCase();
-  if (preferred) return preferred;
-  const host = getReferenceHost(url);
-  const lowerUrl = String(url || "").toLowerCase();
-  const sourceText = `${source} ${label} ${ensureArray(tags).join(" ")}`.toLowerCase();
-
-  if (host === "nvd.nist.gov" || host === "cve.org" || host.endsWith(".nist.gov")) return "nvd";
-  if (
-    host.endsWith(".gov")
-    || host.includes("cisa")
-    || host.includes("cert")
-    || host.includes("incibe")
-    || host.includes("jpcert")
-    || sourceText.includes("cisa")
-    || sourceText.includes("kev")
-    || sourceText.includes("government")
-    || sourceText.includes("cert")
-  ) {
-    return "government";
-  }
-  if (
-    sourceText.includes("exploit")
-    || sourceText.includes("poc")
-    || lowerUrl.includes("/commit/")
-    || lowerUrl.includes("exploit-db")
-    || lowerUrl.includes("packetstorm")
-    || lowerUrl.includes("metasploit")
-    || lowerUrl.includes("rapid7")
-  ) {
-    return "exploit";
-  }
-  if (
-    sourceText.includes("advisory")
-    || sourceText.includes("vendor")
-    || lowerUrl.includes("advisory")
-    || lowerUrl.includes("security")
-    || lowerUrl.includes("bulletin")
-    || lowerUrl.includes("patch")
-    || lowerUrl.includes("hotfix")
-    || lowerUrl.includes("release-notes")
-  ) {
-    return "vendor";
-  }
-  return "other";
-};
-const REFERENCE_CATEGORY_META = {
-  vendor: { title: "Vendor Advisories", empty: "Sin advisories del fabricante", accent: "#BBF7D0" },
-  government: { title: "Government / CISA / KEV", empty: "Sin referencias gubernamentales", accent: "#BFDBFE" },
-  nvd: { title: "NVD / NIST", empty: "Sin referencia NVD", accent: C.gray300 },
-  exploit: { title: "Exploit References", empty: "Sin referencias de explotación", accent: "#FED7AA" },
-  other: { title: "Otras referencias", empty: "Sin referencias adicionales", accent: C.gray200 },
-};
-const groupReferenceLinksByCategory = (links = []) => {
-  const groups = { vendor: [], government: [], nvd: [], exploit: [], other: [] };
-  links.forEach((link) => {
-    const category = REFERENCE_CATEGORY_META[link?.category] ? link.category : "other";
-    groups[category].push(link);
-  });
-  return groups;
-};
 const sortKevModuleRows = (rows = []) => rows
   .map((row, index) => ({ row, index }))
   .sort((left, right) => {
@@ -439,188 +351,20 @@ const sortKevModuleRows = (rows = []) => rows
     );
   })
   .map(({ row }) => row);
-const toReferenceText = (value) => {
-  const normalized = normalizeFieldValue(value);
-  if (normalized == null) return "";
-  if (typeof normalized === "string") return normalized.trim();
-  if (typeof normalized === "number" || typeof normalized === "boolean") return String(normalized);
-  try { return JSON.stringify(normalized); } catch { return String(normalized); }
-};
-const inferReferenceLabel = ({ item, url, index }) => {
-  const rawLabel = String(item?.label || item?.title || item?.name || item?.source || item?.type || "").trim();
-  if (rawLabel && !isValidUrl(rawLabel)) {
-    return toSentence(rawLabel);
-  }
-
-  const host = getReferenceHost(url);
-  const lowerUrl = String(url || "").toLowerCase();
-
-  if (lowerUrl.includes("github.com") && lowerUrl.includes("/commit/")) return "Commit";
-  if (lowerUrl.includes("github.com/advisories") || lowerUrl.includes("ghsa")) return "GHSA Advisory";
-  if (lowerUrl.includes("patch") || lowerUrl.includes("hotfix") || lowerUrl.includes("release-notes")) return "Patch";
-  if (lowerUrl.includes("advisory") || lowerUrl.includes("bulletin") || lowerUrl.includes("security")) return "Vendor Advisory";
-  if (host === "nvd.nist.gov") return "NVD";
-  if (host === "cve.org") return "CVE.org";
-  if (host) return `Referencia ${index + 1}`;
-  return `Referencia general ${index + 1}`;
-};
 const dedupeTextList = (values) => Array.from(new Set(
   ensureArray(values)
     .map((item) => String(item || "").trim())
     .filter(Boolean),
 ));
+const inferReferenceLabel = ({ item, url, index }) => inferNormalizedReferenceLabel({ item, url, index });
 const normalizeReferenceEntries = (value, options = {}) => {
-  const linksByUrl = new Map();
-  const metadata = [];
-  const metadataSeen = new Set();
-  const defaultSource = String(options.defaultSource || "").trim();
-  const defaultLabel = String(options.defaultLabel || "").trim();
-  const defaultCategory = String(options.defaultCategory || "").trim().toLowerCase();
-
-  const pushMetadata = (text) => {
-    const normalized = String(text || "").trim();
-    if (!normalized || isValidUrl(normalized) || metadataSeen.has(normalized)) return;
-    metadataSeen.add(normalized);
-    metadata.push(normalized);
-  };
-
-  const pushLink = (candidate, indexHint = 0) => {
-    const url = String(candidate?.url || "").trim();
-    if (!isValidUrl(url)) return false;
-
-    const existing = linksByUrl.get(url) || {
-      url,
-      label: "",
-      source: "",
-      domain: getReferenceHost(url),
-      category: defaultCategory || "other",
-      tags: [],
-    };
-    const label = String(candidate?.label || "").trim()
-      || existing.label
-      || defaultLabel
-      || inferReferenceLabel({ item: candidate, url, index: indexHint });
-    const source = String(candidate?.source || "").trim()
-      || existing.source
-      || defaultSource
-      || getReferenceHost(url);
-    const domain = getReferenceHost(url);
-    const nextTags = dedupeTextList([
-      ...(existing.tags || []),
-      ...normalizeFieldList(candidate?.tags).map((tag) => toReferenceText(tag)),
-    ]);
-    linksByUrl.set(url, {
-      url,
-      label,
-      source,
-      domain,
-      category: getReferenceCategory({
-        url,
-        source,
-        label,
-        tags: nextTags,
-        defaultCategory: String(candidate?.category || "").trim().toLowerCase() || existing.category || defaultCategory,
-      }),
-      tags: nextTags,
-    });
-    return true;
-  };
-
-  const visit = (input, hint = {}) => {
-    const normalized = normalizeFieldValue(input);
-    if (normalized == null) return;
-
-    if (typeof normalized === "string") {
-      const trimmed = normalized.trim();
-      if (!trimmed) return;
-      if (!pushLink({
-        url: trimmed,
-        label: hint.label,
-        source: hint.source,
-        tags: hint.tags,
-      }, linksByUrl.size)) {
-        pushMetadata(trimmed);
-      }
-      return;
-    }
-
-    if (typeof normalized === "number" || typeof normalized === "boolean") {
-      pushMetadata(String(normalized));
-      return;
-    }
-
-    if (Array.isArray(normalized)) {
-      normalized.forEach((item) => visit(item, hint));
-      return;
-    }
-
-    if (typeof normalized === "object") {
-      const directUrl = normalized.url || normalized.href || normalized.link || normalized.uri;
-      const directLabel = normalized.label || normalized.title || normalized.name;
-      const directSource = normalized.source || normalized.provider || normalized.type;
-      const directTags = normalized.tags || normalized.tagList;
-      const usedDirectLink = pushLink({
-        url: directUrl,
-        label: directLabel,
-        source: directSource || hint.source,
-        tags: directTags || hint.tags,
-      }, linksByUrl.size);
-
-      const nestedKeys = ["allReferences", "vendorAdvisories", "references", "links", "advisories", "patchUrls", "urls"];
-      nestedKeys.forEach((key) => {
-        if (normalized[key] != null) {
-          visit(normalized[key], {
-            source: directSource || hint.source,
-            label: directLabel || hint.label,
-          });
-        }
-      });
-
-      Object.entries(normalized).forEach(([key, itemValue]) => {
-        if ([
-          "url", "href", "link", "uri", "label", "title", "name", "source", "provider", "type", "tags", "tagList",
-          ...nestedKeys,
-        ].includes(key)) {
-          return;
-        }
-        if (itemValue == null) return;
-        if (typeof itemValue === "string" && isValidUrl(itemValue)) {
-          pushLink({
-            url: itemValue,
-            label: toSentence(key),
-            source: directSource || hint.source,
-            tags: directTags || hint.tags,
-          }, linksByUrl.size);
-          return;
-        }
-        if (typeof itemValue === "string" || typeof itemValue === "number" || typeof itemValue === "boolean") {
-          pushMetadata(`${toSentence(key)}: ${String(itemValue).trim()}`);
-          return;
-        }
-        visit(itemValue, {
-          source: directSource || hint.source,
-          label: directLabel || hint.label,
-        });
-      });
-
-      if (!usedDirectLink) {
-        const summary = Object.entries(normalized)
-          .filter(([, itemValue]) => typeof itemValue === "string" && !isValidUrl(itemValue) && String(itemValue).trim())
-          .slice(0, 3)
-          .map(([key, itemValue]) => `${toSentence(key)}: ${String(itemValue).trim()}`)
-          .join(" · ");
-        if (summary) pushMetadata(summary);
-      }
-    }
-  };
-
-  visit(value);
-
+  const normalized = normalizeVulnerabilityReferences(value, options);
   return {
-    links: Array.from(linksByUrl.values()),
-    metadata,
+    links: normalized.references,
+    metadata: normalized.metadata,
   };
 };
+const groupReferenceLinksByCategory = (links = []) => groupVulnerabilityReferencesByCategory(links);
 const splitDisplayProducts = (products, semantic) => {
   const primaryKey = semantic.hasReliablePrimaryEntity
     ? `${String(semantic.semanticPrimaryVendor || "").trim().toLowerCase()}::${String(semantic.semanticPrimaryProduct || "").trim().toLowerCase()}`
@@ -908,12 +652,22 @@ const KV = ({ label, value, tone }) => (
 );
 
 const RichValue = ({ value, empty = "Sin datos disponibles" }) => {
-  const normalized = normalizeFieldValue(value);
-  if (!hasValue(normalized)) return <div style={{ fontSize: 12, color: C.gray500 }}>{empty}</div>;
+  const { references, metadata, residual } = extractReferenceAwareValue(value);
+  const normalized = residual != null ? normalizeFieldValue(residual) : null;
+  const hasReferences = references.length > 0 || metadata.length > 0;
+  if (!hasValue(normalized) && !hasReferences) return <div style={{ fontSize: 12, color: C.gray500 }}>{empty}</div>;
 
   if (Array.isArray(normalized)) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {hasReferences && (
+          <ReferenceGrid
+            references={references}
+            metadata={metadata}
+            empty={empty}
+            accent={C.gray200}
+          />
+        )}
         {normalized.map((item, idx) => {
           if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
             return <div key={idx} style={{ fontSize: 12, color: C.gray700, lineHeight: 1.5 }}>{String(item)}</div>;
@@ -939,12 +693,36 @@ const RichValue = ({ value, empty = "Sin datos disponibles" }) => {
 
   if (typeof normalized === "object") {
     const entries = Object.entries(normalized).filter(([, itemValue]) => hasValue(itemValue));
+    if (entries.length === 0 && hasReferences) {
+      return <ReferenceGrid references={references} metadata={metadata} empty={empty} accent={C.gray200} />;
+    }
     if (entries.length === 0) return <div style={{ fontSize: 12, color: C.gray500 }}>{empty}</div>;
     return (
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
-        {entries.map(([key, itemValue]) => (
-          <KV key={key} label={toSentence(key)} value={summarizeTextValue(itemValue)} />
-        ))}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {hasReferences && (
+          <ReferenceGrid
+            references={references}
+            metadata={metadata}
+            empty={empty}
+            accent={C.gray200}
+          />
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+          {entries.map(([key, itemValue]) => (
+            <KV key={key} label={toSentence(key)} value={summarizeTextValue(itemValue)} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (hasReferences) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <ReferenceGrid references={references} metadata={metadata} empty={empty} accent={C.gray200} />
+        {hasValue(normalized) && (
+          <div style={{ fontSize: 12, color: C.gray700, whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.6 }}>{String(normalized)}</div>
+        )}
       </div>
     );
   }
@@ -952,97 +730,99 @@ const RichValue = ({ value, empty = "Sin datos disponibles" }) => {
   return <div style={{ fontSize: 12, color: C.gray700, whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.6 }}>{String(normalized)}</div>;
 };
 
-const LinkList = ({ items, empty = "Sin referencias disponibles", accent = C.gray200, defaultLabel = "", defaultSource = "" }) => {
-  const normalized = normalizeReferenceEntries(items, { defaultLabel, defaultSource });
-  if (normalized.links.length === 0 && normalized.metadata.length === 0) {
+const ReferenceCard = ({ reference, accent = C.gray200, index = 0 }) => (
+  <a
+    href={reference.url}
+    target="_blank"
+    rel="noopener noreferrer"
+    title={reference.url}
+    style={{
+      display: "flex",
+      flexDirection: "column",
+      gap: 6,
+      flex: "1 1 240px",
+      minWidth: 200,
+      maxWidth: "100%",
+      padding: "10px 12px",
+      borderRadius: 10,
+      border: `1px solid ${accent}`,
+      background: "#fff",
+      textDecoration: "none",
+      color: C.navy,
+      boxSizing: "border-box",
+    }}
+  >
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      <span style={{ fontSize: 12, fontWeight: 700, color: C.navy }}>
+        {reference.label || inferReferenceLabel({ item: reference, url: reference.url, index })}
+      </span>
+      <I name="link" size={12} color={C.gray500} />
+    </div>
+    {(reference.source || reference.domain) && (
+      <div style={{ fontSize: 10, color: C.gray500, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.6px" }}>
+        {reference.source || reference.domain}
+      </div>
+    )}
+    <div style={{
+      fontSize: 11,
+      color: C.gray600,
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    }}>
+      {reference.domain || reference.url}
+    </div>
+    <div style={{
+      fontSize: 10,
+      color: C.gray500,
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    }}>
+      {reference.url}
+    </div>
+    {reference.tags?.length > 0 && (
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {reference.tags.slice(0, 3).map((tag) => (
+          <span
+            key={`${reference.url}-${tag}`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              padding: "2px 8px",
+              borderRadius: 999,
+              background: C.gray50,
+              border: `1px solid ${C.gray200}`,
+              fontSize: 10,
+              color: C.gray600,
+              fontWeight: 600,
+            }}
+          >
+            {toSentence(tag)}
+          </span>
+        ))}
+      </div>
+    )}
+  </a>
+);
+
+const ReferenceGrid = ({ references, metadata, empty = "Sin referencias disponibles", accent = C.gray200 }) => {
+  if (references.length === 0 && metadata.length === 0) {
     return <div style={{ fontSize: 12, color: C.gray500 }}>{empty}</div>;
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {normalized.links.length > 0 && (
+      {references.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-          {normalized.links.map((link, idx) => (
-            <a
-              key={`${link.url}-${idx}`}
-              href={link.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={link.url}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 6,
-                flex: "1 1 240px",
-                minWidth: 200,
-                maxWidth: "100%",
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: `1px solid ${accent}`,
-                background: "#fff",
-                textDecoration: "none",
-                color: C.navy,
-                boxSizing: "border-box",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: C.navy }}>
-                  {link.label || inferReferenceLabel({ item: link, url: link.url, index: idx })}
-                </span>
-                <I name="link" size={12} color={C.gray500} />
-              </div>
-              {(link.source || link.domain) && (
-                <div style={{ fontSize: 10, color: C.gray500, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.6px" }}>
-                  {link.source || link.domain}
-                </div>
-              )}
-              <div style={{
-                fontSize: 11,
-                color: C.gray600,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}>
-                {link.domain || link.url}
-              </div>
-              <div style={{
-                fontSize: 10,
-                color: C.gray500,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}>
-                {link.url}
-              </div>
-              {link.tags?.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {link.tags.slice(0, 3).map((tag) => (
-                    <span
-                      key={`${link.url}-${tag}`}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        padding: "2px 8px",
-                        borderRadius: 999,
-                        background: C.gray50,
-                        border: `1px solid ${C.gray200}`,
-                        fontSize: 10,
-                        color: C.gray600,
-                        fontWeight: 600,
-                      }}
-                    >
-                      {toSentence(tag)}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </a>
+          {references.map((reference, idx) => (
+            <ReferenceCard key={`${reference.url}-${idx}`} reference={reference} index={idx} accent={accent} />
           ))}
         </div>
       )}
-      {normalized.metadata.length > 0 && (
+      {metadata.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {normalized.metadata.map((text, idx) => (
+          {metadata.map((text, idx) => (
             <div
               key={`${text}-${idx}`}
               style={{
@@ -1065,6 +845,47 @@ const LinkList = ({ items, empty = "Sin referencias disponibles", accent = C.gra
     </div>
   );
 };
+
+const ReferencesSection = ({
+  title,
+  items,
+  empty = "Sin referencias disponibles",
+  accent = C.gray200,
+  defaultLabel = "",
+  defaultSource = "",
+  defaultCategory = "",
+  showTitle = true,
+}) => {
+  const normalized = normalizeVulnerabilityReferences(items, { defaultLabel, defaultSource, defaultCategory });
+  if (normalized.references.length === 0 && normalized.metadata.length === 0) {
+    return showTitle ? (
+      <div>
+        {title && <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>{title}</div>}
+        <div style={{ fontSize: 12, color: C.gray500 }}>{empty}</div>
+      </div>
+    ) : (
+      <div style={{ fontSize: 12, color: C.gray500 }}>{empty}</div>
+    );
+  }
+  return (
+    <div>
+      {title && <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>{title}</div>}
+      <ReferenceGrid references={normalized.references} metadata={normalized.metadata} empty={empty} accent={accent} />
+    </div>
+  );
+};
+
+const LinkList = ({ items, empty = "Sin referencias disponibles", accent = C.gray200, defaultLabel = "", defaultSource = "", defaultCategory = "" }) => (
+  <ReferencesSection
+    items={items}
+    empty={empty}
+    accent={accent}
+    defaultLabel={defaultLabel}
+    defaultSource={defaultSource}
+    defaultCategory={defaultCategory}
+    showTitle={false}
+  />
+);
 
 const ProductDetailList = ({ items, primaryKey = "" }) => {
   const products = normalizeFieldList(items);
@@ -1548,10 +1369,7 @@ export default function VulnDashboard() {
   useEffect(() => {
     if (!isLoggedIn) return;
     const role = (getUser()?.role || "").toUpperCase();
-    if (role === "SUBSCRIBER" && !["vulns", "exploited", "portal", DETAIL_VIEW].includes(view)) {
-      setView("vulns");
-    }
-    if (role === "VIEWER" && !["vulns", "exploited", "account", DETAIL_VIEW].includes(view)) {
+    if (!isViewAllowedForRole(role, view)) {
       setView("vulns");
     }
   }, [isLoggedIn, view]);
@@ -1957,7 +1775,16 @@ export default function VulnDashboard() {
         ? VULN_LIST_PATH
         : view === "exploited"
           ? KEV_LIST_PATH
-          : (window.location.pathname.startsWith(VULN_LIST_PATH) || window.location.pathname.startsWith(KEV_LIST_PATH))
+          : view === "account"
+            ? ACCOUNT_PATH
+            : view === "portal"
+              ? PORTAL_PATH
+          : (
+            window.location.pathname.startsWith(VULN_LIST_PATH)
+            || window.location.pathname.startsWith(KEV_LIST_PATH)
+            || window.location.pathname === ACCOUNT_PATH
+            || window.location.pathname === PORTAL_PATH
+          )
             ? "/"
             : "";
     if (nextPath && window.location.pathname !== nextPath) {
