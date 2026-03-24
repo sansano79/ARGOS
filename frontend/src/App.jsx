@@ -492,6 +492,63 @@ const Bar = ({ label, count, total, color }) => {
   );
 };
 
+const compareNullableNumbers = (a, b) => {
+  const aa = Number.isFinite(Number(a)) ? Number(a) : null;
+  const bb = Number.isFinite(Number(b)) ? Number(b) : null;
+  if (aa == null && bb == null) return 0;
+  if (aa == null) return 1;
+  if (bb == null) return -1;
+  return aa - bb;
+};
+
+const compareNullableDates = (a, b) => {
+  const aa = a ? new Date(a).getTime() : NaN;
+  const bb = b ? new Date(b).getTime() : NaN;
+  const hasA = Number.isFinite(aa);
+  const hasB = Number.isFinite(bb);
+  if (!hasA && !hasB) return 0;
+  if (!hasA) return 1;
+  if (!hasB) return -1;
+  return aa - bb;
+};
+
+const compareNullableText = (a, b) => {
+  const aa = String(a || "").trim().toLocaleLowerCase("es");
+  const bb = String(b || "").trim().toLocaleLowerCase("es");
+  if (!aa && !bb) return 0;
+  if (!aa) return 1;
+  if (!bb) return -1;
+  return aa.localeCompare(bb, "es", { sensitivity: "base" });
+};
+
+const RISK_TIER_SORT_ORDER = {
+  informational: 0,
+  monitor: 1,
+  elevated: 2,
+  high: 3,
+  urgent: 4,
+  emergency: 5,
+};
+
+const EXPLOIT_STATUS_SORT_ORDER = {
+  none: 0,
+  mention: 1,
+  poc: 2,
+  reliable_poc: 3,
+  active_exploitation: 4,
+};
+
+const RECORD_STATUS_SORT_ORDER = {
+  published_basic: 0,
+  enriched_partial: 1,
+  enriched_full: 2,
+};
+
+const getKevSortDirectionIndicator = (key, sortState) => {
+  if (sortState.key !== key || sortState.direction === "default") return "↕";
+  return sortState.direction === "asc" ? "↑" : "↓";
+};
+
 const Btn = ({ children, onClick, primary, danger, small, disabled, style: s = {} }) => (
   <button onClick={onClick} disabled={disabled} style={{
     display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
@@ -738,7 +795,16 @@ export default function VulnDashboard() {
   const [collapsed, setCollapsed] = useState(false);
 
   // Data from API
-  const [dash, setDash] = useState({ totalAll: 0, today: [], week: [], topExploited: [], lastRun: null });
+  const [dash, setDash] = useState({
+    totalAll: 0,
+    today: [],
+    week: [],
+    last30d: [],
+    month: [],
+    exploitablesLast30d: 0,
+    topExploited: [],
+    lastRun: null,
+  });
   const [vulns, setVulns] = useState([]);
   const [vulnsTotal, setVulnsTotal] = useState(0);
   const [vulnsPage, setVulnsPage] = useState(1);
@@ -837,6 +903,7 @@ export default function VulnDashboard() {
   const [productFilter, setProductFilter] = useState("");
   const [changedSinceHoursFilter, setChangedSinceHoursFilter] = useState("");
   const [selectedVuln, setSelectedVuln] = useState(null);
+  const [kevTableSort, setKevTableSort] = useState({ key: "default", direction: "default" });
 
   // Contacts CRUD
   const [editContact, setEditContact] = useState(null);
@@ -1378,7 +1445,16 @@ export default function VulnDashboard() {
         const runsData = await runsR.json();
         const dashData = await dashR.json();
         setRuns(Array.isArray(runsData) ? runsData : (Array.isArray(runsData?.data) ? runsData.data : []));
-        setDash(dashData || { totalAll: 0, today: [], week: [], topExploited: [], lastRun: null });
+        setDash(dashData || {
+          totalAll: 0,
+          today: [],
+          week: [],
+          last30d: [],
+          month: [],
+          exploitablesLast30d: 0,
+          topExploited: [],
+          lastRun: null,
+        });
         if (backfillJobId) {
           try {
             const statusData = await callBackfillApi(`/status/${encodeURIComponent(backfillJobId)}`);
@@ -1566,10 +1642,85 @@ export default function VulnDashboard() {
 
   const todayT = dash?.publishedLast24hTotal ?? (dash?.today || []).reduce((s, c) => s + (c?._count || 0), 0);
   const weekT = dash?.publishedLast7dTotal ?? (dash?.week || []).reduce((s, c) => s + (c?._count || 0), 0);
-  const monthT = dash?.publishedLast30dTotal ?? (dash?.month || []).reduce((s, c) => s + (c?._count || 0), 0);
+  const last30dT = dash?.publishedLast30dTotal ?? (dash?.last30d || dash?.month || []).reduce((s, c) => s + (c?._count || 0), 0);
+  const exploitablesLast30dT = Number(dash?.exploitablesLast30d || 0);
   const kevConfirmedT = Number(dash?.kevConfirmedTotal ?? (dash?.topKevConfirmed || dash?.topExploited || []).length);
   const gc = (arr, sev) => (arr || []).find(c => c?.cvssV31Severity === sev)?._count || 0;
   const nextRun = () => { if (!dash?.lastRun?.finishedAt) return "-"; return Math.max(0, Math.floor((new Date(dash?.lastRun?.finishedAt).getTime() + 1800000 - now) / 60000)) + "m"; };
+  const toggleKevTableSort = (key) => {
+    setKevTableSort((current) => {
+      if (current.key !== key || current.direction === "default") {
+        return { key, direction: "asc" };
+      }
+      if (current.direction === "asc") {
+        return { key, direction: "desc" };
+      }
+      return { key: "default", direction: "default" };
+    });
+  };
+  const kevRows = dash?.topKevConfirmed || dash?.topExploited || [];
+  const sortedKevRows = kevRows
+    .map((row, index) => ({ row, index }))
+    .sort((left, right) => {
+      if (kevTableSort.direction === "default" || kevTableSort.key === "default") {
+        return left.index - right.index;
+      }
+
+      const a = left.row;
+      const b = right.row;
+      const aSemantic = getSemanticSummary(a);
+      const bSemantic = getSemanticSummary(b);
+      let comparison = 0;
+
+      switch (kevTableSort.key) {
+        case "cve":
+          comparison = compareNullableText(a.cveId, b.cveId);
+          break;
+        case "risk":
+          comparison = compareNullableNumbers(a.operationalRiskScore, b.operationalRiskScore);
+          if (comparison === 0) comparison = compareNullableNumbers(
+            RISK_TIER_SORT_ORDER[String(a.operationalRiskTier || "").toLowerCase()],
+            RISK_TIER_SORT_ORDER[String(b.operationalRiskTier || "").toLowerCase()],
+          );
+          break;
+        case "cvss":
+          comparison = compareNullableNumbers(a.cvssV31Score, b.cvssV31Score);
+          if (comparison === 0) comparison = compareNullableText(a.cvssV31Severity, b.cvssV31Severity);
+          break;
+        case "epss":
+          comparison = compareNullableNumbers(a.epssScore, b.epssScore);
+          break;
+        case "product":
+          comparison = compareNullableText(aSemantic.displayTitle, bSemantic.displayTitle);
+          if (comparison === 0) comparison = compareNullableText(aSemantic.componentType, bSemantic.componentType);
+          break;
+        case "exploitation":
+          comparison = compareNullableNumbers(
+            EXPLOIT_STATUS_SORT_ORDER[String(a.exploitStatus || "").toLowerCase()],
+            EXPLOIT_STATUS_SORT_ORDER[String(b.exploitStatus || "").toLowerCase()],
+          );
+          if (comparison === 0) comparison = compareNullableNumbers(a.hasPublicExploit ? 1 : 0, b.hasPublicExploit ? 1 : 0);
+          break;
+        case "status":
+          comparison = compareNullableNumbers(
+            RECORD_STATUS_SORT_ORDER[String(a.recordStatus || "").toLowerCase()],
+            RECORD_STATUS_SORT_ORDER[String(b.recordStatus || "").toLowerCase()],
+          );
+          break;
+        case "published":
+          comparison = compareNullableDates(a.publishedAt, b.publishedAt);
+          break;
+        case "updated":
+          comparison = compareNullableDates(a.lastModifiedAt, b.lastModifiedAt);
+          break;
+        default:
+          comparison = 0;
+      }
+
+      if (comparison === 0) return left.index - right.index;
+      return kevTableSort.direction === "asc" ? comparison : -comparison;
+    })
+    .map(({ row }) => row);
 
   // Search criteria detection (server-side search — results come from API)
   const hasSearchCriteria = (
@@ -2527,10 +2678,11 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                 <Card title="Severidad (últimos 30d)" icon="shield">
-                  <Bar label="Critical" count={gc(dash?.month, "CRITICAL")} total={monthT} color={C.critical} />
-                  <Bar label="High" count={gc(dash?.month, "HIGH")} total={monthT} color={C.high} />
-                  <Bar label="Medium" count={gc(dash?.month, "MEDIUM")} total={monthT} color={C.medium} />
-                  <Bar label="Low" count={gc(dash?.month, "LOW")} total={monthT} color={C.low} />
+                  <Bar label="Critical" count={gc(dash?.last30d || dash?.month, "CRITICAL")} total={last30dT} color={C.critical} />
+                  <Bar label="High" count={gc(dash?.last30d || dash?.month, "HIGH")} total={last30dT} color={C.high} />
+                  <Bar label="Medium" count={gc(dash?.last30d || dash?.month, "MEDIUM")} total={last30dT} color={C.medium} />
+                  <Bar label="Low" count={gc(dash?.last30d || dash?.month, "LOW")} total={last30dT} color={C.low} />
+                  <Bar label="Explotables" count={exploitablesLast30dT} total={last30dT || exploitablesLast30dT} color={C.info} />
                 </Card>
                 <Card title="Estado Collector" icon="server">
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
@@ -2550,11 +2702,50 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
               <Card title="KEV Confirmadas — Acción Inmediata" icon="zap" noPad style={{ marginTop: 16 }} action={<span onClick={() => setView("exploited")} style={{ fontSize: 11, color: C.blue, cursor: "pointer", fontWeight: 600 }}>Ver todas →</span>}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: C.gray50 }}>
-                    {["CVE", "Riesgo", "CVSS", "EPSS", "Explotación", "Producto", "Estado", "Tags", "Publicada", "Actualizada"].map(h => (
-                      <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", borderBottom: `2px solid ${C.gray200}`, whiteSpace: "nowrap" }}>{h}</th>
+                    {[
+                      { key: "cve", label: "CVE" },
+                      { key: "risk", label: "Riesgo" },
+                      { key: "cvss", label: "CVSS" },
+                      { key: "epss", label: "EPSS" },
+                      { key: "product", label: "Producto" },
+                      { key: "exploitation", label: "Explotación" },
+                      { key: "status", label: "Estado" },
+                      { key: "published", label: "Publicada" },
+                      { key: "updated", label: "Actualizada" },
+                    ].map((column) => (
+                      <th
+                        key={column.key}
+                        onClick={() => toggleKevTableSort(column.key)}
+                        style={{
+                          padding: 0,
+                          textAlign: "left",
+                          fontSize: 9,
+                          borderBottom: `2px solid ${C.gray200}`,
+                          whiteSpace: "nowrap",
+                          cursor: "pointer",
+                          userSelect: "none",
+                        }}
+                      >
+                        <div style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 8,
+                          padding: "9px 12px",
+                          fontWeight: 700,
+                          color: kevTableSort.key === column.key && kevTableSort.direction !== "default" ? C.navy : C.gray500,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.7px",
+                        }}>
+                          <span>{column.label}</span>
+                          <span style={{ fontSize: 10, color: kevTableSort.key === column.key && kevTableSort.direction !== "default" ? C.blue : C.gray400 }}>
+                            {getKevSortDirectionIndicator(column.key, kevTableSort)}
+                          </span>
+                        </div>
+                      </th>
                     ))}
                   </tr></thead>
-                  <tbody>{(dash?.topExploited || []).map(v => {
+                  <tbody>{sortedKevRows.map(v => {
                     const semantic = getSemanticSummary(v);
                     const displayContextTags = getDisplayContextTags({
                       contextTags: semantic.contextTags,
@@ -2615,7 +2806,6 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                             </span>
                           </div>
                         </td>
-                        <td style={{ padding: "10px 12px" }}>{(v.tags || []).map(t => <span key={t.id} style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: t.color, marginRight: 2 }} title={t.name} />)}</td>
                         <td style={{ padding: "10px 12px", fontSize: 10, color: C.gray500, fontFamily: "monospace" }}>{fmtDate(v.publishedAt).split(",")[0]}</td>
                         <td style={{ padding: "10px 12px", fontSize: 10, color: C.gray500, fontFamily: "monospace", whiteSpace: "nowrap" }}>
                           <span style={{ color: arrowColor, fontWeight: 900, marginRight: 6 }}>{arrow}</span>
