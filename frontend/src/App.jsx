@@ -118,6 +118,16 @@ const summarizeTextValue = (value) => {
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   try { return JSON.stringify(value); } catch { return String(value); }
 };
+const isValidUrl = (value) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return false;
+  try {
+    const parsed = new URL(normalized);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
 const riskTierMeta = (tier) => ({
   informational: { label: "Informational", bg: C.gray100, color: C.gray600, border: C.gray300 },
   monitor: { label: "Monitor", bg: C.infoBg, color: C.info, border: "#BFDBFE" },
@@ -315,9 +325,16 @@ const getReferenceHost = (url) => {
     return "";
   }
 };
+const toReferenceText = (value) => {
+  const normalized = normalizeFieldValue(value);
+  if (normalized == null) return "";
+  if (typeof normalized === "string") return normalized.trim();
+  if (typeof normalized === "number" || typeof normalized === "boolean") return String(normalized);
+  try { return JSON.stringify(normalized); } catch { return String(normalized); }
+};
 const inferReferenceLabel = ({ item, url, index }) => {
-  const rawLabel = String(item?.label || item?.source || item?.name || item?.type || "").trim();
-  if (rawLabel && !/^https?:\/\//i.test(rawLabel)) {
+  const rawLabel = String(item?.label || item?.title || item?.name || item?.source || item?.type || "").trim();
+  if (rawLabel && !isValidUrl(rawLabel)) {
     return toSentence(rawLabel);
   }
 
@@ -332,6 +349,149 @@ const inferReferenceLabel = ({ item, url, index }) => {
   if (host === "cve.org") return "CVE.org";
   if (host) return `Referencia ${index + 1}`;
   return `Referencia general ${index + 1}`;
+};
+const dedupeTextList = (values) => Array.from(new Set(
+  ensureArray(values)
+    .map((item) => String(item || "").trim())
+    .filter(Boolean),
+));
+const normalizeReferenceEntries = (value, options = {}) => {
+  const linksByUrl = new Map();
+  const metadata = [];
+  const metadataSeen = new Set();
+  const defaultSource = String(options.defaultSource || "").trim();
+  const defaultLabel = String(options.defaultLabel || "").trim();
+
+  const pushMetadata = (text) => {
+    const normalized = String(text || "").trim();
+    if (!normalized || isValidUrl(normalized) || metadataSeen.has(normalized)) return;
+    metadataSeen.add(normalized);
+    metadata.push(normalized);
+  };
+
+  const pushLink = (candidate, indexHint = 0) => {
+    const url = String(candidate?.url || "").trim();
+    if (!isValidUrl(url)) return false;
+
+    const existing = linksByUrl.get(url) || {
+      url,
+      label: "",
+      source: "",
+      tags: [],
+    };
+    const nextTags = dedupeTextList([
+      ...(existing.tags || []),
+      ...normalizeFieldList(candidate?.tags).map((tag) => toReferenceText(tag)),
+    ]);
+    linksByUrl.set(url, {
+      url,
+      label: String(candidate?.label || "").trim()
+        || existing.label
+        || defaultLabel
+        || inferReferenceLabel({ item: candidate, url, index: indexHint }),
+      source: String(candidate?.source || "").trim()
+        || existing.source
+        || defaultSource
+        || getReferenceHost(url),
+      tags: nextTags,
+    });
+    return true;
+  };
+
+  const visit = (input, hint = {}) => {
+    const normalized = normalizeFieldValue(input);
+    if (normalized == null) return;
+
+    if (typeof normalized === "string") {
+      const trimmed = normalized.trim();
+      if (!trimmed) return;
+      if (!pushLink({
+        url: trimmed,
+        label: hint.label,
+        source: hint.source,
+        tags: hint.tags,
+      }, linksByUrl.size)) {
+        pushMetadata(trimmed);
+      }
+      return;
+    }
+
+    if (typeof normalized === "number" || typeof normalized === "boolean") {
+      pushMetadata(String(normalized));
+      return;
+    }
+
+    if (Array.isArray(normalized)) {
+      normalized.forEach((item) => visit(item, hint));
+      return;
+    }
+
+    if (typeof normalized === "object") {
+      const directUrl = normalized.url || normalized.href || normalized.link || normalized.uri;
+      const directLabel = normalized.label || normalized.title || normalized.name;
+      const directSource = normalized.source || normalized.provider || normalized.type;
+      const directTags = normalized.tags || normalized.tagList;
+      const usedDirectLink = pushLink({
+        url: directUrl,
+        label: directLabel,
+        source: directSource || hint.source,
+        tags: directTags || hint.tags,
+      }, linksByUrl.size);
+
+      const nestedKeys = ["allReferences", "vendorAdvisories", "references", "links", "advisories", "patchUrls", "urls"];
+      nestedKeys.forEach((key) => {
+        if (normalized[key] != null) {
+          visit(normalized[key], {
+            source: directSource || hint.source,
+            label: directLabel || hint.label,
+          });
+        }
+      });
+
+      Object.entries(normalized).forEach(([key, itemValue]) => {
+        if ([
+          "url", "href", "link", "uri", "label", "title", "name", "source", "provider", "type", "tags", "tagList",
+          ...nestedKeys,
+        ].includes(key)) {
+          return;
+        }
+        if (itemValue == null) return;
+        if (typeof itemValue === "string" && isValidUrl(itemValue)) {
+          pushLink({
+            url: itemValue,
+            label: toSentence(key),
+            source: directSource || hint.source,
+            tags: directTags || hint.tags,
+          }, linksByUrl.size);
+          return;
+        }
+        if (typeof itemValue === "string" || typeof itemValue === "number" || typeof itemValue === "boolean") {
+          pushMetadata(`${toSentence(key)}: ${String(itemValue).trim()}`);
+          return;
+        }
+        visit(itemValue, {
+          source: directSource || hint.source,
+          label: directLabel || hint.label,
+        });
+      });
+
+      if (!usedDirectLink) {
+        const summary = Object.entries(normalized)
+          .filter(([, itemValue]) => typeof itemValue === "string" && !isValidUrl(itemValue) && String(itemValue).trim())
+          .slice(0, 3)
+          .map(([key, itemValue]) => `${toSentence(key)}: ${String(itemValue).trim()}`)
+          .join(" · ");
+        if (summary) pushMetadata(summary);
+      }
+    }
+  };
+
+  visit(value);
+
+  return {
+    links: Array.from(linksByUrl.values()),
+    metadata,
+  };
 };
 const splitDisplayProducts = (products, semantic) => {
   const primaryKey = semantic.hasReliablePrimaryEntity
@@ -664,59 +824,106 @@ const RichValue = ({ value, empty = "Sin datos disponibles" }) => {
   return <div style={{ fontSize: 12, color: C.gray700, whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.6 }}>{String(normalized)}</div>;
 };
 
-const LinkList = ({ items, empty = "Sin referencias disponibles", accent = C.gray200 }) => {
-  const links = normalizeFieldList(items).map((item, idx) => {
-    if (typeof item === "string") {
-      return {
-        id: `${item}-${idx}`,
-        label: inferReferenceLabel({ item: null, url: item, index: idx }),
-        subtitle: getReferenceHost(item) || "Enlace externo",
-        url: item,
-      };
-    }
-    if (item && typeof item === "object" && item.url) {
-      return {
-        id: `${item.url}-${idx}`,
-        label: inferReferenceLabel({ item, url: item.url, index: idx }),
-        subtitle: getReferenceHost(item.url) || toSentence(item.source || item.type || "enlace externo"),
-        url: item.url,
-      };
-    }
-    return null;
-  }).filter(Boolean);
-
-  if (links.length === 0) return <div style={{ fontSize: 12, color: C.gray500 }}>{empty}</div>;
+const LinkList = ({ items, empty = "Sin referencias disponibles", accent = C.gray200, defaultLabel = "", defaultSource = "" }) => {
+  const normalized = normalizeReferenceEntries(items, { defaultLabel, defaultSource });
+  if (normalized.links.length === 0 && normalized.metadata.length === 0) {
+    return <div style={{ fontSize: 12, color: C.gray500 }}>{empty}</div>;
+  }
 
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-      {links.map((link) => (
-        <a
-          key={link.id}
-          href={link.url}
-          target="_blank"
-          rel="noreferrer"
-          title={link.url}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "8px 12px",
-            borderRadius: 8,
-            border: `1px solid ${accent}`,
-            background: "#fff",
-            textDecoration: "none",
-            color: C.navy,
-            fontSize: 12,
-            fontWeight: 600,
-          }}
-        >
-          <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <span>{link.label}</span>
-            <span style={{ fontSize: 10, color: C.gray500, fontWeight: 500 }}>{link.subtitle}</span>
-          </span>
-          <I name="link" size={12} color={C.gray500} />
-        </a>
-      ))}
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {normalized.links.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+          {normalized.links.map((link, idx) => (
+            <a
+              key={`${link.url}-${idx}`}
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={link.url}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                minWidth: 220,
+                maxWidth: 320,
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: `1px solid ${accent}`,
+                background: "#fff",
+                textDecoration: "none",
+                color: C.navy,
+                boxSizing: "border-box",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: C.navy }}>
+                  {link.label || inferReferenceLabel({ item: link, url: link.url, index: idx })}
+                </span>
+                <I name="link" size={12} color={C.gray500} />
+              </div>
+              {(link.source || getReferenceHost(link.url)) && (
+                <div style={{ fontSize: 10, color: C.gray500, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.6px" }}>
+                  {link.source || getReferenceHost(link.url)}
+                </div>
+              )}
+              <div style={{
+                fontSize: 11,
+                color: C.gray600,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}>
+                {link.url}
+              </div>
+              {link.tags?.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {link.tags.slice(0, 4).map((tag) => (
+                    <span
+                      key={`${link.url}-${tag}`}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        background: C.gray50,
+                        border: `1px solid ${C.gray200}`,
+                        fontSize: 10,
+                        color: C.gray600,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {toSentence(tag)}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </a>
+          ))}
+        </div>
+      )}
+      {normalized.metadata.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {normalized.metadata.map((text, idx) => (
+            <div
+              key={`${text}-${idx}`}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 8,
+                border: `1px dashed ${C.gray300}`,
+                background: C.gray50,
+                fontSize: 11,
+                color: C.gray600,
+                lineHeight: 1.5,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}
+            >
+              {text}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -3058,7 +3265,29 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         const detectionOpportunities = normalizeFieldValue(vulnDetail.detectionOpportunities);
                         const sourcesPresent = normalizeFieldList(vulnDetail.sourcesPresent);
                         const references = normalizeFieldValue(vulnDetail.references);
+                        const allReferences = normalizeFieldValue(vulnDetail.allReferences);
+                        const vendorAdvisories = normalizeFieldValue(vulnDetail.vendorAdvisories ?? remediationInfo?.vendorAdvisories);
+                        const linksField = normalizeFieldValue(vulnDetail.links ?? remediationInfo?.links);
+                        const advisoriesField = normalizeFieldValue(vulnDetail.advisories ?? remediationInfo?.advisories);
                         const patchUrls = normalizeFieldList(remediationInfo?.patchUrls);
+                        const exploitReferenceBundle = normalizeReferenceEntries(exploitReferences, {
+                          defaultSource: "exploit",
+                          defaultLabel: "Referencia de explotación",
+                        });
+                        const patchAndAdvisoryBundle = normalizeReferenceEntries(
+                          [patchUrls, vendorAdvisories, advisoriesField],
+                          {
+                            defaultSource: "advisory",
+                            defaultLabel: "Vendor Advisory",
+                          },
+                        );
+                        const generalReferenceBundle = normalizeReferenceEntries(
+                          [references, allReferences, linksField],
+                          {
+                            defaultSource: "reference",
+                            defaultLabel: "Referencia",
+                          },
+                        );
                         const changeTimeline = normalizeFieldList(vulnDetail.changeTimeline).slice(0, 20);
                         const summaryText = vulnDetail.description || "Sin descripción disponible.";
                         const compactChangeValue = (value) => {
@@ -3068,10 +3297,13 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         const showWhyBlock = riskSignals.length > 0;
                         const showProductsBlock = displayProducts.length > 0 || semantic.hasReliablePrimaryEntity || semantic.componentType !== "unknown" || semantic.contextTags.length > 0;
                         const showContextBlock = displayContextTags.length > 0;
-                        const showExploitBlock = hasValue(vulnDetail.exploitStatus) || hasValue(vulnDetail.exploitConfidence) || hasValue(vulnDetail.exploitFirstSeenAt) || hasValue(vulnDetail.exploitLastCheckedAt) || hasValue(exploitReferences) || vulnDetail.isKnownExploited != null || vulnDetail.hasPublicExploit != null;
+                        const showExploitBlock = hasValue(vulnDetail.exploitStatus) || hasValue(vulnDetail.exploitConfidence) || hasValue(vulnDetail.exploitFirstSeenAt) || hasValue(vulnDetail.exploitLastCheckedAt) || exploitReferenceBundle.links.length > 0 || exploitReferenceBundle.metadata.length > 0 || vulnDetail.isKnownExploited != null || vulnDetail.hasPublicExploit != null;
                         const showRemediationBlock = vulnDetail.patchAvailable != null || hasValue(vulnDetail.patchPriority) || hasValue(fixedVersions) || hasValue(workarounds) || hasValue(detectionOpportunities) || hasValue(remediationInfo);
                         const showSourcesBlock = sourcesPresent.length > 0 || hasValue(vulnDetail.recordStatus) || hasValue(vulnDetail.lastChangeDetectedAt);
-                        const showReferencesBlock = patchUrls.length > 0 || hasValue(references) || hasValue(exploitReferences);
+                        const showReferencesBlock = patchAndAdvisoryBundle.links.length > 0
+                          || patchAndAdvisoryBundle.metadata.length > 0
+                          || generalReferenceBundle.links.length > 0
+                          || generalReferenceBundle.metadata.length > 0;
 
                         return <>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, gap: 16 }}>
@@ -3214,9 +3446,15 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                                 <KV label="Primera detección" value={fmtDate(vulnDetail.exploitFirstSeenAt)} />
                                 <KV label="Última comprobación" value={fmtDate(vulnDetail.exploitLastCheckedAt)} />
                               </div>
-                              {hasValue(exploitReferences) && <>
+                              {(exploitReferenceBundle.links.length > 0 || exploitReferenceBundle.metadata.length > 0) && <>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Referencias de explotación</div>
-                                <LinkList items={exploitReferences} empty="Sin referencias de explotación" accent="#FED7AA" />
+                                <LinkList
+                                  items={exploitReferences}
+                                  empty="Sin referencias de explotación"
+                                  accent="#FED7AA"
+                                  defaultLabel="Exploit Reference"
+                                  defaultSource="exploit"
+                                />
                               </>}
                             </DetailBlock>
                           )}
@@ -3258,18 +3496,36 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
                           {showReferencesBlock && (
                             <DetailBlock title="Referencias" icon="link" style={{ marginBottom: 16 }}>
-                              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
-                                <a href={`https://nvd.nist.gov/vuln/detail/${vulnDetail.cveId}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "#fff", border: `1px solid ${C.gray300}`, borderRadius: 8, textDecoration: "none", color: C.navy, fontSize: 12, fontWeight: 600 }}>
-                                  <img src="https://nvd.nist.gov/site-media/images/NIST_logo_bw_64.png" height="14" alt="" /> NVD NIST <I name="link" size={12} />
-                                </a>
+                              <div style={{ marginBottom: 14 }}>
+                                <LinkList
+                                  items={[{
+                                    label: "NVD NIST",
+                                    source: "NIST",
+                                    tags: ["NVD"],
+                                    url: `https://nvd.nist.gov/vuln/detail/${vulnDetail.cveId}`,
+                                  }]}
+                                  empty="Sin referencia NVD"
+                                  accent={C.gray300}
+                                />
                               </div>
-                              {patchUrls.length > 0 && <div style={{ marginBottom: 14 }}>
+                              {(patchAndAdvisoryBundle.links.length > 0 || patchAndAdvisoryBundle.metadata.length > 0) && <div style={{ marginBottom: 14 }}>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Parches y advisories</div>
-                                <LinkList items={patchUrls} empty="Sin URLs de parche" accent="#BBF7D0" />
+                                <LinkList
+                                  items={[patchUrls, vendorAdvisories, advisoriesField]}
+                                  empty="Sin URLs de parche"
+                                  accent="#BBF7D0"
+                                  defaultLabel="Vendor Advisory"
+                                  defaultSource="advisory"
+                                />
                               </div>}
-                              {hasValue(references) && <div style={{ marginBottom: hasValue(exploitReferences) ? 14 : 0 }}>
+                              {(generalReferenceBundle.links.length > 0 || generalReferenceBundle.metadata.length > 0) && <div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Referencias generales</div>
-                                <LinkList items={references} empty="Sin referencias generales" />
+                                <LinkList
+                                  items={[references, allReferences, linksField]}
+                                  empty="Sin referencias generales"
+                                  defaultLabel="Referencia"
+                                  defaultSource="reference"
+                                />
                               </div>}
                             </DetailBlock>
                           )}
