@@ -65,10 +65,15 @@ export const createDefaultNotificationCenterState = () => ({
   intelligent: {
     enabled: true,
     evaluationHour: 8,
-    recentWindowHours: 24,
-    contextWindowDays: 7,
+    analysisFrequencyHours: 24,
+    primaryWindowHours: 24,
+    recentContextDays: 7,
+    historicalContextDays: 60,
     onlyWhenFinding: true,
     minConfidence: 0.65,
+    minRelevanceScore: 0.6,
+    cooldownHours: 24,
+    maxNotificationsPerSubscriberPerDay: 2,
     scenarioFlags: {
       attackPath: true,
       campaignCluster: true,
@@ -148,6 +153,14 @@ export const normalizeNotificationCenterSettings = (value) => {
     intelligent: {
       ...defaults.intelligent,
       ...(input.intelligent || {}),
+      analysisFrequencyHours: Number(input?.intelligent?.analysisFrequencyHours ?? defaults.intelligent.analysisFrequencyHours) || defaults.intelligent.analysisFrequencyHours,
+      primaryWindowHours: Number(input?.intelligent?.primaryWindowHours ?? defaults.intelligent.primaryWindowHours) || defaults.intelligent.primaryWindowHours,
+      recentContextDays: Number(input?.intelligent?.recentContextDays ?? defaults.intelligent.recentContextDays) || defaults.intelligent.recentContextDays,
+      historicalContextDays: Number(input?.intelligent?.historicalContextDays ?? defaults.intelligent.historicalContextDays) || defaults.intelligent.historicalContextDays,
+      minConfidence: Number(input?.intelligent?.minConfidence ?? defaults.intelligent.minConfidence),
+      minRelevanceScore: Number(input?.intelligent?.minRelevanceScore ?? defaults.intelligent.minRelevanceScore),
+      cooldownHours: Number(input?.intelligent?.cooldownHours ?? defaults.intelligent.cooldownHours) || defaults.intelligent.cooldownHours,
+      maxNotificationsPerSubscriberPerDay: Number(input?.intelligent?.maxNotificationsPerSubscriberPerDay ?? defaults.intelligent.maxNotificationsPerSubscriberPerDay) || defaults.intelligent.maxNotificationsPerSubscriberPerDay,
       scenarioFlags: {
         ...defaults.intelligent.scenarioFlags,
         ...((input.intelligent || {}).scenarioFlags || {}),

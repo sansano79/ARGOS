@@ -75,10 +75,15 @@ type NotificationCenterConfig = {
     intelligent: {
         enabled: boolean;
         evaluationHour: number;
-        recentWindowHours: number;
-        contextWindowDays: number;
+        analysisFrequencyHours: number;
+        primaryWindowHours: number;
+        recentContextDays: number;
+        historicalContextDays: number;
         onlyWhenFinding: boolean;
         minConfidence: number;
+        minRelevanceScore: number;
+        cooldownHours: number;
+        maxNotificationsPerSubscriberPerDay: number;
         scenarioFlags: {
             attackPath: boolean;
             campaignCluster: boolean;
@@ -195,10 +200,15 @@ export class NotificationService {
             intelligent: {
                 enabled: true,
                 evaluationHour: 8,
-                recentWindowHours: 24,
-                contextWindowDays: 7,
+                analysisFrequencyHours: 24,
+                primaryWindowHours: 24,
+                recentContextDays: 7,
+                historicalContextDays: 60,
                 onlyWhenFinding: true,
                 minConfidence: 0.65,
+                minRelevanceScore: 0.6,
+                cooldownHours: 24,
+                maxNotificationsPerSubscriberPerDay: 2,
                 scenarioFlags: {
                     attackPath: true,
                     campaignCluster: true,
@@ -279,6 +289,17 @@ export class NotificationService {
             intelligent: {
                 ...defaults.intelligent,
                 ...(source.intelligent || {}),
+                analysisFrequencyHours: Math.max(1, Number(source?.intelligent?.analysisFrequencyHours ?? defaults.intelligent.analysisFrequencyHours)),
+                primaryWindowHours: Math.max(1, Number(source?.intelligent?.primaryWindowHours ?? defaults.intelligent.primaryWindowHours)),
+                recentContextDays: Math.max(1, Number(source?.intelligent?.recentContextDays ?? defaults.intelligent.recentContextDays)),
+                historicalContextDays: Math.max(
+                    Math.max(7, Number(source?.intelligent?.recentContextDays ?? defaults.intelligent.recentContextDays)),
+                    Number(source?.intelligent?.historicalContextDays ?? defaults.intelligent.historicalContextDays),
+                ),
+                minConfidence: Math.max(0, Math.min(1, Number(source?.intelligent?.minConfidence ?? defaults.intelligent.minConfidence))),
+                minRelevanceScore: Math.max(0, Math.min(1, Number(source?.intelligent?.minRelevanceScore ?? defaults.intelligent.minRelevanceScore))),
+                cooldownHours: Math.max(1, Number(source?.intelligent?.cooldownHours ?? defaults.intelligent.cooldownHours)),
+                maxNotificationsPerSubscriberPerDay: Math.max(1, Number(source?.intelligent?.maxNotificationsPerSubscriberPerDay ?? defaults.intelligent.maxNotificationsPerSubscriberPerDay)),
                 scenarioFlags: {
                     ...defaults.intelligent.scenarioFlags,
                     ...((source.intelligent || {}).scenarioFlags || {}),
@@ -650,7 +671,21 @@ export class NotificationService {
         }
     }
 
-    async sendEmail(to: string, subject: string, templateName: string, context: any) {
+    async sendEmail(
+        to: string,
+        subject: string,
+        templateName: string,
+        context: any,
+        options: {
+            notificationType?: string;
+            templateKey?: string;
+            channel?: string;
+            triggerReason?: string;
+            metadata?: Record<string, any>;
+            recipientUserId?: number;
+            cveIds?: string[];
+        } = {},
+    ) {
         if (!this.transporter) {
             await this.loadConfig();
             if (!this.transporter) {
@@ -676,7 +711,15 @@ export class NotificationService {
                 context.recipientName || to,
                 subject,
                 html,
-                context.cveIds || [],
+                options.cveIds || context.cveIds || [],
+                {
+                    notificationType: options.notificationType,
+                    templateKey: options.templateKey || templateName,
+                    channel: options.channel || 'email',
+                    triggerReason: options.triggerReason,
+                    metadata: options.metadata,
+                    recipientUserId: options.recipientUserId,
+                },
             );
 
             this.logger.log(`Email sent to ${to}: ${info.messageId}`);
@@ -1564,7 +1607,7 @@ export class NotificationService {
 
         const retries = Number((latestRuns || []).reduce((sum: number, run: any) => sum + Number(run.retryCount || 0), 0));
         const nextDigestExecution = this.calculateNextDigestExecution(settings.digest, digestRun);
-        const nextIntelligentExecution = this.calculateNextIntelligentExecution(settings.intelligent);
+        const nextIntelligentExecution = this.calculateNextIntelligentExecution(settings.intelligent, intelligentRun);
 
         return {
             enabled: settings.general.processEnabled,
@@ -1592,6 +1635,7 @@ export class NotificationService {
     }
 
     private mapJobHealth(jobType: string, run: any, extras: { nextExecution: string; mode: string }) {
+        const details = this.parseJson(run?.details || '{}') || {};
         return {
             jobType,
             mode: extras.mode,
@@ -1606,6 +1650,15 @@ export class NotificationService {
             queuePending: Number(run?.queuePending || 0),
             errorMessage: run?.errorMessage || null,
             nextExecution: extras.nextExecution,
+            durationMs: run?.startedAt && run?.finishedAt
+                ? Math.max(0, new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime())
+                : Number(details?.durationMs || 0),
+            lastSuccessfulAt: run?.status === 'completed' ? (run?.finishedAt || run?.startedAt || null) : null,
+            lastFailedAt: run?.status === 'failed' ? (run?.finishedAt || run?.startedAt || null) : null,
+            findingsDetected: Number(details?.findingsDetected || 0),
+            impactedSubscribers: Number(details?.impactedSubscribers || 0),
+            notificationsSuppressed: Number(details?.notificationsSuppressed || 0),
+            schedulerStatus: details?.schedulerStatus || (extras.mode === 'scheduled' ? 'active' : 'manual'),
         };
     }
 
@@ -1617,11 +1670,16 @@ export class NotificationService {
         return lastBase.toISOString();
     }
 
-    private calculateNextIntelligentExecution(intelligentConfig: NotificationCenterConfig['intelligent']): string {
+    private calculateNextIntelligentExecution(intelligentConfig: NotificationCenterConfig['intelligent'], run?: any): string {
         if (!intelligentConfig?.enabled) return 'Deshabilitado';
-        const next = new Date();
-        next.setHours(Number(intelligentConfig.evaluationHour || 8), 0, 0, 0);
-        if (next.getTime() <= Date.now()) next.setDate(next.getDate() + 1);
+        const intervalHours = Number(intelligentConfig.analysisFrequencyHours || 24);
+        const next = run?.finishedAt ? new Date(run.finishedAt) : new Date();
+        if (intervalHours >= 24) {
+            next.setHours(Number(intelligentConfig.evaluationHour || 8), 0, 0, 0);
+            if (next.getTime() <= Date.now()) next.setDate(next.getDate() + 1);
+            return next.toISOString();
+        }
+        next.setHours(next.getHours() + intervalHours);
         return next.toISOString();
     }
 

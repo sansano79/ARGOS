@@ -27,6 +27,7 @@ model User {
   notificationsPaused     Boolean   @default(false) @map("notifications_paused")
   notificationsPausedUntil DateTime? @map("notifications_paused_until")
   lastNotificationSentAt  DateTime? @map("last_notification_sent_at")
+  communicationLanguage   String    @default("es") @map("communication_language")
   contactPerson     String?   @map("contact_person")
   department        String?
   phone             String?
@@ -48,6 +49,8 @@ model User {
   subscriberNotifications    VulnerabilityNotification[] @relation("subscriber_notifications")
   ownedSystems               SubscriberOwnedSystem[]     @relation("subscriber_owned_systems")
   smartReports               SmartNotificationReport[]   @relation("smart_notification_reports")
+  intelligentNotificationMatches IntelligentNotificationSubscriberMatch[] @relation("intelligent_notification_subscriber_matches")
+  intelligentNotificationTests   IntelligentNotificationTestRun[]         @relation("intelligent_notification_test_runs")
   defenderActions            DefenderActionRequest[]     @relation("defender_action_requests")
   notificationPolicy         NotificationPolicy?
   pendingDigestNotifications PendingDigestNotification[]
@@ -672,6 +675,107 @@ model SmartNotificationReport {
   @@map("smart_notification_reports")
 }
 
+model IntelligentNotificationFinding {
+  id                    Int      @id @default(autoincrement())
+  findingKey            String   @unique @map("finding_key")
+  findingType           String   @map("finding_type")
+  title                 String
+  summary               String   @db.Text
+  confidence            Float
+  relevanceScore        Float    @map("relevance_score")
+  riskScore             Float?   @map("risk_score")
+  detectedAt            DateTime @default(now()) @map("detected_at")
+  windowStart           DateTime @map("window_start")
+  windowEnd             DateTime @map("window_end")
+  contextStart          DateTime @map("context_start")
+  contextEnd            DateTime @map("context_end")
+  affectedVulnerabilityIds String @map("affected_vulnerability_ids") @db.LongText
+  affectedManufacturers String?  @map("affected_manufacturers") @db.Text
+  affectedProducts      String?  @map("affected_products") @db.LongText
+  recommendedActions    String?  @map("recommended_actions") @db.LongText
+  rawModelOutput        String?  @map("raw_model_output") @db.LongText
+  normalizedModelOutput String?  @map("normalized_model_output") @db.LongText
+  status                String   @default("detected")
+  isTest                Boolean  @default(false) @map("is_test")
+  jobRunId              Int?     @map("job_run_id")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  subscriberMatches IntelligentNotificationSubscriberMatch[]
+
+  @@index([findingType])
+  @@index([status])
+  @@index([isTest])
+  @@index([detectedAt(sort: Desc)])
+  @@index([jobRunId])
+  @@map("intelligent_notification_findings")
+}
+
+model IntelligentNotificationSubscriberMatch {
+  id               Int      @id @default(autoincrement())
+  findingId        Int      @map("finding_id")
+  subscriberUserId Int      @map("subscriber_user_id")
+  matchLevel       String   @map("match_level")
+  matchScore       Float    @map("match_score")
+  deliveryScore    Float    @map("delivery_score")
+  shouldNotify     Boolean  @default(false) @map("should_notify")
+  suppressionReason String? @map("suppression_reason") @db.Text
+  decisionReason   String?  @map("decision_reason") @db.Text
+  matchingSignals  String?  @map("matching_signals") @db.LongText
+  cooldownUntil    DateTime? @map("cooldown_until")
+  sentAt           DateTime? @map("sent_at")
+  notificationLogId Int?    @map("notification_log_id")
+  isTest           Boolean  @default(false) @map("is_test")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  finding    IntelligentNotificationFinding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  subscriber User                           @relation("intelligent_notification_subscriber_matches", fields: [subscriberUserId], references: [id], onDelete: Cascade)
+
+  @@unique([findingId, subscriberUserId])
+  @@index([subscriberUserId])
+  @@index([shouldNotify])
+  @@index([isTest])
+  @@index([sentAt(sort: Desc)])
+  @@map("intelligent_notification_subscriber_matches")
+}
+
+model IntelligentNotificationTestRun {
+  id                    Int       @id @default(autoincrement())
+  subscriberUserId      Int?      @map("subscriber_user_id")
+  mode                  String
+  status                String    @default("running")
+  targetEmail           String?   @map("target_email")
+  communicationLanguage String    @default("es") @map("communication_language")
+  primaryWindowHours    Int       @default(24) @map("primary_window_hours")
+  recentContextDays     Int       @default(7) @map("recent_context_days")
+  historicalContextDays Int       @default(60) @map("historical_context_days")
+  useRecentRealData     Boolean   @default(true) @map("use_recent_real_data")
+  inputOptions          String?   @map("input_options") @db.LongText
+  findingsDetected      Int       @default(0) @map("findings_detected")
+  notificationsPlanned  Int       @default(0) @map("notifications_planned")
+  notificationsSent     Int       @default(0) @map("notifications_sent")
+  notificationsSuppressed Int     @default(0) @map("notifications_suppressed")
+  renderedSubject       String?   @map("rendered_subject") @db.Text
+  renderedHtml          String?   @map("rendered_html") @db.LongText
+  resultSummary         String?   @map("result_summary") @db.LongText
+  qualityAssessment     String?   @map("quality_assessment") @db.LongText
+  errorMessage          String?   @map("error_message") @db.Text
+  startedAt             DateTime  @default(now()) @map("started_at")
+  completedAt           DateTime? @map("completed_at")
+  durationMs            Int?      @map("duration_ms")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  subscriber User? @relation("intelligent_notification_test_runs", fields: [subscriberUserId], references: [id], onDelete: SetNull)
+
+  @@index([subscriberUserId])
+  @@index([mode])
+  @@index([status])
+  @@index([startedAt(sort: Desc)])
+  @@map("intelligent_notification_test_runs")
+}
+
 model SubscriberOwnedSystem {
   id               Int       @id @default(autoincrement())
   subscriberUserId Int       @map("subscriber_user_id")
@@ -787,6 +891,10 @@ model NotificationPolicy {
   intelligentLookbackHours Int     @default(24) @map("intelligent_lookback_hours")
   intelligentContextDays  Int      @default(7) @map("intelligent_context_days")
   intelligentMinConfidence Float?  @map("intelligent_min_confidence")
+  intelligentMinRelevanceScore Float? @map("intelligent_min_relevance_score")
+  intelligentCooldownHours Int?    @map("intelligent_cooldown_hours")
+  intelligentMaxNotificationsPerDay Int? @map("intelligent_max_notifications_per_day")
+  intelligentExclusions    String? @map("intelligent_exclusions") @db.Text
   intelligentOnlyWhenFinding Boolean @default(true) @map("intelligent_only_when_finding")
   intelligentScenarioFlags String? @map("intelligent_scenario_flags") @db.Text
   intelligentLastWatermarkAt DateTime? @map("intelligent_last_watermark_at")

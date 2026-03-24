@@ -24,6 +24,10 @@ export class UpdateMeDto {
 
   @IsOptional()
   @IsString()
+  communicationLanguage?: string;
+
+  @IsOptional()
+  @IsString()
   @Length(0, 120)
   contactPerson?: string;
 

@@ -64,6 +64,7 @@ export class AuthController {
         notificationsPaused: true,
         notificationsPausedUntil: true,
         lastNotificationSentAt: true,
+        communicationLanguage: true,
         contactPerson: true,
         department: true,
         phone: true,
@@ -101,6 +102,9 @@ export class AuthController {
     if (body?.notificationsPaused != null) data.notificationsPaused = !!body.notificationsPaused;
     if (body?.notificationsPausedUntil !== undefined) {
       data.notificationsPausedUntil = body.notificationsPausedUntil ? new Date(String(body.notificationsPausedUntil)) : null;
+    }
+    if (body?.communicationLanguage != null) {
+      data.communicationLanguage = String(body.communicationLanguage).trim().toLowerCase() === 'en' ? 'en' : 'es';
     }
     if (body?.contactPerson != null) data.contactPerson = String(body.contactPerson).trim();
     if (body?.department != null) data.department = String(body.department).trim();

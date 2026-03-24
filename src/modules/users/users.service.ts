@@ -21,6 +21,7 @@ export class UsersService {
                 notificationsPaused: true,
                 notificationsPausedUntil: true,
                 lastNotificationSentAt: true,
+                communicationLanguage: true,
                 contactPerson: true,
                 department: true,
                 phone: true,
@@ -59,6 +60,7 @@ export class UsersService {
                 notificationsPaused: true,
                 notificationsPausedUntil: true,
                 lastNotificationSentAt: true,
+                communicationLanguage: true,
                 contactPerson: true,
                 department: true,
                 phone: true,
@@ -125,6 +127,7 @@ export class UsersService {
         canReceiveNotifications?: boolean;
         notificationsPaused?: boolean;
         notificationsPausedUntil?: string | Date | null;
+        communicationLanguage?: 'es' | 'en';
         contactPerson?: string;
         department?: string;
         phone?: string;
@@ -144,6 +147,7 @@ export class UsersService {
         const notificationEmail = canReceiveNotifications ? (data.notificationEmail || data.email) : null;
         const notificationsPaused = data.notificationsPaused === true;
         const notificationsPausedUntil = data.notificationsPausedUntil ? new Date(data.notificationsPausedUntil) : null;
+        const communicationLanguage = data.communicationLanguage === 'en' ? 'en' : 'es';
 
         let passwordHash: string | null = null;
         if (canLogin) {
@@ -165,6 +169,7 @@ export class UsersService {
                 canReceiveNotifications,
                 notificationsPaused,
                 notificationsPausedUntil,
+                communicationLanguage,
                 contactPerson: data.contactPerson || null,
                 department: data.department || null,
                 phone: data.phone || null,
@@ -202,6 +207,7 @@ export class UsersService {
         canReceiveNotifications?: boolean;
         notificationsPaused?: boolean;
         notificationsPausedUntil?: string | Date | null;
+        communicationLanguage?: 'es' | 'en';
         contactPerson?: string;
         department?: string;
         phone?: string;
@@ -233,6 +239,11 @@ export class UsersService {
         const notificationsPausedUntil = data.notificationsPausedUntil !== undefined
             ? (data.notificationsPausedUntil ? new Date(data.notificationsPausedUntil) : null)
             : existing.notificationsPausedUntil;
+        const communicationLanguage = data.communicationLanguage === 'en'
+            ? 'en'
+            : data.communicationLanguage === 'es'
+                ? 'es'
+                : existing.communicationLanguage;
         const subscriptionItems = this.normalizeSubscriptions(data.subscriptions || []);
 
         const updateData: any = {};
@@ -245,6 +256,7 @@ export class UsersService {
         updateData.canReceiveNotifications = canReceiveNotifications;
         updateData.notificationsPaused = notificationsPaused;
         updateData.notificationsPausedUntil = notificationsPausedUntil;
+        updateData.communicationLanguage = communicationLanguage;
         if (data.isActive !== undefined) updateData.isActive = data.isActive;
         if (data.contactPerson !== undefined) updateData.contactPerson = data.contactPerson || null;
         if (data.department !== undefined) updateData.department = data.department || null;
