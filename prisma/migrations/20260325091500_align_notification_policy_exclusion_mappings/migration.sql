@@ -1,0 +1,9 @@
+-- Prisma schema alignment only.
+-- The production table already uses snake_case columns created in
+-- 20260324143000_notification_center_rework:
+--   - immediate_exclusions
+--   - digest_exclusions
+--
+-- This migration is intentionally a no-op at SQL level because the runtime
+-- failure was caused by missing Prisma @map(...) metadata, not by absence of
+-- the underlying columns in the database.

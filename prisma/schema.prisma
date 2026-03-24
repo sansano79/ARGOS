@@ -864,7 +864,7 @@ model NotificationPolicy {
   immediateVendorFilters  String?  @map("immediate_vendor_filters") @db.Text
   immediateProductFilters String?  @map("immediate_product_filters") @db.Text
   immediateCategoryFilters String? @map("immediate_category_filters") @db.Text
-  immediateExclusions     String?  @db.Text
+  immediateExclusions     String?  @map("immediate_exclusions") @db.Text
   // Level 1: Instant — critical / exploitable
   immediateForCritical    Boolean  @default(true) @map("immediate_for_critical")
   immediateForExploitable Boolean  @default(true) @map("immediate_for_exploitable")
@@ -879,7 +879,7 @@ model NotificationPolicy {
   digestVendorFilters     String?  @map("digest_vendor_filters") @db.Text
   digestProductFilters    String?  @map("digest_product_filters") @db.Text
   digestCategoryFilters   String?  @map("digest_category_filters") @db.Text
-  digestExclusions        String?  @db.Text
+  digestExclusions        String?  @map("digest_exclusions") @db.Text
   digestLastWatermarkAt   DateTime? @map("digest_last_watermark_at")
   // Level 2: Periodic — grouped by vendor/product
   periodicEnabled         Boolean  @default(true) @map("periodic_enabled")

@@ -174,6 +174,12 @@ type IntelligentRunMetrics = {
     };
 };
 
+type IntelligentAiCallResult = {
+    response: any;
+    durationMs: number;
+    attempts: number;
+};
+
 type IntelligentRunOptions = {
     trigger?: 'manual' | 'cron' | 'test';
     dryRun?: boolean;
@@ -1022,7 +1028,7 @@ export class SmartNotificationsService {
     }
 
     private async evaluateIntelligentCluster(cluster: any, windows: ReturnType<SmartNotificationsService['getIntelligentWindows']>, settings: any, language: 'es' | 'en'): Promise<IntelligentFinding | null> {
-        const sliced = cluster.candidates.slice(0, 6);
+        const sliced = cluster.candidates.slice(0, 4);
         const defaultFinding = this.buildFallbackIntelligentFinding(cluster, sliced, windows, language);
         const effectiveAi = await this.getEffectiveAiSettings(await this.loadSmartConfig());
         const promptSystem = language === 'en'
@@ -1074,11 +1080,11 @@ export class SmartNotificationsService {
         });
 
         try {
-            const aiResponse = await this.callAiForIntelligentFinding([
+            const aiRun = await this.callAiForIntelligentFinding([
                 { role: 'system', content: promptSystem },
                 { role: 'user', content: promptUser },
             ], effectiveAi.model);
-            const aiContent = this.extractAiContent(aiResponse);
+            const aiContent = this.extractAiContent(aiRun.response);
             const parsed = this.safeJsonParse(aiContent || '{}');
             if (parsed && parsed.shouldCreateFinding === false) return null;
             if (parsed && typeof parsed === 'object') {
@@ -1096,6 +1102,8 @@ export class SmartNotificationsService {
                     rawModelOutput: parsed,
                     normalizedModelOutput: {
                         rationale: Array.isArray(parsed.rationale) ? parsed.rationale : [],
+                        aiDurationMs: aiRun.durationMs,
+                        aiAttempts: aiRun.attempts,
                     },
                 };
             }
@@ -1326,55 +1334,353 @@ export class SmartNotificationsService {
     private buildIntelligentEmailContext(finding: IntelligentFinding, match: IntelligentMatchRecord, vulnerabilityMap: Map<number, any>, language: 'es' | 'en') {
         const vulnerabilities = finding.affectedVulnerabilityIds
             .map((id) => vulnerabilityMap.get(id))
-            .filter(Boolean)
+            .filter(Boolean);
+        const sortedVulnerabilities = [...vulnerabilities]
+            .sort((left: any, right: any) => this.rankIntelligentVulnerability(right) - this.rankIntelligentVulnerability(left))
             .slice(0, 8);
-        const title = language === 'en' ? 'OCC Intelligent Finding' : 'Hallazgo Inteligente OCC';
-        const introText = language === 'en'
-            ? `This notification was sent because the finding matches your subscriptions or managed assets with ${match.matchLevel} coverage.`
-            : `Recibes esta notificación porque el hallazgo encaja con tus suscripciones o activos gestionados con un matching ${match.matchLevel}.`;
-        const topRiskSectionHtml = vulnerabilities.map((item: any) => `
-<div style="border:1px solid #E5E7EB;border-radius:10px;padding:12px;margin-bottom:10px;background:#fff;">
-  <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
-    <strong>${this.escapeHtml(item.cveId)}</strong>
-    <span style="font-size:11px;color:#6B7280;">CVSS ${this.escapeHtml(String(item.cvssV31Score ?? 'N/A'))} · EPSS ${this.escapeHtml(item.epssScore != null ? Number(item.epssScore).toFixed(2) : 'N/A')}</span>
-  </div>
-  <div style="font-size:12px;color:#4B5563;margin-top:6px;">${this.escapeHtml(String(item.description || '').slice(0, 220))}</div>
-</div>`).join('');
-        const correlationsSectionHtml = `
-<div style="background:#F8FAFC;border:1px solid #E5E7EB;border-radius:10px;padding:14px;">
-  <div style="font-size:12px;color:#1F2937;font-weight:700;margin-bottom:6px;">${this.escapeHtml(finding.title)}</div>
-  <div style="font-size:13px;color:#4B5563;line-height:1.6;">${this.escapeHtml(finding.summary)}</div>
-  <div style="margin-top:10px;font-size:12px;color:#6B7280;">${this.escapeHtml(match.reasons.join(' · '))}</div>
+        const topRisk = sortedVulnerabilities.slice(0, 3);
+        const detailBaseUrl = this.getFrontendBaseUrl();
+        const priority = this.getIntelligentPriorityMeta(finding);
+        const kevCount = sortedVulnerabilities.filter((item: any) => !!item.isKnownExploited).length;
+        const exploitCount = sortedVulnerabilities.filter((item: any) => !!item.hasPublicExploit || ['active_exploitation', 'reliable_poc', 'poc'].includes(String(item.exploitStatus || '').toLowerCase())).length;
+        const noPatchCount = sortedVulnerabilities.filter((item: any) => item.patchAvailable === false).length;
+        const maxRisk = sortedVulnerabilities.reduce((max, item: any) => Math.max(max, Number(item.operationalRiskScore || item.cvssV31Score || 0)), 0);
+        const confidencePct = `${Math.round(Number(finding.confidence || 0) * 100)}%`;
+        const executiveLines = this.buildIntelligentExecutiveLines(finding, topRisk, language);
+        const signalTags = this.buildIntelligentSignalTags(finding, sortedVulnerabilities, language);
+        const headerMetaStripHtml = `
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+  ${this.buildHeaderChip(language === 'en' ? 'Period' : 'Periodo', `${finding.windowStart.toISOString().slice(0, 10)} → ${finding.windowEnd.toISOString().slice(0, 10)}`)}
+  ${this.buildHeaderChip(language === 'en' ? 'Priority' : 'Prioridad', priority.label, priority.background, priority.text)}
+  ${this.buildHeaderChip(language === 'en' ? 'Confidence' : 'Confianza', confidencePct)}
+  ${this.buildHeaderChip(language === 'en' ? 'Finding type' : 'Tipo de hallazgo', this.getFindingTypeLabel(finding.type, language))}
 </div>`;
-        const roadmapSectionHtml = finding.recommendedActions
-            .map((action, index) => `<div style="margin-bottom:10px;"><strong>${language === 'en' ? 'Action' : 'Acción'} ${index + 1}</strong><div style="font-size:12px;color:#4B5563;">${this.escapeHtml(action)}</div></div>`)
-            .join('');
-        const technicalRows = vulnerabilities.map((item: any) => `
-<tr>
-  <td style="padding:8px;border-bottom:1px solid #E5E7EB;">${this.escapeHtml(item.cveId)}</td>
-  <td style="padding:8px;border-bottom:1px solid #E5E7EB;">${this.escapeHtml(String(item.primaryVendor || 'N/A'))}</td>
-  <td style="padding:8px;border-bottom:1px solid #E5E7EB;">${this.escapeHtml(String(item.primaryProduct || 'N/A'))}</td>
-  <td style="padding:8px;border-bottom:1px solid #E5E7EB;">${this.escapeHtml(item.isKnownExploited ? 'KEV' : item.hasPublicExploit ? 'PoC' : 'N/A')}</td>
-</tr>`).join('');
+        const executiveSectionHtml = `
+<h2 style="${this.getSectionTitleStyle()}">${language === 'en' ? 'Executive Summary' : 'Resumen ejecutivo'}</h2>
+<div style="background:#F8FAFC;border:1px solid #E5E7EB;border-radius:14px;padding:16px 18px;margin-bottom:18px;">
+  <p style="margin:0 0 10px;color:#0F172A;font-size:14px;line-height:1.7;font-weight:600;">${this.escapeHtml(finding.summary)}</p>
+  <div style="display:flex;flex-direction:column;gap:8px;">
+    ${executiveLines.map((line) => `<div style="display:flex;gap:10px;align-items:flex-start;"><span style="color:#2563EB;font-weight:800;">•</span><span style="font-size:13px;color:#334155;line-height:1.65;">${this.escapeHtml(line)}</span></div>`).join('')}
+  </div>
+  ${signalTags.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:14px;">${signalTags.map((tag) => `<span style="display:inline-flex;align-items:center;padding:5px 9px;border-radius:999px;background:#E0F2FE;color:#075985;font-size:11px;font-weight:700;">${this.escapeHtml(tag)}</span>`).join('')}</div>` : ''}
+</div>`;
+        const statsSectionHtml = `
+<h2 style="${this.getSectionTitleStyle()}">${language === 'en' ? 'Key Metrics' : 'KPIs clave'}</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:10px;margin-bottom:22px;">
+  ${this.buildMetricCard(language === 'en' ? 'CVEs' : 'CVEs', String(sortedVulnerabilities.length), '#EFF6FF', '#1D4ED8')}
+  ${this.buildMetricCard('KEV', String(kevCount), '#FEF3C7', '#B45309')}
+  ${this.buildMetricCard(language === 'en' ? 'Public exploit' : 'Exploit público', String(exploitCount), '#FEE2E2', '#B91C1C')}
+  ${this.buildMetricCard(language === 'en' ? 'Unpatched' : 'Sin parche', String(noPatchCount), '#FFF7ED', '#C2410C')}
+  ${this.buildMetricCard(language === 'en' ? 'Max risk' : 'Riesgo máximo', maxRisk > 0 ? maxRisk.toFixed(1) : 'N/A', '#F5F3FF', '#6D28D9')}
+  ${this.buildMetricCard(language === 'en' ? 'Confidence' : 'Confianza', confidencePct, '#ECFDF5', '#047857')}
+</div>`;
+        const topRiskSectionHtml = `
+<h2 style="${this.getSectionTitleStyle()}">${language === 'en' ? 'Top Real Risk' : 'Top riesgo real'}</h2>
+${topRisk.length ? topRisk.map((item: any, index: number) => this.buildIntelligentTopRiskCard(item, index, language, detailBaseUrl)).join('') : `<div style="font-size:13px;color:#6B7280;">${language === 'en' ? 'No prioritized vulnerabilities were identified in this finding.' : 'No se identificaron vulnerabilidades priorizadas en este hallazgo.'}</div>`}`;
+        const correlationsSectionHtml = `
+<h2 style="${this.getSectionTitleStyle()}">${language === 'en' ? 'Detected Correlations' : 'Correlaciones detectadas'}</h2>
+${this.buildIntelligentCorrelationBlock(finding, sortedVulnerabilities, match, language)}`;
+        const roadmapSectionHtml = `
+<h2 style="${this.getSectionTitleStyle()}">${language === 'en' ? 'Mitigation Roadmap' : 'Hoja de ruta de mitigación'}</h2>
+${this.buildIntelligentRoadmapHtml(finding, sortedVulnerabilities, language)}`;
+        const technicalSectionHtml = `
+<h2 style="${this.getSectionTitleStyle()}">${language === 'en' ? 'Technical Base Analysed' : 'Base técnica analizada'}</h2>
+${this.buildIntelligentTechnicalTable(sortedVulnerabilities, language)}`;
+        const whyReceivedSectionHtml = `
+<h2 style="${this.getSectionTitleStyle()}">${language === 'en' ? 'Why You Received This Alert' : 'Por qué recibes esta alerta'}</h2>
+${this.buildIntelligentWhyReceivedHtml(finding, match, language)}`;
+        const closingSectionHtml = `
+<div style="margin-top:18px;padding:16px 18px;border-radius:14px;border:1px solid #DBEAFE;background:#F8FBFF;">
+  <div style="font-size:13px;font-weight:800;color:#1E3A8A;margin-bottom:8px;">${language === 'en' ? 'Next step' : 'Siguiente paso'}</div>
+  <div style="font-size:13px;color:#334155;line-height:1.65;margin-bottom:12px;">${this.escapeHtml(language === 'en'
+            ? 'Review the affected CVEs, confirm exposure in your subscribed stack and prioritize the mitigation roadmap for the highest-risk chain.'
+            : 'Revisa las CVEs afectadas, confirma exposición sobre tu stack suscrito y prioriza la hoja de ruta de mitigación para la cadena de mayor riesgo.')}</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;">
+    ${topRisk.map((item: any) => this.buildDetailLinkChip(item.cveId, detailBaseUrl, language)).join('')}
+  </div>
+  <div style="margin-top:12px;font-size:11px;color:#64748B;">${this.escapeHtml(language === 'en'
+            ? `Generated on ${new Date().toISOString()} · Automated OCC intelligent analysis.`
+            : `Generado el ${new Date().toISOString()} · Análisis inteligente OCC automatizado.`)}</div>
+</div>`;
 
         return {
-            recipientName: '',
-            cveIds: vulnerabilities.map((item: any) => item.cveId),
-            emailTitle: this.escapeHtml(title),
-            introText: this.escapeHtml(introText),
-            footerText: this.escapeHtml(language === 'en' ? 'Services OCC — intelligent notification generated automatically' : 'Servicios OCC — notificación inteligente generada automáticamente'),
-            executiveSectionHtml: `<div style="background:#F8FAFC;border:1px solid #E5E7EB;border-radius:8px;padding:12px 14px;margin-bottom:20px;"><p style="margin:0;color:#111827;font-size:14px;line-height:1.5;">${this.escapeHtml(finding.summary)}</p></div>`,
-            statsSectionHtml: `<div style="display:flex;gap:10px;margin-bottom:22px;"><div style="flex:1;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:12px;text-align:center;"><div style="font-size:10px;color:#2563EB;font-weight:700;text-transform:uppercase;">${language === 'en' ? 'Delivery score' : 'Delivery score'}</div><div style="font-size:28px;font-weight:800;color:#1E3A8A;font-family:monospace;">${Number(match.deliveryScore).toFixed(2)}</div></div></div>`,
+            subscriberName: '',
+            cveIds: sortedVulnerabilities.map((item: any) => item.cveId),
+            emailTitle: this.escapeHtml(language === 'en' ? 'Intelligent Report' : 'Informe Inteligente'),
+            brandSubtitle: this.escapeHtml(language === 'en' ? 'Services OCC — Vulnerability management platform' : 'Servicios OCC — Gestor de vulnerabilidades'),
+            introText: this.escapeHtml(language === 'en'
+                ? `The finding ${finding.title} requires attention because it combines exploitable signals with a subscriber-specific match level of ${match.matchLevel}.`
+                : `El hallazgo ${finding.title} requiere atención porque combina señales explotables con un nivel de matching ${match.matchLevel} para este suscriptor.`),
+            footerText: this.escapeHtml(language === 'en'
+                ? 'Services OCC — Intelligent notification generated automatically'
+                : 'Servicios OCC — notificación inteligente generada automáticamente'),
+            headerMetaStripHtml,
+            executiveSectionHtml,
+            statsSectionHtml,
             topRiskSectionHtml,
             correlationsSectionHtml,
             roadmapSectionHtml,
-            technicalSectionHtml: `<div style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#F3F4F6;"><th style="padding:8px;text-align:left;">CVE</th><th style="padding:8px;text-align:left;">Vendor</th><th style="padding:8px;text-align:left;">Producto</th><th style="padding:8px;text-align:left;">Exploit</th></tr></thead><tbody>${technicalRows}</tbody></table></div>`,
-            subscriberName: '',
+            technicalSectionHtml,
+            whyReceivedSectionHtml,
+            closingSectionHtml,
             periodStart: finding.windowStart.toISOString().slice(0, 10),
             periodEnd: finding.windowEnd.toISOString().slice(0, 10),
             generatedAt: new Date().toISOString(),
-            totalVulnerabilities: vulnerabilities.length,
+            totalVulnerabilities: sortedVulnerabilities.length,
         };
+    }
+
+    private getSectionTitleStyle() {
+        return 'margin: 0 0 10px; font-size: 12px; color: #1E3A8A; text-transform: uppercase; letter-spacing: .08em; font-weight: 800;';
+    }
+
+    private buildHeaderChip(label: string, value: string, background = 'rgba(255,255,255,0.12)', textColor = '#FFFFFF') {
+        return `<span style="display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;background:${background};color:${textColor};font-size:11px;font-weight:700;border:1px solid rgba(255,255,255,0.14);"><span style="opacity:.72;">${this.escapeHtml(label)}</span><span>${this.escapeHtml(value)}</span></span>`;
+    }
+
+    private buildMetricCard(label: string, value: string, background: string, accent: string) {
+        return `<div style="background:${background};border:1px solid #E5E7EB;border-radius:12px;padding:12px 10px;"><div style="font-size:10px;color:#64748B;font-weight:800;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">${this.escapeHtml(label)}</div><div style="font-size:24px;line-height:1;font-weight:900;color:${accent};font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${this.escapeHtml(value)}</div></div>`;
+    }
+
+    private getIntelligentPriorityMeta(finding: IntelligentFinding) {
+        if (finding.riskScore >= 9 || finding.type === 'critical_unpatched_exposed_set') {
+            return { label: 'Critical', background: '#FEE2E2', text: '#991B1B' };
+        }
+        if (finding.riskScore >= 7.5 || finding.type === 'attack_path_plausible' || finding.type === 'priority_escalation') {
+            return { label: 'High', background: '#FFEDD5', text: '#9A3412' };
+        }
+        return { label: 'Medium', background: '#FEF3C7', text: '#92400E' };
+    }
+
+    private buildIntelligentExecutiveLines(finding: IntelligentFinding, vulnerabilities: any[], language: 'es' | 'en') {
+        const vendors = [...new Set((finding.affectedManufacturers || []).filter(Boolean))].slice(0, 3).join(', ') || (language === 'en' ? 'the subscribed stack' : 'el stack suscrito');
+        const products = [...new Set((finding.affectedProducts || []).filter(Boolean))].slice(0, 3).join(', ') || (language === 'en' ? 'key components' : 'componentes clave');
+        const hasExploit = vulnerabilities.some((item: any) => item.hasPublicExploit || item.isKnownExploited);
+        const noPatch = vulnerabilities.some((item: any) => item.patchAvailable === false);
+        return language === 'en'
+            ? [
+                `The model detected a ${this.getFindingTypeLabel(finding.type, language).toLowerCase()} around ${vendors} / ${products}.`,
+                `It matters because the cluster combines ${hasExploit ? 'active exploitability signals' : 'high exploitability potential'} with recency and subscriber relevance.`,
+                `The likely path links related CVEs that can amplify operational exposure if remediation remains partial or delayed.`,
+                `Recommended priority: ${this.getIntelligentPriorityMeta(finding).label.toLowerCase()}${noPatch ? ', with emphasis on unpatched assets' : ''}.`,
+            ]
+            : [
+                `La IA ha detectado un ${this.getFindingTypeLabel(finding.type, language).toLowerCase()} alrededor de ${vendors} / ${products}.`,
+                `Importa porque el clúster combina ${hasExploit ? 'señales de explotación activable' : 'potencial alto de explotación'} con recencia y relevancia para el suscriptor.`,
+                `La ruta probable enlaza CVEs relacionadas que pueden amplificar la exposición operativa si la remediación sigue parcial o demorada.`,
+                `Prioridad recomendada: ${this.getIntelligentPriorityMeta(finding).label.toLowerCase()}${noPatch ? ', con foco en activos sin parche confirmado' : ''}.`,
+            ];
+    }
+
+    private buildIntelligentSignalTags(finding: IntelligentFinding, vulnerabilities: any[], language: 'es' | 'en') {
+        const tags: string[] = [];
+        if (vulnerabilities.some((item: any) => item.isKnownExploited)) tags.push('KEV');
+        if (vulnerabilities.some((item: any) => item.hasPublicExploit)) tags.push(language === 'en' ? 'Public exploit' : 'Exploit público');
+        if (vulnerabilities.some((item: any) => item.patchAvailable === false)) tags.push(language === 'en' ? 'Unpatched' : 'Sin parche');
+        if (vulnerabilities.some((item: any) => Number(item.epssScore || 0) >= 0.7)) tags.push('EPSS alto');
+        if (finding.type === 'attack_path_plausible') tags.push(language === 'en' ? 'Attack path' : 'Attack path');
+        return tags.slice(0, 5);
+    }
+
+    private rankIntelligentVulnerability(item: any) {
+        return Number(item.operationalRiskScore || 0)
+            + Number(item.cvssV31Score || 0)
+            + (Number(item.epssScore || 0) * 10)
+            + (item.isKnownExploited ? 3 : 0)
+            + (item.hasPublicExploit ? 2 : 0)
+            + (item.patchAvailable === false ? 1.5 : 0);
+    }
+
+    private buildIntelligentTopRiskCard(item: any, index: number, language: 'es' | 'en', detailBaseUrl: string) {
+        const exploitLabel = item.isKnownExploited ? 'KEV' : item.hasPublicExploit ? 'PoC' : (language === 'en' ? 'No public exploit' : 'Sin exploit público');
+        const interpretation = this.buildIntelligentInterpretation(item, language);
+        const metaBadges = [
+            `CVSS ${item.cvssV31Score != null ? Number(item.cvssV31Score).toFixed(1) : 'N/A'}`,
+            `EPSS ${item.epssScore != null ? Number(item.epssScore).toFixed(2) : 'N/A'}`,
+            exploitLabel,
+            item.patchAvailable === false ? (language === 'en' ? 'Unpatched' : 'Sin parche') : (language === 'en' ? 'Patch available' : 'Parche disponible'),
+        ];
+        return `
+<div style="border:1px solid #E5E7EB;border-radius:14px;padding:15px 16px;margin-bottom:12px;background:#fff;box-shadow:0 1px 3px rgba(15,23,42,0.05);">
+  <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
+    <div>
+      <div style="font-size:11px;color:#64748B;font-weight:800;text-transform:uppercase;letter-spacing:.06em;">${language === 'en' ? `Priority ${index + 1}` : `Prioridad ${index + 1}`}</div>
+      <div style="font-size:18px;font-weight:900;color:#0F172A;margin-top:2px;">${this.escapeHtml(item.cveId || 'N/A')}</div>
+      <div style="font-size:13px;color:#475569;margin-top:4px;">${this.escapeHtml(this.getVulnerabilityProductLabel(item))}</div>
+    </div>
+    ${this.buildDetailLinkChip(item.cveId, detailBaseUrl, language)}
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">${metaBadges.map((value) => `<span style="display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#F8FAFC;border:1px solid #E2E8F0;color:#334155;font-size:11px;font-weight:700;">${this.escapeHtml(value)}</span>`).join('')}</div>
+  <div style="font-size:13px;color:#334155;line-height:1.65;margin-top:10px;">${this.escapeHtml(interpretation)}</div>
+</div>`;
+    }
+
+    private buildIntelligentInterpretation(item: any, language: 'es' | 'en') {
+        const product = this.getVulnerabilityProductLabel(item);
+        if (language === 'en') {
+            return `${product} deserves immediate review because it combines CVSS ${item.cvssV31Score ?? 'N/A'}, EPSS ${item.epssScore != null ? Number(item.epssScore).toFixed(2) : 'N/A'}${item.isKnownExploited ? ', confirmed KEV exposure' : ''}${item.hasPublicExploit ? ', public exploit evidence' : ''}${item.patchAvailable === false ? ' and no confirmed patch' : ''}.`;
+        }
+        return `${product} merece revisión inmediata porque combina CVSS ${item.cvssV31Score ?? 'N/A'}, EPSS ${item.epssScore != null ? Number(item.epssScore).toFixed(2) : 'N/A'}${item.isKnownExploited ? ', exposición KEV confirmada' : ''}${item.hasPublicExploit ? ', evidencia de exploit público' : ''}${item.patchAvailable === false ? ' y ausencia de parche confirmado' : ''}.`;
+    }
+
+    private buildIntelligentCorrelationBlock(finding: IntelligentFinding, vulnerabilities: any[], match: IntelligentMatchRecord, language: 'es' | 'en') {
+        const riskMeta = this.getIntelligentPriorityMeta(finding);
+        const steps = this.buildIntelligentAttackPathSteps(finding, vulnerabilities, language);
+        const cveBadges = vulnerabilities.slice(0, 6).map((item: any) => `<span style="display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#EFF6FF;color:#1D4ED8;font-size:11px;font-weight:800;border:1px solid #BFDBFE;">${this.escapeHtml(item.cveId)}</span>`).join('');
+        return `
+<div style="border:1px solid #E5E7EB;border-radius:14px;overflow:hidden;margin-bottom:18px;background:#fff;">
+  <div style="padding:14px 16px;background:#F8FAFC;border-bottom:1px solid #E5E7EB;">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
+      <div>
+        <div style="font-size:18px;font-weight:900;color:#0F172A;">${this.escapeHtml(finding.title)}</div>
+        <div style="font-size:13px;color:#475569;margin-top:4px;line-height:1.6;">${this.escapeHtml(finding.summary)}</div>
+      </div>
+      <span style="display:inline-flex;align-items:center;padding:5px 10px;border-radius:999px;background:${riskMeta.background};color:${riskMeta.text};font-size:11px;font-weight:800;text-transform:uppercase;">${this.escapeHtml(riskMeta.label)}</span>
+    </div>
+  </div>
+  <div style="padding:14px 16px;border-bottom:1px solid #E5E7EB;">
+    <div style="font-size:11px;color:#64748B;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">${language === 'en' ? 'Likely path' : 'Ruta probable'}</div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;">${steps.map((step, index) => `${this.buildAttackPathStepChip(step)}${index < steps.length - 1 ? '<span style="color:#F59E0B;font-weight:900;font-size:16px;">→</span>' : ''}`).join('')}</div>
+  </div>
+  <div style="padding:14px 16px;border-bottom:1px solid #E5E7EB;">
+    <div style="font-size:11px;color:#64748B;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">${language === 'en' ? 'Involved CVEs' : 'CVEs implicadas'}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;">${cveBadges || `<span style="font-size:12px;color:#94A3B8;">${language === 'en' ? 'Not available' : 'No disponible'}</span>`}</div>
+  </div>
+  <div style="padding:14px 16px;">
+    <div style="font-size:11px;color:#64748B;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">${language === 'en' ? 'Why this cluster matters' : 'Por qué importa este clúster'}</div>
+    <div style="font-size:13px;color:#334155;line-height:1.65;">${this.escapeHtml(match.reasons.join(' · ') || finding.summary)}</div>
+  </div>
+</div>`;
+    }
+
+    private buildIntelligentAttackPathSteps(finding: IntelligentFinding, vulnerabilities: any[], language: 'es' | 'en') {
+        if (finding.type === 'attack_path_plausible') {
+            return language === 'en'
+                ? ['Initial access', 'Remote exploit', 'Privilege / pivot', 'Operational impact']
+                : ['Acceso inicial', 'Exploit remoto', 'Escalada / pivotaje', 'Impacto operativo'];
+        }
+        if (finding.type === 'campaign_cluster') {
+            return language === 'en'
+                ? ['Recent wave', 'Common component', 'Coordinated exposure', 'Priority response']
+                : ['Ola reciente', 'Componente común', 'Exposición coordinada', 'Respuesta prioritaria'];
+        }
+        if (finding.type === 'vendor_wave') {
+            return language === 'en'
+                ? ['Vendor concentration', 'Multiple products', 'Repeated exploitation', 'Urgent remediation']
+                : ['Concentración del fabricante', 'Múltiples productos', 'Explotación repetida', 'Remediación urgente'];
+        }
+        if (finding.type === 'critical_unpatched_exposed_set') {
+            return language === 'en'
+                ? ['Critical exposure', 'No confirmed patch', 'Internet-facing risk', 'Containment first']
+                : ['Exposición crítica', 'Sin parche confirmado', 'Riesgo expuesto', 'Contención primero'];
+        }
+        if (finding.type === 'priority_escalation') {
+            return language === 'en'
+                ? ['Posture change', 'Exploit signal', 'Risk uplift', 'Action now']
+                : ['Cambio de postura', 'Señal de explotación', 'Elevación de riesgo', 'Actuar ahora'];
+        }
+        return language === 'en'
+            ? ['Shared stack', 'Accumulated risk', 'Cross-impact', 'Mitigate by layers']
+            : ['Stack compartido', 'Riesgo acumulado', 'Impacto cruzado', 'Mitigar por capas'];
+    }
+
+    private buildAttackPathStepChip(step: string) {
+        return `<span style="display:inline-flex;align-items:center;padding:6px 10px;border-radius:10px;background:#F1F5F9;color:#334155;font-size:11px;font-weight:800;border:1px solid #CBD5E1;">${this.escapeHtml(step)}</span>`;
+    }
+
+    private buildIntelligentRoadmapHtml(finding: IntelligentFinding, vulnerabilities: any[], language: 'es' | 'en') {
+        const actions = (finding.recommendedActions || []).slice(0, 4);
+        if (!actions.length) {
+            return `<div style="font-size:13px;color:#6B7280;">${language === 'en' ? 'No explicit roadmap was generated for this finding.' : 'No se generó una hoja de ruta explícita para este hallazgo.'}</div>`;
+        }
+        return actions.map((action, index) => {
+            const coveredCves = vulnerabilities.slice(0, Math.min(3, vulnerabilities.length)).map((item: any) => item.cveId).join(', ') || 'N/A';
+            const effect = language === 'en'
+                ? `Reduces ${finding.type === 'attack_path_plausible' ? 'the plausible attack chain' : 'the accumulated exposure'} and covers ${coveredCves}.`
+                : `Reduce ${finding.type === 'attack_path_plausible' ? 'la cadena de ataque plausible' : 'la exposición acumulada'} y cubre ${coveredCves}.`;
+            return `
+<div style="display:flex;gap:12px;align-items:flex-start;padding:14px 16px;margin-bottom:10px;border-radius:14px;border:1px solid #E5E7EB;background:#fff;">
+  <div style="flex:0 0 auto;width:28px;height:28px;border-radius:999px;background:#DBEAFE;color:#1D4ED8;font-size:13px;font-weight:900;display:flex;align-items:center;justify-content:center;">${index + 1}</div>
+  <div>
+    <div style="font-size:14px;font-weight:800;color:#0F172A;">${this.escapeHtml(action)}</div>
+    <div style="font-size:13px;color:#475569;line-height:1.6;margin-top:5px;">${this.escapeHtml(effect)}</div>
+  </div>
+</div>`;
+        }).join('');
+    }
+
+    private buildIntelligentTechnicalTable(vulnerabilities: any[], language: 'es' | 'en') {
+        const rows = vulnerabilities.map((item: any) => `
+<tr>
+  <td style="padding:9px 10px;border-bottom:1px solid #E5E7EB;font-weight:700;color:#0F172A;">${this.escapeHtml(item.cveId || 'N/A')}</td>
+  <td style="padding:9px 10px;border-bottom:1px solid #E5E7EB;">${this.escapeHtml(item.cvssV31Score != null ? Number(item.cvssV31Score).toFixed(1) : 'N/A')}</td>
+  <td style="padding:9px 10px;border-bottom:1px solid #E5E7EB;">${this.escapeHtml(String(item.cvssV31Vector || 'N/A'))}</td>
+  <td style="padding:9px 10px;border-bottom:1px solid #E5E7EB;">${this.escapeHtml(item.isKnownExploited ? 'KEV' : 'No')}</td>
+  <td style="padding:9px 10px;border-bottom:1px solid #E5E7EB;">${this.escapeHtml(item.hasPublicExploit ? (language === 'en' ? 'Public exploit' : 'Exploit público') : 'No')}</td>
+  <td style="padding:9px 10px;border-bottom:1px solid #E5E7EB;">${this.escapeHtml(item.patchAvailable === false ? (language === 'en' ? 'Unconfirmed' : 'No confirmado') : item.patchAvailable === true ? (language === 'en' ? 'Available' : 'Disponible') : 'N/A')}</td>
+  <td style="padding:9px 10px;border-bottom:1px solid #E5E7EB;">${this.escapeHtml(this.getVulnerabilityProductLabel(item))}</td>
+  <td style="padding:9px 10px;border-bottom:1px solid #E5E7EB;">${this.escapeHtml(String(item.recordStatus || 'active'))}</td>
+</tr>`).join('');
+
+        return `<div style="border:1px solid #E5E7EB;border-radius:14px;overflow:hidden;background:#fff;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#F8FAFC;"><th style="padding:10px;text-align:left;">CVE</th><th style="padding:10px;text-align:left;">CVSS</th><th style="padding:10px;text-align:left;">${language === 'en' ? 'Vector' : 'Vector'}</th><th style="padding:10px;text-align:left;">KEV</th><th style="padding:10px;text-align:left;">${language === 'en' ? 'Exploit' : 'Exploit'}</th><th style="padding:10px;text-align:left;">Patch</th><th style="padding:10px;text-align:left;">${language === 'en' ? 'Product' : 'Producto'}</th><th style="padding:10px;text-align:left;">${language === 'en' ? 'Status' : 'Estado'}</th></tr></thead><tbody>${rows || `<tr><td colspan="8" style="padding:14px;color:#64748B;">${language === 'en' ? 'No technical base available.' : 'Sin base técnica disponible.'}</td></tr>`}</tbody></table></div>`;
+    }
+
+    private buildIntelligentWhyReceivedHtml(finding: IntelligentFinding, match: IntelligentMatchRecord, language: 'es' | 'en') {
+        const matchedSubscriptions = (match.matchedSubscriptions || [])
+            .filter((item) => item.level !== 'none')
+            .map((item) => `${item.vendor}/${item.product} (${item.level})`);
+        const reasonList = (match.reasons || []).slice(0, 4);
+        return `
+<div style="border:1px solid #E5E7EB;border-radius:14px;background:#fff;padding:16px 18px;">
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+    <span style="display:inline-flex;align-items:center;padding:5px 9px;border-radius:999px;background:#EEF2FF;color:#4338CA;font-size:11px;font-weight:800;">${this.escapeHtml(language === 'en' ? `Match: ${match.matchLevel}` : `Matching: ${match.matchLevel}`)}</span>
+    <span style="display:inline-flex;align-items:center;padding:5px 9px;border-radius:999px;background:#ECFDF5;color:#047857;font-size:11px;font-weight:800;">${this.escapeHtml(language === 'en' ? `Delivery score ${match.deliveryScore.toFixed(2)}` : `Delivery score ${match.deliveryScore.toFixed(2)}`)}</span>
+  </div>
+  <div style="font-size:13px;color:#334155;line-height:1.65;margin-bottom:10px;">${this.escapeHtml(language === 'en'
+            ? 'This alert was selected because the global finding intersects your subscribed vendors/products or managed stack with enough confidence to justify delivery.'
+            : 'Esta alerta se ha seleccionado porque el hallazgo global intersecta con tus fabricantes/productos suscritos o con tu stack gestionado con suficiente confianza como para justificar el envío.')}</div>
+  ${matchedSubscriptions.length ? `<div style="font-size:12px;color:#0F172A;font-weight:700;margin-bottom:6px;">${language === 'en' ? 'Matched subscriptions' : 'Suscripciones coincidentes'}</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">${matchedSubscriptions.map((item) => `<span style="display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#F8FAFC;border:1px solid #E2E8F0;color:#334155;font-size:11px;font-weight:700;">${this.escapeHtml(item)}</span>`).join('')}</div>` : ''}
+  <div style="display:flex;flex-direction:column;gap:6px;">${reasonList.map((reason) => `<div style="display:flex;gap:10px;align-items:flex-start;"><span style="color:#2563EB;font-weight:800;">•</span><span style="font-size:12px;color:#475569;line-height:1.6;">${this.escapeHtml(reason)}</span></div>`).join('')}</div>
+</div>`;
+    }
+
+    private buildDetailLinkChip(cveId: string, detailBaseUrl: string, language: 'es' | 'en') {
+        const baseUrl = detailBaseUrl ? `${detailBaseUrl}/vulnerabilities/${encodeURIComponent(cveId)}` : `https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cveId)}`;
+        return `<a href="${this.escapeHtml(baseUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;background:#1D4ED8;color:#fff;font-size:11px;font-weight:800;text-decoration:none;">${this.escapeHtml(language === 'en' ? `Open ${cveId}` : `Abrir ${cveId}`)}</a>`;
+    }
+
+    private getVulnerabilityProductLabel(item: any) {
+        const vendor = String(item?.primaryVendor || '').trim();
+        const product = String(item?.primaryProduct || '').trim();
+        if (vendor && product) return `${vendor} / ${product}`;
+        if (product) return product;
+        if (vendor) return vendor;
+        return 'N/A';
+    }
+
+    private getFrontendBaseUrl() {
+        return String(process.env.FRONTEND_BASE_URL || process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
+    }
+
+    private getFindingTypeLabel(type: IntelligentFinding['type'], language: 'es' | 'en') {
+        const labels = language === 'en'
+            ? {
+                attack_path_plausible: 'Plausible attack path',
+                campaign_cluster: 'Campaign cluster',
+                vendor_wave: 'Vendor wave',
+                stack_risk_accumulation: 'Stack risk accumulation',
+                critical_unpatched_exposed_set: 'Critical unpatched exposure set',
+                priority_escalation: 'Priority escalation',
+            }
+            : {
+                attack_path_plausible: 'Attack path plausible',
+                campaign_cluster: 'Clúster de campaña',
+                vendor_wave: 'Ola del fabricante',
+                stack_risk_accumulation: 'Acumulación de riesgo en el stack',
+                critical_unpatched_exposed_set: 'Conjunto crítico sin parche',
+                priority_escalation: 'Escalada de prioridad',
+            };
+        return labels[type] || String(type || 'finding');
     }
 
     private async maybeSendIntelligentNotification(finding: IntelligentFinding, match: IntelligentMatchRecord, vulnerabilityMap: Map<number, any>, options: IntelligentRunOptions) {
@@ -1423,17 +1729,21 @@ export class SmartNotificationsService {
         await new Promise((resolve) => setTimeout(resolve, ms));
     }
 
-    private async callAiForIntelligentFinding(messages: Array<{ role: 'system' | 'user'; content: string }>, model: string) {
+    private async callAiForIntelligentFinding(messages: Array<{ role: 'system' | 'user'; content: string }>, model: string): Promise<IntelligentAiCallResult> {
         const maxAttempts = 2;
         let lastError: any = null;
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+            const startedAt = Date.now();
             try {
-                return await Promise.race([
-                    this.aiService.chatStructuredJson(messages, { model }),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('AI intelligent evaluation timeout')), 45000)),
-                ]);
+                const response = await this.aiService.chatStructuredJson(messages, { model, timeoutMs: 90000 });
+                return {
+                    response,
+                    durationMs: Math.max(0, Date.now() - startedAt),
+                    attempts: attempt,
+                };
             } catch (error) {
                 lastError = error;
+                this.logger.warn(`Intelligent AI attempt ${attempt}/${maxAttempts} failed: ${error instanceof Error ? error.message : error}`);
                 if (attempt < maxAttempts) {
                     await this.sleep(attempt * 750);
                 }
@@ -3231,15 +3541,24 @@ ${roadmapHtml}`
             periodEnd: dataset.periodEnd.toISOString().slice(0, 10),
             generatedAt: new Date().toISOString(),
             totalVulnerabilities: dataset.stats.total,
-                        emailTitle: this.escapeHtml(smartConfig.emailTitle),
-                        introText,
-                        footerText: this.escapeHtml(smartConfig.footerText),
-                        executiveSectionHtml,
-                        statsSectionHtml,
-                        topRiskSectionHtml,
-                        correlationsSectionHtml,
-                        roadmapSectionHtml,
-                        technicalSectionHtml,
+            emailTitle: this.escapeHtml(smartConfig.emailTitle),
+            brandSubtitle: this.escapeHtml('Servicios OCC — Gestor de vulnerabilidades'),
+            introText,
+            footerText: this.escapeHtml(smartConfig.footerText),
+            headerMetaStripHtml: `
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+  ${this.buildHeaderChip('Periodo', `${dataset.periodStart.toISOString().slice(0, 10)} → ${dataset.periodEnd.toISOString().slice(0, 10)}`)}
+  ${this.buildHeaderChip('Total CVE', String(dataset.stats.total))}
+  ${this.buildHeaderChip('KEV', String(dataset.stats.knownExploited))}
+</div>`,
+            executiveSectionHtml,
+            statsSectionHtml,
+            topRiskSectionHtml,
+            correlationsSectionHtml,
+            roadmapSectionHtml,
+            technicalSectionHtml,
+            whyReceivedSectionHtml: '',
+            closingSectionHtml: '',
         };
     }
 

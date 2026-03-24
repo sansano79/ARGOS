@@ -12,6 +12,11 @@ interface AiConfig {
     model: string;
 }
 
+type AiRequestOptions = {
+    model?: string;
+    timeoutMs?: number;
+};
+
 export interface AiConfigResponse {
     provider: 'openai' | 'ollama';
     baseUrl?: string;
@@ -24,7 +29,6 @@ export class AiService {
     private readonly logger = new Logger(AiService.name);
     private config: AiConfig | null = null;
     private static readonly DEFAULT_OLLAMA_MODEL = 'krith/qwen2.5-32b-instruct:IQ1_M';
-    private static readonly AI_TIMEOUT_MS = 30_000; // 30 seconds
 
     constructor(
         private prisma: PrismaService,
@@ -181,7 +185,7 @@ export class AiService {
 
     async chatStructuredJson(
         messages: any[],
-        options?: { model?: string },
+        options?: AiRequestOptions,
     ) {
         if (!this.config) {
             await this.loadConfig();
@@ -201,20 +205,21 @@ export class AiService {
         };
 
         const finalMessages = [jsonSystemMsg, ...safeMessages];
+        const timeoutMs = this.resolveTimeoutMs(options?.timeoutMs);
 
         try {
             if (config.provider === 'openai') {
-                return await this.chatOpenAI(finalMessages, config);
+                return await this.chatOpenAI(finalMessages, config, timeoutMs);
             } else {
-                return await this.chatOllama(finalMessages, config);
+                return await this.chatOllama(finalMessages, config, timeoutMs);
             }
         } catch (error) {
             this.logger.error('Error in AI chatStructuredJson', error);
-            throw new InternalServerErrorException('AI structured JSON request failed: ' + error.message);
+            throw new InternalServerErrorException(`AI structured JSON request failed: ${this.describeAiError(error, timeoutMs)}`);
         }
     }
 
-    private async chatOpenAI(messages: any[], config: AiConfig) {
+    private async chatOpenAI(messages: any[], config: AiConfig, timeoutMs: number) {
         const url = 'https://api.openai.com/v1/chat/completions';
         const payload = {
             model: config.model,
@@ -226,14 +231,14 @@ export class AiService {
         };
 
         const response = await lastValueFrom(
-            this.httpService.post(url, payload, { headers, timeout: AiService.AI_TIMEOUT_MS }).pipe(
-                timeout(AiService.AI_TIMEOUT_MS),
+            this.httpService.post(url, payload, { headers, timeout: timeoutMs }).pipe(
+                timeout(timeoutMs),
             ),
         );
         return response.data.choices[0].message;
     }
 
-    private async chatOllama(messages: any[], config: AiConfig) {
+    private async chatOllama(messages: any[], config: AiConfig, timeoutMs: number) {
         const baseUrl = config.baseUrl || 'http://localhost:11434';
         const url = `${baseUrl}/api/chat`;
         let model = (config.model || '').trim();
@@ -261,8 +266,8 @@ export class AiService {
                 stream: false,
             };
             return lastValueFrom(
-                this.httpService.post(url, payload, { timeout: AiService.AI_TIMEOUT_MS }).pipe(
-                    timeout(AiService.AI_TIMEOUT_MS + 5000),
+                this.httpService.post(url, payload, { timeout: timeoutMs }).pipe(
+                    timeout(timeoutMs + 5000),
                 ),
             );
         };
@@ -282,6 +287,25 @@ export class AiService {
             }
             throw error;
         }
+    }
+
+    private resolveTimeoutMs(requestedTimeoutMs?: number) {
+        const configured = Number(this.configService.get<string>('AI_TIMEOUT_MS') || '');
+        const base = Number.isFinite(configured) && configured > 0 ? configured : 90000;
+        const requested = Number(requestedTimeoutMs || 0);
+        if (Number.isFinite(requested) && requested > 0) {
+            return Math.max(15000, requested);
+        }
+        return Math.max(15000, base);
+    }
+
+    private describeAiError(error: any, timeoutMs: number) {
+        const code = String(error?.code || '');
+        const message = String(error?.message || error || 'Unknown error');
+        if (error instanceof TimeoutError || code === 'ECONNABORTED' || message.includes('timeout')) {
+            return `timeout after ${timeoutMs}ms`;
+        }
+        return message;
     }
 
     private async getFirstOllamaModel(baseUrl: string): Promise<string> {
