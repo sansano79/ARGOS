@@ -845,8 +845,9 @@ const LinkList = ({ items, empty = "Sin referencias disponibles", accent = C.gra
                 display: "flex",
                 flexDirection: "column",
                 gap: 6,
-                minWidth: 220,
-                maxWidth: 320,
+                flex: "1 1 240px",
+                minWidth: 200,
+                maxWidth: "100%",
                 padding: "10px 12px",
                 borderRadius: 10,
                 border: `1px solid ${accent}`,
@@ -878,7 +879,7 @@ const LinkList = ({ items, empty = "Sin referencias disponibles", accent = C.gra
               </div>
               {link.tags?.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {link.tags.slice(0, 4).map((tag) => (
+                  {link.tags.slice(0, 3).map((tag) => (
                     <span
                       key={`${link.url}-${tag}`}
                       style={{
