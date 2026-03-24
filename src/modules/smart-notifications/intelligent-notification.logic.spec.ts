@@ -13,6 +13,7 @@ describe('intelligent notification logic', () => {
     expect(getRecencyWeight(2)).toBe(1);
     expect(getRecencyWeight(14)).toBe(0.65);
     expect(getRecencyWeight(45)).toBe(0.35);
+    expect(getRecencyWeight(75)).toBe(0.15);
   });
 
   it('boosts priority for exploitable recent vulnerabilities', () => {
@@ -169,5 +170,33 @@ describe('intelligent notification logic', () => {
     });
     expect(weak.shouldNotify).toBe(false);
     expect(weak.suppressionReason).toBe('no_subscriber_match');
+  });
+
+  it('keeps delivery score ordered exact > family > contextual for the same finding quality', () => {
+    const baseInput = {
+      affectedManufacturers: ['microsoft'],
+      affectedProducts: ['exchange server'],
+      categoryTags: ['mail', 'exchange'],
+      confidence: 0.82,
+      relevanceScore: 8.1,
+      recencyWeight: 1,
+    };
+
+    const exact = evaluateSubscriberFindingMatch({
+      ...baseInput,
+      subscriptions: [{ vendor: 'microsoft', product: 'exchange server' }],
+    });
+    const family = evaluateSubscriberFindingMatch({
+      ...baseInput,
+      subscriptions: [{ vendor: 'microsoft', product: 'exchange' }],
+    });
+    const contextual = evaluateSubscriberFindingMatch({
+      ...baseInput,
+      subscriptions: [],
+      systems: [{ platform: 'exchange', tags: ['mail'] }],
+    });
+
+    expect(exact.deliveryScore).toBeGreaterThan(family.deliveryScore);
+    expect(family.deliveryScore).toBeGreaterThan(contextual.deliveryScore);
   });
 });

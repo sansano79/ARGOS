@@ -37,6 +37,52 @@ export class SmartNotificationsController {
         return this.smartNotificationsService.runWeeklyForAllSubscribers('manual');
     }
 
+    @Post('intelligent/run')
+    @Roles('ADMIN')
+    async runIntelligent(@Body() body: {
+        dryRun?: boolean;
+        previewOnly?: boolean;
+        subscriberId?: number;
+        targetEmail?: string;
+        communicationLanguage?: 'es' | 'en';
+        primaryWindowHours?: number;
+        recentContextDays?: number;
+        historicalContextDays?: number;
+    }) {
+        return this.smartNotificationsService.runIntelligentAnalysisJob({
+            trigger: 'manual',
+            dryRun: body?.dryRun === true,
+            previewOnly: body?.previewOnly === true,
+            targetSubscriberId: body?.subscriberId ? Number(body.subscriberId) : null,
+            targetEmail: body?.targetEmail || null,
+            communicationLanguage: body?.communicationLanguage === 'en' ? 'en' : 'es',
+            primaryWindowHours: body?.primaryWindowHours,
+            recentContextDays: body?.recentContextDays,
+            historicalContextDays: body?.historicalContextDays,
+        });
+    }
+
+    @Post('intelligent/test')
+    @Roles('ADMIN')
+    async testIntelligent(@Body() body: {
+        subscriberId?: number;
+        mode?: 'dry_run' | 'preview' | 'send_test';
+        language?: 'es' | 'en';
+        primaryWindowHours?: number;
+        recentContextDays?: number;
+        historicalContextDays?: number;
+        useRecentRealData?: boolean;
+        targetEmail?: string;
+    }) {
+        return this.smartNotificationsService.runIntelligentTest(body || {});
+    }
+
+    @Get('intelligent/test-history')
+    @Roles('ADMIN')
+    async getIntelligentTestHistory(@Query('limit') limit?: string) {
+        return this.smartNotificationsService.getIntelligentTestHistory(parseInt(limit || '20', 10));
+    }
+
     @Post('weekly/run/:subscriberId')
     @Roles('ADMIN')
     async runWeeklySubscriber(

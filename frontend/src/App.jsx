@@ -1038,6 +1038,19 @@ export default function VulnDashboard() {
   const [notificationTestRunning, setNotificationTestRunning] = useState("");
   const [notificationOpsEmail, setNotificationOpsEmail] = useState("");
   const [notificationCenter, setNotificationCenter] = useState(createDefaultNotificationCenterState());
+  const [intelligentTestOpen, setIntelligentTestOpen] = useState(false);
+  const [intelligentTestForm, setIntelligentTestForm] = useState({
+    subscriberId: "",
+    mode: "dry_run",
+    language: "es",
+    primaryWindowHours: 24,
+    recentContextDays: 7,
+    historicalContextDays: 60,
+    useRecentRealData: true,
+    targetEmail: "",
+  });
+  const [intelligentTestResult, setIntelligentTestResult] = useState(null);
+  const [intelligentTestHistory, setIntelligentTestHistory] = useState([]);
   const [manufacturers, setManufacturers] = useState([]);
   const [allManufacturers, setAllManufacturers] = useState([]);
   const [manufacturersCatalogMeta, setManufacturersCatalogMeta] = useState(null);
@@ -1580,6 +1593,7 @@ export default function VulnDashboard() {
               role: d.role,
               isSubscriber: d.isSubscriber,
               authProvider: d.authProvider,
+              communicationLanguage: d.communicationLanguage || "es",
             });
           } else {
             setAccountProfile(null);
@@ -1705,11 +1719,12 @@ export default function VulnDashboard() {
         setAiConfigLoading(false);
         if (settingsTab === "notifications") {
           setNotificationCenterLoading(true);
-          const [centerRes, usersRes, templateRes, vulnsRes] = await Promise.allSettled([
+          const [centerRes, usersRes, templateRes, vulnsRes, intelligentTestsRes] = await Promise.allSettled([
             apiFetch("/notifications/settings-center").then(r => r.json()),
             apiFetch("/users").then(r => r.json()),
             apiFetch("/notifications/template-config").then(r => r.json()),
             apiFetch("/vulnerabilities?limit=300").then(r => r.json()),
+            apiFetch("/smart-notifications/intelligent/test-history?limit=12").then(r => r.json()),
           ]);
           if (centerRes.status === "fulfilled") {
             const normalized = normalizeNotificationCenterSettings(centerRes.value);
@@ -1729,6 +1744,12 @@ export default function VulnDashboard() {
                 || allUsers[0];
               if (preferredUser) {
                 setNotificationOpsEmail(preferredUser.notificationEmail || preferredUser.email || "");
+                setIntelligentTestForm((prev) => ({
+                  ...prev,
+                  subscriberId: prev.subscriberId || String(preferredUser.id || ""),
+                  targetEmail: prev.targetEmail || preferredUser.notificationEmail || preferredUser.email || "",
+                  language: preferredUser.communicationLanguage || prev.language || "es",
+                }));
               }
             }
           }
@@ -1738,6 +1759,9 @@ export default function VulnDashboard() {
           }
           if (vulnsRes.status === "fulfilled") {
             setVulns(Array.isArray(vulnsRes.value?.data) ? vulnsRes.value.data : []);
+          }
+          if (intelligentTestsRes.status === "fulfilled") {
+            setIntelligentTestHistory(Array.isArray(intelligentTestsRes.value?.items) ? intelligentTestsRes.value.items : []);
           }
           setNotificationCenterLoading(false);
         }
@@ -2685,6 +2709,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     canReceiveNotifications: u.canReceiveNotifications !== false,
     notificationsPaused: u.notificationsPaused === true,
     notificationsPausedUntil: u.notificationsPausedUntil ? String(u.notificationsPausedUntil).slice(0, 16) : "",
+    communicationLanguage: u.communicationLanguage || "es",
     subscriptions: Array.isArray(u.subscriptions) ? u.subscriptions.map(s => ({
       vendor: String(s.vendor || "").toLowerCase(),
       product: String(s.product || "").toLowerCase(),
@@ -2790,6 +2815,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         canReceiveNotifications: !!u.canReceiveNotifications,
         notificationsPaused: !!u.notificationsPaused,
         notificationsPausedUntil: u.notificationsPausedUntil || null,
+        communicationLanguage: u.communicationLanguage || "es",
         subscriptions: u.isSubscriber ? (u.subscriptions || []) : [],
         isActive: u.isActive !== false,
       };
@@ -3019,7 +3045,10 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     try {
       let res;
       if (jobType === "intelligent_notification_job") {
-        res = await apiFetch("/smart-notifications/weekly/run-all", { method: "POST" });
+        res = await apiFetch("/smart-notifications/intelligent/run", {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
       } else {
         res = await apiFetch("/notifications/process/run-now", {
           method: "POST",
@@ -3040,6 +3069,10 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
   };
 
   const sendNotificationProcessTest = async (jobType) => {
+    if (jobType === "intelligent_notification_job") {
+      setIntelligentTestOpen(true);
+      return;
+    }
     if (!notificationOpsEmail.trim()) {
       setNotificationCenterMsg({ type: "error", text: "Indica un email de prueba" });
       return;
@@ -3066,6 +3099,44 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     } finally {
       setNotificationTestRunning("");
       setTimeout(() => setNotificationCenterMsg(null), 4000);
+    }
+  };
+
+  const executeIntelligentTest = async () => {
+    setNotificationTestRunning("intelligent_notification_job");
+    setNotificationCenterMsg(null);
+    try {
+      const payload = {
+        subscriberId: intelligentTestForm.subscriberId ? Number(intelligentTestForm.subscriberId) : undefined,
+        mode: intelligentTestForm.mode,
+        language: intelligentTestForm.language === "en" ? "en" : "es",
+        primaryWindowHours: Number(intelligentTestForm.primaryWindowHours || 24),
+        recentContextDays: Number(intelligentTestForm.recentContextDays || 7),
+        historicalContextDays: Number(intelligentTestForm.historicalContextDays || 60),
+        useRecentRealData: intelligentTestForm.useRecentRealData !== false,
+        targetEmail: intelligentTestForm.mode === "send_test" ? (intelligentTestForm.targetEmail || notificationOpsEmail || "") : undefined,
+      };
+      const res = await apiFetch("/smart-notifications/intelligent/test", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "No se pudo ejecutar la prueba inteligente");
+      setIntelligentTestResult(data);
+      setIntelligentTestOpen(true);
+      setNotificationCenterMsg({
+        type: "success",
+        text: data?.findingsDetected > 0
+          ? `Prueba inteligente completada con ${data.findingsDetected} hallazgo(s)`
+          : "Prueba inteligente completada sin hallazgos relevantes",
+      });
+      await loadData("settings");
+      await loadData("notifications");
+    } catch (e) {
+      setNotificationCenterMsg({ type: "error", text: e?.message || "Error ejecutando la prueba inteligente" });
+    } finally {
+      setNotificationTestRunning("");
+      setTimeout(() => setNotificationCenterMsg(null), 5000);
     }
   };
 
@@ -5042,7 +5113,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                       </span>
                     </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
                       <div>
                         <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email de notificaciones</label>
                         <Input
@@ -5059,6 +5130,17 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                           onChange={(v) => setAccountProfile((p) => ({ ...(p || {}), phone: v }))}
                           placeholder="+34..."
                         />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Idioma de comunicación</label>
+                        <select
+                          value={accountProfile?.communicationLanguage || "es"}
+                          onChange={(e) => setAccountProfile((p) => ({ ...(p || {}), communicationLanguage: e.target.value }))}
+                          style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", boxSizing: "border-box" }}
+                        >
+                          <option value="es">Español</option>
+                          <option value="en">English</option>
+                        </select>
                       </div>
                     </div>
 
@@ -5122,6 +5204,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                               canReceiveNotifications: !!accountProfile?.canReceiveNotifications,
                               notificationsPaused: !!accountProfile?.notificationsPaused,
                               notificationsPausedUntil: accountProfile?.notificationsPausedUntil || null,
+                              communicationLanguage: accountProfile?.communicationLanguage || "es",
                               contactPerson: accountProfile?.contactPerson || "",
                               department: accountProfile?.department || "",
                               phone: accountProfile?.phone || "",
@@ -5300,9 +5383,18 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                       </>
                     )}
                     {editUser.canReceiveNotifications && (
-                      <div style={{ marginTop: 6, marginBottom: 10 }}>
-                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email de notificación</label>
-                        <Input value={editUser.notificationEmail || ""} onChange={v => setEditUser({ ...editUser, notificationEmail: v })} placeholder="destinatario@empresa.com" icon="mail" />
+                      <div style={{ marginTop: 6, marginBottom: 10, display: "grid", gridTemplateColumns: "1fr 220px", gap: 12 }}>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email de notificación</label>
+                          <Input value={editUser.notificationEmail || ""} onChange={v => setEditUser({ ...editUser, notificationEmail: v })} placeholder="destinatario@empresa.com" icon="mail" />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Idioma de comunicación</label>
+                          <select value={editUser.communicationLanguage || "es"} onChange={e => setEditUser({ ...editUser, communicationLanguage: e.target.value })} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
+                            <option value="es">Español</option>
+                            <option value="en">English</option>
+                          </select>
+                        </div>
                       </div>
                     )}
                     {editUser.isSubscriber && (
@@ -5549,13 +5641,18 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                       )}
 
                       {notificationSettingsTab === "intelligent" && (
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
                           <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.intelligent.enabled} onChange={(e) => updateNotificationCenterSection("intelligent", { enabled: e.target.checked })} /> <span style={{ fontSize: 12, fontWeight: 600 }}>Evaluación inteligente habilitada</span></label>
                           <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={!!notificationCenter.intelligent.onlyWhenFinding} onChange={(e) => updateNotificationCenterSection("intelligent", { onlyWhenFinding: e.target.checked })} /> <span style={{ fontSize: 12 }}>Solo si hay hallazgo relevante</span></label>
                           <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Hora diaria</label><Input value={String(notificationCenter.intelligent.evaluationHour || 8)} onChange={(v) => updateNotificationCenterSection("intelligent", { evaluationHour: Number(v) || 8 })} /></div>
-                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Ventana reciente (h)</label><Input value={String(notificationCenter.intelligent.recentWindowHours || 24)} onChange={(v) => updateNotificationCenterSection("intelligent", { recentWindowHours: Number(v) || 24 })} /></div>
-                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contexto ampliado (días)</label><Input value={String(notificationCenter.intelligent.contextWindowDays || 7)} onChange={(v) => updateNotificationCenterSection("intelligent", { contextWindowDays: Number(v) || 7 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Frecuencia análisis (h)</label><Input value={String(notificationCenter.intelligent.analysisFrequencyHours || 24)} onChange={(v) => updateNotificationCenterSection("intelligent", { analysisFrequencyHours: Number(v) || 24 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Ventana principal (h)</label><Input value={String(notificationCenter.intelligent.primaryWindowHours || 24)} onChange={(v) => updateNotificationCenterSection("intelligent", { primaryWindowHours: Number(v) || 24 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contexto táctico (días)</label><Input value={String(notificationCenter.intelligent.recentContextDays || 7)} onChange={(v) => updateNotificationCenterSection("intelligent", { recentContextDays: Number(v) || 7 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contexto histórico (días)</label><Input value={String(notificationCenter.intelligent.historicalContextDays || 60)} onChange={(v) => updateNotificationCenterSection("intelligent", { historicalContextDays: Number(v) || 60 })} /></div>
                           <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Confianza mínima</label><Input value={String(notificationCenter.intelligent.minConfidence || 0)} onChange={(v) => updateNotificationCenterSection("intelligent", { minConfidence: Number(v) || 0 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Relevancia mínima</label><Input value={String(notificationCenter.intelligent.minRelevanceScore || 0)} onChange={(v) => updateNotificationCenterSection("intelligent", { minRelevanceScore: Number(v) || 0 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Cooldown (h)</label><Input value={String(notificationCenter.intelligent.cooldownHours || 24)} onChange={(v) => updateNotificationCenterSection("intelligent", { cooldownHours: Number(v) || 24 })} /></div>
+                          <div><label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Máx. por suscriptor/día</label><Input value={String(notificationCenter.intelligent.maxNotificationsPerSubscriberPerDay || 2)} onChange={(v) => updateNotificationCenterSection("intelligent", { maxNotificationsPerSubscriberPerDay: Number(v) || 2 })} /></div>
                           {[
                             ["attackPath", "Attack path plausible"],
                             ["campaignCluster", "Campaña o clúster"],
@@ -5568,7 +5665,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                             </label>
                           ))}
                           <div style={{ gridColumn: "1 / -1", padding: "12px 14px", borderRadius: 10, background: C.gray50, border: `1px solid ${C.gray200}`, fontSize: 12, color: C.gray600, lineHeight: 1.6 }}>
-                            Esta capa no envía “IA por rutina” sin valor. La intención operativa es evaluar diariamente la ventana reciente, ampliar contexto a 7 días y emitir solo cuando haya un hallazgo explicable y accionable.
+                            Esta capa evalúa la ventana principal reciente, la contrasta contra contexto táctico de 7 días y contexto histórico de 60 días, y solo emite cuando detecta un hallazgo explicable, relevante y alineado con las suscripciones del destinatario.
                           </div>
                         </div>
                       )}
@@ -5724,11 +5821,23 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11, color: C.gray600, marginBottom: 10 }}>
                                         <div>Último ciclo: <strong>{fmtDate(job.finishedAt || job.startedAt)}</strong></div>
                                         <div>Modo: <strong>{toSentence(job.mode || "manual")}</strong></div>
+                                        <div>Última correcta: <strong>{fmtDate(job.lastSuccessfulAt)}</strong></div>
+                                        <div>Última fallida: <strong>{fmtDate(job.lastFailedAt)}</strong></div>
+                                        <div>Duración: <strong>{job.durationMs ? `${Math.round(job.durationMs / 1000)} s` : "N/D"}</strong></div>
+                                        <div>Scheduler: <strong>{toSentence(job.schedulerStatus || "active")}</strong></div>
                                         <div style={{ gridColumn: "1 / -1" }}>
                                           Ventana: <strong>{job.watermarkFrom ? fmtDate(job.watermarkFrom) : "N/D"}</strong>
                                           {" → "}
                                           <strong>{job.watermarkTo ? fmtDate(job.watermarkTo) : "N/D"}</strong>
                                         </div>
+                                        {labelKey === "intelligent" && (
+                                          <>
+                                            <div>Hallazgos: <strong>{job.findingsDetected || 0}</strong></div>
+                                            <div>Suscriptores impactados: <strong>{job.impactedSubscribers || 0}</strong></div>
+                                            <div>Suprimidas: <strong>{job.notificationsSuppressed || 0}</strong></div>
+                                            <div>Próxima ejecución: <strong>{job.nextExecution ? fmtDate(job.nextExecution) : "N/D"}</strong></div>
+                                          </>
+                                        )}
                                       </div>
                                       {job.errorMessage && <div style={{ fontSize: 11, color: C.critical, marginBottom: 8 }}>{job.errorMessage}</div>}
                                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -5745,6 +5854,181 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                                 <div style={{ fontSize: 12, fontWeight: 800, color: C.text, marginBottom: 8 }}>Operación rápida</div>
                                 <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email de prueba</label>
                                 <Input value={notificationOpsEmail} onChange={setNotificationOpsEmail} placeholder="operaciones@empresa.com" icon="mail" />
+                              </div>
+                              <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 10, padding: 14, background: intelligentTestOpen ? C.bluePale : "#fff" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}>
+                                  <div>
+                                    <div style={{ fontSize: 12, fontWeight: 800, color: C.text }}>Test inteligente</div>
+                                    <div style={{ fontSize: 11, color: C.gray600 }}>Dry run, preview o envío real a email de prueba</div>
+                                  </div>
+                                  <Btn small onClick={() => setIntelligentTestOpen((value) => !value)}>{intelligentTestOpen ? "Ocultar" : "Configurar"}</Btn>
+                                </div>
+                                {intelligentTestOpen && (
+                                  <div style={{ display: "grid", gap: 10 }}>
+                                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                      <div>
+                                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Suscriptor objetivo</label>
+                                        <select value={intelligentTestForm.subscriberId} onChange={(e) => setIntelligentTestForm((prev) => ({ ...prev, subscriberId: e.target.value }))} style={{ width: "100%", padding: "10px 12px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
+                                          <option value="">Todos los receptores elegibles</option>
+                                          {(users || []).filter((user) => user.canReceiveNotifications).map((user) => (
+                                            <option key={user.id} value={String(user.id)}>{user.name} · {user.notificationEmail || user.email}</option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Modo</label>
+                                        <select value={intelligentTestForm.mode} onChange={(e) => setIntelligentTestForm((prev) => ({ ...prev, mode: e.target.value }))} style={{ width: "100%", padding: "10px 12px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
+                                          <option value="dry_run">Dry run</option>
+                                          <option value="preview">Preview</option>
+                                          <option value="send_test">Enviar prueba</option>
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Idioma</label>
+                                        <select value={intelligentTestForm.language} onChange={(e) => setIntelligentTestForm((prev) => ({ ...prev, language: e.target.value }))} style={{ width: "100%", padding: "10px 12px", fontSize: 12, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
+                                          <option value="es">Español</option>
+                                          <option value="en">English</option>
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Ventana principal (h)</label>
+                                        <Input value={String(intelligentTestForm.primaryWindowHours || 24)} onChange={(v) => setIntelligentTestForm((prev) => ({ ...prev, primaryWindowHours: Number(v) || 24 }))} />
+                                      </div>
+                                      <div>
+                                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contexto táctico (días)</label>
+                                        <Input value={String(intelligentTestForm.recentContextDays || 7)} onChange={(v) => setIntelligentTestForm((prev) => ({ ...prev, recentContextDays: Number(v) || 7 }))} />
+                                      </div>
+                                      <div>
+                                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contexto histórico (días)</label>
+                                        <Input value={String(intelligentTestForm.historicalContextDays || 60)} onChange={(v) => setIntelligentTestForm((prev) => ({ ...prev, historicalContextDays: Number(v) || 60 }))} />
+                                      </div>
+                                    </div>
+                                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.gray700 }}>
+                                      <input type="checkbox" checked={!!intelligentTestForm.useRecentRealData} onChange={(e) => setIntelligentTestForm((prev) => ({ ...prev, useRecentRealData: e.target.checked }))} />
+                                      Usar datos reales recientes
+                                    </label>
+                                    {intelligentTestForm.mode === "send_test" && (
+                                      <div>
+                                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email destino de prueba</label>
+                                        <Input value={intelligentTestForm.targetEmail} onChange={(v) => setIntelligentTestForm((prev) => ({ ...prev, targetEmail: v }))} placeholder="analista@empresa.com" icon="mail" />
+                                      </div>
+                                    )}
+                                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                                      <Btn small primary onClick={executeIntelligentTest} disabled={notificationTestRunning === "intelligent_notification_job"}>
+                                        {notificationTestRunning === "intelligent_notification_job" ? "Ejecutando..." : "Lanzar prueba inteligente"}
+                                      </Btn>
+                                    </div>
+                                    {intelligentTestResult && (
+                                      <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 10, background: "#fff", overflow: "hidden" }}>
+                                        <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.gray200}`, fontSize: 12, fontWeight: 800, color: C.text }}>Resultado del test</div>
+                                        <div style={{ padding: 12, display: "grid", gap: 10 }}>
+                                          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, fontSize: 11, color: C.gray600 }}>
+                                            <div>Hallazgos: <strong>{intelligentTestResult.findingsDetected || 0}</strong></div>
+                                            <div>Impactados: <strong>{intelligentTestResult.impactedSubscribers || 0}</strong></div>
+                                            <div>Enviadas: <strong>{intelligentTestResult.notificationsSent || 0}</strong></div>
+                                            <div>Suprimidas: <strong>{intelligentTestResult.notificationsSuppressed || 0}</strong></div>
+                                          </div>
+                                          <div style={{ fontSize: 11, color: C.gray600 }}>
+                                            <div>Asunto: <strong>{intelligentTestResult.previewPayload?.subject || "N/D"}</strong></div>
+                                            <div>Idioma: <strong>{intelligentTestResult.previewPayload?.language || intelligentTestForm.language}</strong></div>
+                                            <div>Plantilla: <strong>{intelligentTestResult.previewPayload?.templateKey || "intelligent"}</strong></div>
+                                          </div>
+                                          {intelligentTestResult.signalCoverage && (
+                                            <div style={{ padding: "10px 12px", borderRadius: 8, background: C.gray50, fontSize: 11, color: C.gray700, lineHeight: 1.7 }}>
+                                              <div style={{ fontWeight: 800, color: C.text, marginBottom: 4 }}>Cobertura de señales</div>
+                                              <div>KEV: <strong>{intelligentTestResult.signalCoverage.kev || 0}</strong> · Exploit: <strong>{intelligentTestResult.signalCoverage.exploit || 0}</strong> · Sin parche: <strong>{intelligentTestResult.signalCoverage.unpatched || 0}</strong></div>
+                                              <div>EPSS alto: <strong>{intelligentTestResult.signalCoverage.highEpss || 0}</strong> · CVSS alto: <strong>{intelligentTestResult.signalCoverage.highCvss || 0}</strong> · Concentración vendor/stack: <strong>{intelligentTestResult.signalCoverage.vendorConcentration || 0}</strong></div>
+                                            </div>
+                                          )}
+                                          {(intelligentTestResult.findings || []).length > 0 && (
+                                            <div style={{ display: "grid", gap: 8 }}>
+                                              {(intelligentTestResult.findings || []).slice(0, 3).map((finding) => (
+                                                <div key={finding.findingKey || finding.title} style={{ border: `1px solid ${C.gray200}`, borderRadius: 8, padding: 10, background: C.gray50 }}>
+                                                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                                                    <div style={{ fontSize: 12, fontWeight: 800, color: C.text }}>{finding.title}</div>
+                                                    <span style={{ fontSize: 10, fontWeight: 700, color: C.blue, background: C.bluePale, borderRadius: 999, padding: "3px 8px" }}>{toSentence(finding.type || "finding")}</span>
+                                                  </div>
+                                                  <div style={{ fontSize: 11, color: C.gray600, lineHeight: 1.6, marginTop: 4 }}>{finding.summary}</div>
+                                                  <div style={{ fontSize: 11, color: C.gray600, marginTop: 6 }}>Confianza <strong>{Number(finding.confidence || 0).toFixed(2)}</strong> · Relevancia <strong>{Number(finding.relevanceScore || 0).toFixed(1)}</strong></div>
+                                                  {!!(finding.recommendedActions || []).length && (
+                                                    <div style={{ fontSize: 11, color: C.gray700, marginTop: 6 }}>
+                                                      Acciones: <strong>{(finding.recommendedActions || []).slice(0, 2).join(" · ")}</strong>
+                                                    </div>
+                                                  )}
+                                                  {!!(finding.affectedVulnerabilityIds || []).length && (
+                                                    <div style={{ fontSize: 11, color: C.gray700, marginTop: 6 }}>
+                                                      CVEs implicadas: <strong>{(finding.affectedVulnerabilityIds || []).length}</strong>
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+                                          {(intelligentTestResult.matches || []).length > 0 && (
+                                            <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 8, overflow: "hidden" }}>
+                                              <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray200}`, fontSize: 11, fontWeight: 800, color: C.text }}>Decisión por destinatario</div>
+                                              <div style={{ display: "grid", gap: 0 }}>
+                                                {(intelligentTestResult.matches || []).slice(0, 6).map((match, idx) => (
+                                                  <div key={`${match.subscriberId}-${match.findingKey || idx}`} style={{ padding: "10px 12px", borderTop: idx === 0 ? "none" : `1px solid ${C.gray100}`, background: idx % 2 === 0 ? "#fff" : C.gray50 }}>
+                                                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                                                      <div style={{ fontSize: 11, fontWeight: 700, color: C.text }}>
+                                                        Suscriptor #{match.subscriberId} · {toSentence(match.matchLevel || "none")}
+                                                      </div>
+                                                      <div style={{ fontSize: 10, color: match.shouldNotify ? C.low : C.gray500, fontWeight: 700 }}>
+                                                        {match.shouldNotify ? "Se enviaría" : `Suprimida${match.suppressionReason ? ` · ${toSentence(match.suppressionReason)}` : ""}`}
+                                                      </div>
+                                                    </div>
+                                                    <div style={{ fontSize: 11, color: C.gray600, marginTop: 4 }}>
+                                                      Match score <strong>{Number(match.matchScore || 0).toFixed(2)}</strong> · Delivery score <strong>{Number(match.deliveryScore || 0).toFixed(2)}</strong>
+                                                    </div>
+                                                    {!!(match.reasons || []).length && (
+                                                      <div style={{ fontSize: 11, color: C.gray600, marginTop: 4, lineHeight: 1.6 }}>
+                                                        {(match.reasons || []).slice(0, 3).join(" · ")}
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+                                          {intelligentTestResult.qualityAssessment && (
+                                            <div style={{ padding: "10px 12px", borderRadius: 8, background: C.gray50, fontSize: 11, color: C.gray700, lineHeight: 1.7 }}>
+                                              <div>Cobertura hallazgos: <strong>{intelligentTestResult.qualityAssessment.findingsDetected || 0}</strong></div>
+                                              <div>Matching exact/family/contextual: <strong>{intelligentTestResult.qualityAssessment.matching?.exact || 0}</strong> / <strong>{intelligentTestResult.qualityAssessment.matching?.family || 0}</strong> / <strong>{intelligentTestResult.qualityAssessment.matching?.contextual || 0}</strong></div>
+                                              <div>Suprimidas por score o política: <strong>{intelligentTestResult.qualityAssessment.matching?.suppressed || 0}</strong></div>
+                                              <div>Valor estimado: <strong>{toSentence(intelligentTestResult.qualityAssessment.quality?.valueAssessment || "none")}</strong> · Hallazgos accionables: <strong>{intelligentTestResult.qualityAssessment.quality?.actionableFindings || 0}</strong> · Débiles: <strong>{intelligentTestResult.qualityAssessment.quality?.weakFindings || 0}</strong></div>
+                                              {!!Object.keys(intelligentTestResult.qualityAssessment.suppressionReasons || {}).length && (
+                                                <div>Motivos de supresión: <strong>{Object.entries(intelligentTestResult.qualityAssessment.suppressionReasons || {}).map(([key, value]) => `${toSentence(key)} ${value}`).join(" · ")}</strong></div>
+                                              )}
+                                            </div>
+                                          )}
+                                          {intelligentTestResult.previewPayload?.html && (
+                                            <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 8, overflow: "hidden" }}>
+                                              <iframe title="Preview inteligente" srcDoc={intelligentTestResult.previewPayload.html} style={{ width: "100%", height: 420, border: 0 }} />
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 10, overflow: "hidden" }}>
+                                <div style={{ padding: "12px 14px", borderBottom: `1px solid ${C.gray200}`, fontSize: 12, fontWeight: 800, color: C.text }}>Tests recientes</div>
+                                <div style={{ maxHeight: 220, overflow: "auto" }}>
+                                  {(intelligentTestHistory || []).length === 0 ? (
+                                    <div style={{ padding: 14, fontSize: 12, color: C.gray500 }}>Sin pruebas inteligentes recientes.</div>
+                                  ) : intelligentTestHistory.map((item) => (
+                                    <div key={item.id} style={{ padding: "10px 12px", borderBottom: `1px solid ${C.gray100}` }}>
+                                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{toSentence(item.mode || "dry_run")} · {item.subscriber?.name || "Global"}</div>
+                                        <div style={{ fontSize: 10, color: C.gray500 }}>{fmtDate(item.startedAt)}</div>
+                                      </div>
+                                      <div style={{ fontSize: 11, color: C.gray600 }}>Hallazgos {item.findingsDetected || 0} · Enviadas {item.notificationsSent || 0} · Suprimidas {item.notificationsSuppressed || 0}</div>
+                                      <div style={{ fontSize: 11, color: item.status === "completed" ? C.low : C.critical }}>{item.status === "completed" ? "Completada" : `Fallida${item.errorMessage ? ` · ${item.errorMessage}` : ""}`}</div>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                               <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 10, overflow: "hidden" }}>
                                 <div style={{ padding: "12px 14px", borderBottom: `1px solid ${C.gray200}`, fontSize: 12, fontWeight: 800, color: C.text }}>Logs recientes</div>

@@ -164,6 +164,14 @@ type IntelligentRunMetrics = {
     vulnerabilitiesConsidered: number;
     findings: IntelligentFinding[];
     matches: IntelligentMatchRecord[];
+    signalCoverage: {
+        kev: number;
+        exploit: number;
+        unpatched: number;
+        highEpss: number;
+        highCvss: number;
+        vendorConcentration: number;
+    };
 };
 
 type IntelligentRunOptions = {
@@ -1066,12 +1074,12 @@ export class SmartNotificationsService {
         });
 
         try {
-            const aiResponse = await this.aiService.chatStructuredJson([
+            const aiResponse = await this.callAiForIntelligentFinding([
                 { role: 'system', content: promptSystem },
                 { role: 'user', content: promptUser },
-            ], { model: effectiveAi.model });
+            ], effectiveAi.model);
             const aiContent = this.extractAiContent(aiResponse);
-            const parsed = this.parseJson(aiContent || '{}');
+            const parsed = this.safeJsonParse(aiContent || '{}');
             if (parsed && parsed.shouldCreateFinding === false) return null;
             if (parsed && typeof parsed === 'object') {
                 const findingType = String(parsed.type || defaultFinding.type) as IntelligentFinding['type'];
@@ -1171,6 +1179,20 @@ export class SmartNotificationsService {
         return `${type}:${digest}`;
     }
 
+    private isFindingTypeEnabled(type: IntelligentFinding['type'], scenarioFlags: Record<string, boolean> = {}) {
+        const normalizedFlags = {
+            attackPath: scenarioFlags.attackPath !== false,
+            campaignCluster: scenarioFlags.campaignCluster !== false,
+            compoundRisk: scenarioFlags.compoundRisk !== false,
+            postureChange: scenarioFlags.postureChange !== false,
+        };
+
+        if (type === 'attack_path_plausible') return normalizedFlags.attackPath;
+        if (type === 'campaign_cluster') return normalizedFlags.campaignCluster;
+        if (type === 'priority_escalation') return normalizedFlags.postureChange;
+        return normalizedFlags.compoundRisk;
+    }
+
     private extractPreferredEntity(vulnerability: any) {
         const primaryVendor = normalizeName(vulnerability?.primaryVendor || '');
         const primaryProduct = normalizeName(vulnerability?.primaryProduct || '');
@@ -1268,6 +1290,13 @@ export class SmartNotificationsService {
     }
 
     private buildIntelligentQualityAssessment(findings: IntelligentFinding[], matches: IntelligentMatchRecord[], windows: ReturnType<SmartNotificationsService['getIntelligentWindows']>) {
+        const weakFindings = findings.filter((item) => item.confidence < 0.7 || item.relevanceScore < 6.5).length;
+        const actionableFindings = findings.filter((item) => item.confidence >= 0.75 && item.relevanceScore >= 7.2).length;
+        const topSuppressionReasons = matches.reduce((acc: Record<string, number>, item) => {
+            const key = String(item.suppressionReason || 'none');
+            acc[key] = Number(acc[key] || 0) + 1;
+            return acc;
+        }, {});
         return {
             primaryWindowHours: windows.primaryWindowHours,
             recentContextDays: windows.recentContextDays,
@@ -1284,6 +1313,13 @@ export class SmartNotificationsService {
                 contextual: matches.filter((item) => item.matchLevel === 'contextual').length,
                 suppressed: matches.filter((item) => !item.shouldNotify).length,
             },
+            quality: {
+                actionableFindings,
+                weakFindings,
+                noiseRatio: matches.length > 0 ? Number((matches.filter((item) => !item.shouldNotify).length / matches.length).toFixed(4)) : 0,
+                valueAssessment: actionableFindings > 0 ? 'strong' : findings.length > 0 ? 'moderate' : 'none',
+            },
+            suppressionReasons: topSuppressionReasons,
         };
     }
 
@@ -1383,6 +1419,177 @@ export class SmartNotificationsService {
         return { sent, subject, html, targetEmail };
     }
 
+    private async sleep(ms: number) {
+        await new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    private async callAiForIntelligentFinding(messages: Array<{ role: 'system' | 'user'; content: string }>, model: string) {
+        const maxAttempts = 2;
+        let lastError: any = null;
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+            try {
+                return await Promise.race([
+                    this.aiService.chatStructuredJson(messages, { model }),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('AI intelligent evaluation timeout')), 45000)),
+                ]);
+            } catch (error) {
+                lastError = error;
+                if (attempt < maxAttempts) {
+                    await this.sleep(attempt * 750);
+                }
+            }
+        }
+        throw lastError || new Error('AI intelligent evaluation failed');
+    }
+
+    private async buildSyntheticIntelligentCandidateSet(
+        windows: ReturnType<SmartNotificationsService['getIntelligentWindows']>,
+        targetSubscriberId?: number | null,
+    ) {
+        let vendor = 'demo-vendor';
+        let product = 'demo-platform';
+        let category = 'demo-stack';
+
+        if (targetSubscriberId) {
+            const subscription = await this.prisma.userSubscription.findFirst({
+                where: {
+                    userId: targetSubscriberId,
+                    isActive: true,
+                },
+                orderBy: { id: 'asc' },
+                select: {
+                    vendor: true,
+                    product: true,
+                },
+            }).catch(() => null);
+            if (subscription?.vendor) vendor = normalizeName(subscription.vendor) || vendor;
+            if (subscription?.product) product = normalizeName(subscription.product) || product;
+            category = product || category;
+        }
+
+        const baseTime = windows.now.getTime();
+        const synthetic = [
+            {
+                id: -1001,
+                cveId: 'TEST-INTEL-0001',
+                description: `${vendor} ${product} remote code execution with public exploit and missing confirmed patch`,
+                publishedAt: new Date(baseTime - 6 * 3600000),
+                lastModifiedAt: new Date(baseTime - 3 * 3600000),
+                lastChangeDetectedAt: new Date(baseTime - 2 * 3600000),
+                cvssV31Score: 9.4,
+                cvssV31Severity: 'CRITICAL',
+                epssScore: 0.88,
+                epssPercentile: 0.99,
+                isKnownExploited: true,
+                hasPublicExploit: true,
+                exploitStatus: 'active_exploitation',
+                patchAvailable: false,
+                patchPriority: 'immediate',
+                sourceCount: 3,
+                operationalRiskScore: 9.1,
+                primaryVendor: vendor,
+                primaryProduct: product,
+                weaknessCategory: category,
+                affectedProductsDetailed: JSON.stringify([{ vendor, product, versionRange: '< 4.2.1' }]),
+                affectedProducts: JSON.stringify([{ vendor, product }]),
+                references: JSON.stringify([`https://example.test/${vendor}/${product}/advisory-1`]),
+                exploitReferences: JSON.stringify([`https://example.test/${vendor}/${product}/exploit-1`]),
+                remediationInfo: JSON.stringify({ patchUrls: [`https://example.test/${vendor}/${product}/patch-1`] }),
+                recordStatus: 'synthetic-test',
+            },
+            {
+                id: -1002,
+                cveId: 'TEST-INTEL-0002',
+                description: `${vendor} ${product} privilege escalation that compounds the previous exposure`,
+                publishedAt: new Date(baseTime - 18 * 3600000),
+                lastModifiedAt: new Date(baseTime - 9 * 3600000),
+                lastChangeDetectedAt: new Date(baseTime - 8 * 3600000),
+                cvssV31Score: 8.7,
+                cvssV31Severity: 'HIGH',
+                epssScore: 0.61,
+                epssPercentile: 0.94,
+                isKnownExploited: false,
+                hasPublicExploit: true,
+                exploitStatus: 'reliable_poc',
+                patchAvailable: null,
+                patchPriority: 'high',
+                sourceCount: 2,
+                operationalRiskScore: 7.9,
+                primaryVendor: vendor,
+                primaryProduct: product,
+                weaknessCategory: category,
+                affectedProductsDetailed: JSON.stringify([{ vendor, product, versionRange: '< 4.2.1' }]),
+                affectedProducts: JSON.stringify([{ vendor, product }]),
+                references: JSON.stringify([`https://example.test/${vendor}/${product}/advisory-2`]),
+                exploitReferences: JSON.stringify([`https://example.test/${vendor}/${product}/exploit-2`]),
+                remediationInfo: JSON.stringify({ vendorAdvisories: [`https://example.test/${vendor}/${product}/vendor-2`] }),
+                recordStatus: 'synthetic-test',
+            },
+            {
+                id: -1003,
+                cveId: 'TEST-INTEL-0003',
+                description: `${vendor} control plane exposure increases stack-wide operational risk`,
+                publishedAt: new Date(baseTime - 5 * 86400000),
+                lastModifiedAt: new Date(baseTime - 4 * 86400000),
+                lastChangeDetectedAt: new Date(baseTime - 2 * 86400000),
+                cvssV31Score: 7.8,
+                cvssV31Severity: 'HIGH',
+                epssScore: 0.42,
+                epssPercentile: 0.82,
+                isKnownExploited: false,
+                hasPublicExploit: false,
+                exploitStatus: 'none',
+                patchAvailable: false,
+                patchPriority: 'high',
+                sourceCount: 2,
+                operationalRiskScore: 7.2,
+                primaryVendor: vendor,
+                primaryProduct: product,
+                weaknessCategory: category,
+                affectedProductsDetailed: JSON.stringify([{ vendor, product, versionRange: '< 4.1.0' }]),
+                affectedProducts: JSON.stringify([{ vendor, product }]),
+                references: JSON.stringify([`https://example.test/${vendor}/${product}/advisory-3`]),
+                exploitReferences: JSON.stringify([]),
+                remediationInfo: JSON.stringify({ workarounds: ['Restrict external exposure until patching'] }),
+                recordStatus: 'synthetic-test',
+            },
+        ];
+
+        return synthetic.map((vulnerability: any) => {
+            const entity = this.extractPreferredEntity(vulnerability);
+            const publishedAt = new Date(vulnerability.publishedAt);
+            const ageDays = Math.max(0, (windows.now.getTime() - publishedAt.getTime()) / 86400000);
+            const score = computeCandidatePriorityScore({
+                id: vulnerability.id,
+                cveId: vulnerability.cveId,
+                primaryVendor: entity.vendor,
+                primaryProduct: entity.product,
+                category: vulnerability.weaknessCategory,
+                severity: vulnerability.cvssV31Severity,
+                cvss: vulnerability.cvssV31Score,
+                epss: vulnerability.epssScore,
+                isKev: vulnerability.isKnownExploited,
+                hasPublicExploit: vulnerability.hasPublicExploit,
+                exploitStatus: vulnerability.exploitStatus,
+                patchAvailable: vulnerability.patchAvailable,
+                operationalRiskScore: vulnerability.operationalRiskScore,
+                publishedAt,
+                lastModifiedAt: vulnerability.lastModifiedAt,
+                lastChangeDetectedAt: vulnerability.lastChangeDetectedAt,
+            }, windows.now);
+
+            return {
+                raw: vulnerability,
+                entity,
+                ageDays,
+                recencyWeight: getRecencyWeight(ageDays),
+                recencyBand: getRecencyBand(ageDays),
+                score,
+                shouldConsider: true,
+            };
+        });
+    }
+
     async runIntelligentAnalysisJob(options: IntelligentRunOptions = {}) {
         const trigger = options.trigger || 'manual';
         const centerSettings = await this.notificationService.getNotificationCenterSettings().catch(() => null);
@@ -1403,7 +1610,9 @@ export class SmartNotificationsService {
         }
 
         const windows = this.getIntelligentWindows(options, intelligentSettings);
-        const candidateRows = await this.buildIntelligentCandidateSet(windows);
+        let candidateRows = options.useRecentRealData === false
+            ? await this.buildSyntheticIntelligentCandidateSet(windows, options.targetSubscriberId)
+            : await this.buildIntelligentCandidateSet(windows);
         const clusters = clusterIntelligentCandidates(candidateRows.map((item) => ({
             id: item.raw.id,
             cveId: item.raw.cveId,
@@ -1434,6 +1643,9 @@ export class SmartNotificationsService {
                 .filter(Boolean);
             const finding = await this.evaluateIntelligentCluster(cluster, windows, intelligentSettings, options.communicationLanguage || 'es');
             if (!finding) continue;
+            if (!this.isFindingTypeEnabled(finding.type, intelligentSettings?.scenarioFlags || {})) {
+                continue;
+            }
             if (finding.confidence < Number(intelligentSettings.minConfidence || 0) || (finding.relevanceScore / 10) < Number(intelligentSettings.minRelevanceScore || 0)) {
                 continue;
             }
@@ -1464,18 +1676,44 @@ export class SmartNotificationsService {
         const matches: IntelligentMatchRecord[] = [];
         let jobRunId: number | null = null;
         if (!options.persistTestRunId) {
-            const job = await this.notificationService.startNotificationJobRun('intelligent_notification_job', trigger === 'cron' ? 'cron' : 'manual', {
-                source: 'smart-notifications',
-                schedulerStatus: 'active',
-            });
-            jobRunId = Number(job?.id || 0) || null;
+            try {
+                const job = await this.notificationService.startNotificationJobRun('intelligent_notification_job', trigger === 'cron' ? 'cron' : 'manual', {
+                    source: 'smart-notifications',
+                    schedulerStatus: 'active',
+                });
+                jobRunId = Number(job?.id || 0) || null;
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error || '');
+                if (message.includes('Job already running')) {
+                    return {
+                        success: true,
+                        skipped: true,
+                        reason: 'intelligent_job_already_running',
+                        findingsDetected: 0,
+                        impactedSubscribers: 0,
+                        notificationsSent: 0,
+                        notificationsSuppressed: 0,
+                        notificationsFailed: 0,
+                        findings: [],
+                        matches: [],
+                        qualityAssessment: null,
+                        windows: {
+                            windowStart: windows.windowStart,
+                            windowEnd: windows.windowEnd,
+                            recentContextStart: windows.recentContextStart,
+                            historicalContextStart: windows.historicalContextStart,
+                        },
+                    };
+                }
+                throw error;
+            }
         }
 
         try {
             let notificationsSent = 0;
             let notificationsSuppressed = 0;
             let notificationsFailed = 0;
-            let impactedSubscribers = 0;
+            const impactedSubscribersSet = new Set<number>();
             let previewPayload: any = null;
 
             for (const finding of findings) {
@@ -1598,7 +1836,7 @@ export class SmartNotificationsService {
                         continue;
                     }
 
-                    impactedSubscribers += 1;
+                    impactedSubscribersSet.add(recipient.id);
                     const delivery = await this.maybeSendIntelligentNotification(finding, matchRecord, vulnerabilityMap, options);
                     if (!previewPayload) {
                         previewPayload = {
@@ -1634,13 +1872,21 @@ export class SmartNotificationsService {
 
             const metrics: IntelligentRunMetrics = {
                 findingsDetected: findings.length,
-                impactedSubscribers,
+                impactedSubscribers: impactedSubscribersSet.size,
                 notificationsSent,
                 notificationsSuppressed,
                 notificationsFailed,
                 vulnerabilitiesConsidered: candidateRows.length,
                 findings,
                 matches,
+                signalCoverage: {
+                    kev: candidateRows.filter((item) => item.raw?.isKnownExploited).length,
+                    exploit: candidateRows.filter((item) => item.raw?.hasPublicExploit || ['active_exploitation', 'reliable_poc', 'poc'].includes(String(item.raw?.exploitStatus || '').toLowerCase())).length,
+                    unpatched: candidateRows.filter((item) => item.raw?.patchAvailable === false).length,
+                    highEpss: candidateRows.filter((item) => Number(item.raw?.epssScore || 0) >= 0.7).length,
+                    highCvss: candidateRows.filter((item) => Number(item.raw?.cvssV31Score || 0) >= 9).length,
+                    vendorConcentration: promisingClusters.filter((cluster) => cluster.candidates.length >= 3).length,
+                },
             };
 
             if (jobRunId) {
@@ -1655,7 +1901,7 @@ export class SmartNotificationsService {
                         trigger,
                         schedulerStatus: 'active',
                         findingsDetected: findings.length,
-                        impactedSubscribers,
+                        impactedSubscribers: impactedSubscribersSet.size,
                         notificationsSuppressed,
                         durationMs: Math.max(0, Date.now() - windows.now.getTime()),
                     },
@@ -1747,6 +1993,7 @@ export class SmartNotificationsService {
                         findings: result?.findings || [],
                         matches: result?.matches || [],
                         windows: result?.windows || {},
+                        previewPayload: result?.previewPayload || null,
                     }),
                     qualityAssessment: JSON.stringify(result?.qualityAssessment || {}),
                 },
@@ -1784,9 +2031,9 @@ export class SmartNotificationsService {
         return {
             items: (rows || []).map((row: any) => ({
                 ...row,
-                inputOptions: this.parseJson(row.inputOptions || '{}'),
-                resultSummary: this.parseJson(row.resultSummary || '{}'),
-                qualityAssessment: this.parseJson(row.qualityAssessment || '{}'),
+                inputOptions: this.safeJsonParse(row.inputOptions || '{}') || {},
+                resultSummary: this.safeJsonParse(row.resultSummary || '{}') || {},
+                qualityAssessment: this.safeJsonParse(row.qualityAssessment || '{}') || {},
             })),
         };
     }
@@ -3116,6 +3363,15 @@ ${roadmapHtml}`
             return parsed;
         } catch {
             return {};
+        }
+    }
+
+    private safeJsonParse(raw: string | null | undefined): any {
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw);
+        } catch {
+            return null;
         }
     }
 

@@ -290,10 +290,10 @@ export class NotificationService {
                 ...defaults.intelligent,
                 ...(source.intelligent || {}),
                 analysisFrequencyHours: Math.max(1, Number(source?.intelligent?.analysisFrequencyHours ?? defaults.intelligent.analysisFrequencyHours)),
-                primaryWindowHours: Math.max(1, Number(source?.intelligent?.primaryWindowHours ?? defaults.intelligent.primaryWindowHours)),
-                recentContextDays: Math.max(1, Number(source?.intelligent?.recentContextDays ?? defaults.intelligent.recentContextDays)),
+                primaryWindowHours: Math.max(1, Number(source?.intelligent?.primaryWindowHours ?? source?.intelligent?.recentWindowHours ?? defaults.intelligent.primaryWindowHours)),
+                recentContextDays: Math.max(1, Number(source?.intelligent?.recentContextDays ?? source?.intelligent?.contextWindowDays ?? defaults.intelligent.recentContextDays)),
                 historicalContextDays: Math.max(
-                    Math.max(7, Number(source?.intelligent?.recentContextDays ?? defaults.intelligent.recentContextDays)),
+                    Math.max(7, Number(source?.intelligent?.recentContextDays ?? source?.intelligent?.contextWindowDays ?? defaults.intelligent.recentContextDays)),
                     Number(source?.intelligent?.historicalContextDays ?? defaults.intelligent.historicalContextDays),
                 ),
                 minConfidence: Math.max(0, Math.min(1, Number(source?.intelligent?.minConfidence ?? defaults.intelligent.minConfidence))),
@@ -726,6 +726,25 @@ export class NotificationService {
             return true;
         } catch (error) {
             this.logger.error(`Failed to send email to ${to}`, error);
+            await this.logNotification(
+                to,
+                context.recipientName || to,
+                subject,
+                '',
+                options.cveIds || context.cveIds || [],
+                {
+                    notificationType: options.notificationType,
+                    templateKey: options.templateKey || templateName,
+                    channel: options.channel || 'email',
+                    triggerReason: options.triggerReason,
+                    metadata: {
+                        ...(options.metadata || {}),
+                        failedAt: new Date().toISOString(),
+                    },
+                    recipientUserId: options.recipientUserId,
+                    errorMessage: error instanceof Error ? error.message : String(error || 'Unknown error'),
+                },
+            );
             return false;
         }
     }
@@ -1586,9 +1605,17 @@ export class NotificationService {
         ]);
 
         const groupedRuns = new Map<string, any>();
+        const latestCompletedByJob = new Map<string, any>();
+        const latestFailedByJob = new Map<string, any>();
         for (const run of latestRuns || []) {
             if (!groupedRuns.has(run.jobType)) {
                 groupedRuns.set(run.jobType, run);
+            }
+            if (run.status === 'completed' && !latestCompletedByJob.has(run.jobType)) {
+                latestCompletedByJob.set(run.jobType, run);
+            }
+            if (run.status === 'failed' && !latestFailedByJob.has(run.jobType)) {
+                latestFailedByJob.set(run.jobType, run);
             }
         }
 
@@ -1620,21 +1647,27 @@ export class NotificationService {
                 immediate: this.mapJobHealth('immediate_notification_job', immediateRun, {
                     nextExecution: 'Tras la siguiente recolección con hallazgos relevantes',
                     mode: 'hook',
+                    lastSuccessfulAt: latestCompletedByJob.get('immediate_notification_job')?.finishedAt || latestCompletedByJob.get('immediate_notification_job')?.startedAt || null,
+                    lastFailedAt: latestFailedByJob.get('immediate_notification_job')?.finishedAt || latestFailedByJob.get('immediate_notification_job')?.startedAt || null,
                 }),
                 digest: this.mapJobHealth('digest_notification_job', digestRun, {
                     nextExecution: nextDigestExecution,
                     mode: 'scheduled',
+                    lastSuccessfulAt: latestCompletedByJob.get('digest_notification_job')?.finishedAt || latestCompletedByJob.get('digest_notification_job')?.startedAt || null,
+                    lastFailedAt: latestFailedByJob.get('digest_notification_job')?.finishedAt || latestFailedByJob.get('digest_notification_job')?.startedAt || null,
                 }),
                 intelligent: this.mapJobHealth('intelligent_notification_job', intelligentRun, {
                     nextExecution: nextIntelligentExecution,
                     mode: 'scheduled',
+                    lastSuccessfulAt: latestCompletedByJob.get('intelligent_notification_job')?.finishedAt || latestCompletedByJob.get('intelligent_notification_job')?.startedAt || latestSmartSent?.sentAt || null,
+                    lastFailedAt: latestFailedByJob.get('intelligent_notification_job')?.finishedAt || latestFailedByJob.get('intelligent_notification_job')?.startedAt || latestSmartFailed?.updatedAt || null,
                 }),
             },
             recentLogs,
         };
     }
 
-    private mapJobHealth(jobType: string, run: any, extras: { nextExecution: string; mode: string }) {
+    private mapJobHealth(jobType: string, run: any, extras: { nextExecution: string; mode: string; lastSuccessfulAt?: string | Date | null; lastFailedAt?: string | Date | null }) {
         const details = this.parseJson(run?.details || '{}') || {};
         return {
             jobType,
@@ -1653,8 +1686,8 @@ export class NotificationService {
             durationMs: run?.startedAt && run?.finishedAt
                 ? Math.max(0, new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime())
                 : Number(details?.durationMs || 0),
-            lastSuccessfulAt: run?.status === 'completed' ? (run?.finishedAt || run?.startedAt || null) : null,
-            lastFailedAt: run?.status === 'failed' ? (run?.finishedAt || run?.startedAt || null) : null,
+            lastSuccessfulAt: extras.lastSuccessfulAt || (run?.status === 'completed' ? (run?.finishedAt || run?.startedAt || null) : null),
+            lastFailedAt: extras.lastFailedAt || (run?.status === 'failed' ? (run?.finishedAt || run?.startedAt || null) : null),
             findingsDetected: Number(details?.findingsDetected || 0),
             impactedSubscribers: Number(details?.impactedSubscribers || 0),
             notificationsSuppressed: Number(details?.notificationsSuppressed || 0),
@@ -1742,6 +1775,10 @@ export class NotificationService {
                 intelligentLookbackHours: 24,
                 intelligentContextDays: 7,
                 intelligentMinConfidence: 0.65,
+                intelligentMinRelevanceScore: 0.6,
+                intelligentCooldownHours: 24,
+                intelligentMaxNotificationsPerDay: 2,
+                intelligentExclusions: '[]',
                 intelligentOnlyWhenFinding: true,
                 intelligentScenarioFlags: JSON.stringify({
                     attackPath: true,
@@ -1801,6 +1838,10 @@ export class NotificationService {
         intelligentLookbackHours?: number;
         intelligentContextDays?: number;
         intelligentMinConfidence?: number;
+        intelligentMinRelevanceScore?: number;
+        intelligentCooldownHours?: number;
+        intelligentMaxNotificationsPerDay?: number;
+        intelligentExclusions?: string;
         intelligentOnlyWhenFinding?: boolean;
         intelligentScenarioFlags?: string;
         smartEnabled?: boolean;
@@ -1829,7 +1870,8 @@ export class NotificationService {
             'digestExclusions',
             'periodicEnabled', 'periodicThresholdCvss', 'periodicIntervalHours',
             'intelligentEnabled', 'intelligentDailyHour', 'intelligentLookbackHours', 'intelligentContextDays',
-            'intelligentMinConfidence', 'intelligentOnlyWhenFinding', 'intelligentScenarioFlags',
+            'intelligentMinConfidence', 'intelligentMinRelevanceScore', 'intelligentCooldownHours', 'intelligentMaxNotificationsPerDay', 'intelligentExclusions',
+            'intelligentOnlyWhenFinding', 'intelligentScenarioFlags',
             'smartEnabled', 'smartFrequency', 'smartDayOfWeek', 'smartHour',
             'digestFrequency', 'digestHour', 'digestDayOfWeek', 'isActive',
         ];
@@ -1883,6 +1925,10 @@ export class NotificationService {
                 intelligentLookbackHours: data.intelligentLookbackHours ?? 24,
                 intelligentContextDays: data.intelligentContextDays ?? 7,
                 intelligentMinConfidence: data.intelligentMinConfidence ?? 0.65,
+                intelligentMinRelevanceScore: data.intelligentMinRelevanceScore ?? 0.6,
+                intelligentCooldownHours: data.intelligentCooldownHours ?? 24,
+                intelligentMaxNotificationsPerDay: data.intelligentMaxNotificationsPerDay ?? 2,
+                intelligentExclusions: data.intelligentExclusions ?? '[]',
                 intelligentOnlyWhenFinding: data.intelligentOnlyWhenFinding ?? true,
                 intelligentScenarioFlags: data.intelligentScenarioFlags ?? JSON.stringify({
                     attackPath: true,
