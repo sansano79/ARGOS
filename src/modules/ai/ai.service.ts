@@ -171,11 +171,12 @@ export class AiService {
         const safeMessages = Array.isArray(messages) ? messages : [];
         const contextualizedMessages = await this.injectVulnerabilityContext(safeMessages);
 
+        const defaultTimeoutMs = 120000;
         try {
             if (config.provider === 'openai') {
-                return await this.chatOpenAI(contextualizedMessages, config);
+                return await this.chatOpenAI(contextualizedMessages, config, defaultTimeoutMs);
             } else {
-                return await this.chatOllama(contextualizedMessages, config);
+                return await this.chatOllama(contextualizedMessages, config, defaultTimeoutMs);
             }
         } catch (error) {
             this.logger.error('Error in AI chat', error);

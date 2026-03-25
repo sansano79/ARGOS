@@ -264,7 +264,7 @@ export const evaluateSubscriberFindingMatch = (input: SubscriberMatchInput): Sub
   const deliveryScore = Number((bestScore * 0.45 + confidenceWeight * 0.25 + relevanceWeight * 0.2 + recencyWeight * 0.1).toFixed(4));
 
   const shouldNotify = bestLevel !== 'none' && deliveryScore >= (bestLevel === 'contextual' ? 0.52 : 0.6);
-  const reasons = [];
+  const reasons: string[] = [];
   if (bestLevel !== 'none') reasons.push(`Matching ${bestLevel} con suscripciones o activos del suscriptor`);
   if (confidenceWeight > 0.7) reasons.push('Confianza alta del hallazgo');
   if (relevanceWeight > 0.7) reasons.push('Relevancia operativa alta');

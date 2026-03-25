@@ -2245,6 +2245,17 @@ ${this.buildIntelligentWhyReceivedHtml(finding, match, language)}`;
         }
     }
 
+    private extractPreviewPayload(result: unknown): { subject: string | null; html: string | null } {
+        if (result && typeof result === 'object' && 'previewPayload' in result && (result as Record<string, any>).previewPayload) {
+            const payload = (result as Record<string, any>).previewPayload;
+            return {
+                subject: typeof payload.subject === 'string' ? payload.subject : null,
+                html: typeof payload.html === 'string' ? payload.html : null,
+            };
+        }
+        return { subject: null, html: null };
+    }
+
     async runIntelligentTest(input: {
         subscriberId?: number;
         mode?: 'dry_run' | 'preview' | 'send_test';
@@ -2287,25 +2298,26 @@ ${this.buildIntelligentWhyReceivedHtml(finding, match, language)}`;
                 useRecentRealData: input?.useRecentRealData !== false,
             });
 
+            const preview = this.extractPreviewPayload(result);
             await (this.prisma as any).intelligentNotificationTestRun.update({
                 where: { id: testRun.id },
                 data: {
                     status: 'completed',
                     completedAt: new Date(),
                     durationMs: Math.max(0, Date.now() - startedAt),
-                    findingsDetected: Number(result?.findingsDetected || 0),
-                    notificationsPlanned: Array.isArray(result?.matches) ? result.matches.filter((item: any) => item.shouldNotify).length : 0,
-                    notificationsSent: Number(result?.notificationsSent || 0),
-                    notificationsSuppressed: Number(result?.notificationsSuppressed || 0),
-                    renderedSubject: result?.previewPayload?.subject || null,
-                    renderedHtml: result?.previewPayload?.html || null,
+                    findingsDetected: Number((result as any)?.findingsDetected || 0),
+                    notificationsPlanned: Array.isArray((result as any)?.matches) ? (result as any).matches.filter((item: any) => item.shouldNotify).length : 0,
+                    notificationsSent: Number((result as any)?.notificationsSent || 0),
+                    notificationsSuppressed: Number((result as any)?.notificationsSuppressed || 0),
+                    renderedSubject: preview.subject,
+                    renderedHtml: preview.html,
                     resultSummary: JSON.stringify({
-                        findings: result?.findings || [],
-                        matches: result?.matches || [],
-                        windows: result?.windows || {},
-                        previewPayload: result?.previewPayload || null,
+                        findings: (result as any)?.findings || [],
+                        matches: (result as any)?.matches || [],
+                        windows: (result as any)?.windows || {},
+                        previewPayload: preview.subject || preview.html ? preview : null,
                     }),
-                    qualityAssessment: JSON.stringify(result?.qualityAssessment || {}),
+                    qualityAssessment: JSON.stringify((result as any)?.qualityAssessment || {}),
                 },
             });
 
