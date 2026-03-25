@@ -1349,11 +1349,11 @@ export class SmartNotificationsService {
         const executiveLines = this.buildIntelligentExecutiveLines(finding, topRisk, language);
         const signalTags = this.buildIntelligentSignalTags(finding, sortedVulnerabilities, language);
         const headerMetaStripHtml = `
-<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
-  ${this.buildHeaderChip(language === 'en' ? 'Period' : 'Periodo', `${finding.windowStart.toISOString().slice(0, 10)} → ${finding.windowEnd.toISOString().slice(0, 10)}`)}
+<div style="display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;">
+  ${this.buildHeaderChip(language === 'en' ? 'Period' : 'Periodo', `${finding.windowStart.toISOString().slice(0, 10)} → ${finding.windowEnd.toISOString().slice(0, 10)}`, 'rgba(0,0,0,0.2)')}
   ${this.buildHeaderChip(language === 'en' ? 'Priority' : 'Prioridad', priority.label, priority.background, priority.text)}
-  ${this.buildHeaderChip(language === 'en' ? 'Confidence' : 'Confianza', confidencePct)}
-  ${this.buildHeaderChip(language === 'en' ? 'Finding type' : 'Tipo de hallazgo', this.getFindingTypeLabel(finding.type, language))}
+  ${this.buildHeaderChip(language === 'en' ? 'Confidence' : 'Confianza', confidencePct, 'rgba(0,0,0,0.2)')}
+  ${this.buildHeaderChip(language === 'en' ? 'Finding type' : 'Tipo de hallazgo', this.getFindingTypeLabel(finding.type, language), 'rgba(0,0,0,0.2)')}
 </div>`;
         const executiveSectionHtml = `
 <h2 style="${this.getSectionTitleStyle()}">${language === 'en' ? 'Executive Summary' : 'Resumen ejecutivo'}</h2>
@@ -1431,11 +1431,11 @@ ${this.buildIntelligentWhyReceivedHtml(finding, match, language)}`;
     }
 
     private getSectionTitleStyle() {
-        return 'margin: 0 0 10px; font-size: 12px; color: #1E3A8A; text-transform: uppercase; letter-spacing: .08em; font-weight: 800;';
+        return 'margin: 28px 0 12px; font-size: 13px; color: #0F172A; text-transform: uppercase; letter-spacing: .08em; font-weight: 800; border-bottom: 2px solid #E2E8F0; padding-bottom: 6px;';
     }
 
     private buildHeaderChip(label: string, value: string, background = 'rgba(255,255,255,0.12)', textColor = '#FFFFFF') {
-        return `<span style="display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;background:${background};color:${textColor};font-size:11px;font-weight:700;border:1px solid rgba(255,255,255,0.14);"><span style="opacity:.72;">${this.escapeHtml(label)}</span><span>${this.escapeHtml(value)}</span></span>`;
+        return `<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;background:${background};color:${textColor};font-size:11px;font-weight:700;border:1px solid rgba(255,255,255,0.1);"><span style="opacity:.75;">${this.escapeHtml(label)}</span><span>${this.escapeHtml(value)}</span></span>`;
     }
 
     private buildMetricCard(label: string, value: string, background: string, accent: string) {
@@ -3507,11 +3507,12 @@ ${this.buildIntelligentWhyReceivedHtml(finding, match, language)}`;
                         : '';
 
                 const statsSectionHtml = smartConfig.showStatsSection
-                        ? `<div style="display: flex; gap: 10px; margin-bottom: 22px;">
-    <div style="flex: 1; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 8px; padding: 12px; text-align: center;">
-        <div style="font-size: 10px; color: #2563EB; font-weight: 700; text-transform: uppercase;">Total CVE</div>
-        <div style="font-size: 28px; font-weight: 800; color: #1E3A8A; font-family: monospace;">${dataset.stats.total}</div>
-    </div>
+                        ? `<h2 style="${sectionTitleStyle}">KPIs Clave</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:10px;margin-bottom:22px;">
+    ${this.buildMetricCard('Total CVEs', String(dataset.stats.total), '#EFF6FF', '#1D4ED8')}
+    ${this.buildMetricCard('KEV', String(dataset.stats.knownExploited), '#FEF3C7', '#B45309')}
+    ${this.buildMetricCard('Exploit Público', String(dataset.stats.withExploit), '#FEE2E2', '#B91C1C')}
+    ${this.buildMetricCard('Críticas/Altas', String(dataset.stats.highOrCritical), '#F5F3FF', '#6D28D9')}
 </div>`
                         : '';
 
@@ -3546,10 +3547,10 @@ ${roadmapHtml}`
             introText,
             footerText: this.escapeHtml(smartConfig.footerText),
             headerMetaStripHtml: `
-<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
-  ${this.buildHeaderChip('Periodo', `${dataset.periodStart.toISOString().slice(0, 10)} → ${dataset.periodEnd.toISOString().slice(0, 10)}`)}
-  ${this.buildHeaderChip('Total CVE', String(dataset.stats.total))}
-  ${this.buildHeaderChip('KEV', String(dataset.stats.knownExploited))}
+<div style="display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;">
+  ${this.buildHeaderChip('Periodo', `${dataset.periodStart.toISOString().slice(0, 10)} → ${dataset.periodEnd.toISOString().slice(0, 10)}`, 'rgba(0,0,0,0.2)')}
+  ${this.buildHeaderChip('Total CVE', String(dataset.stats.total), 'rgba(0,0,0,0.2)')}
+  ${this.buildHeaderChip('KEV', String(dataset.stats.knownExploited), 'rgba(0,0,0,0.2)')}
 </div>`,
             executiveSectionHtml,
             statsSectionHtml,
@@ -3557,8 +3558,18 @@ ${roadmapHtml}`
             correlationsSectionHtml,
             roadmapSectionHtml,
             technicalSectionHtml,
-            whyReceivedSectionHtml: '',
-            closingSectionHtml: '',
+            whyReceivedSectionHtml: `<h2 style="${sectionTitleStyle}">Por qué recibes esta alerta</h2>
+<div style="border:1px solid #E2E8F0;border-radius:10px;background:#F8FAFC;padding:16px;">
+  <div style="font-size:13px;color:#475569;line-height:1.65;">
+    Recibes este informe porque eres suscriptor de los Servicios OCC. El análisis se ha filtrado basándose en tus <strong>${dataset.groupedAssets.length} fabricantes/productos suscritos</strong> y en tu infraestructura monitorizada.
+  </div>
+</div>`,
+            closingSectionHtml: `<div style="margin-top:24px;padding:16px;border-radius:10px;border:1px solid #DBEAFE;background:#EFF6FF;">
+  <div style="font-size:13px;font-weight:800;color:#1E3A8A;margin-bottom:8px;">Siguiente paso</div>
+  <div style="font-size:13px;color:#334155;line-height:1.65;">
+    Revisa las vulnerabilidades de mayor impacto e inicia la mitigación según la hoja de ruta sugerida por la IA.
+  </div>
+</div>`,
         };
     }
 
