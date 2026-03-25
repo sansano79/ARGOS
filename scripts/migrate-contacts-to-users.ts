@@ -48,7 +48,7 @@ function parseContactProducts(products: string | any): Array<{ vendor: string; p
 async function main() {
     console.log('🔄 Migrando it_contacts → users...\n');
 
-    const contacts = await prisma.itContact.findMany({
+    const contacts = await (prisma as any).itContact.findMany({
         where: { isActive: true },
     });
 

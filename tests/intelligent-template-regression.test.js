@@ -10,23 +10,25 @@ const smartServicePath = path.join(repoRoot, 'src', 'modules', 'smart-notificati
 test('intelligent email template keeps the premium detail placeholders', () => {
   const template = fs.readFileSync(smartTemplatePath, 'utf8');
   assert.match(template, /\{\{\s*executiveSectionHtml\s*\}\}/);
-  assert.match(template, /\{\{\s*statsSectionHtml\s*\}\}/);
+  assert.match(template, /\{\{\s*kpiSectionHtml\s*\}\}/);
+  assert.match(template, /\{\{\s*findingSectionHtml\s*\}\}/);
   assert.match(template, /\{\{\s*topRiskSectionHtml\s*\}\}/);
-  assert.match(template, /\{\{\s*correlationsSectionHtml\s*\}\}/);
-  assert.match(template, /\{\{\s*roadmapSectionHtml\s*\}\}/);
-  assert.match(template, /\{\{\s*technicalSectionHtml\s*\}\}/);
   assert.match(template, /\{\{\s*whyReceivedSectionHtml\s*\}\}/);
+  assert.match(template, /\{\{\s*mitigationSectionHtml\s*\}\}/);
+  assert.match(template, /\{\{\s*technicalSectionHtml\s*\}\}/);
   assert.match(template, /\{\{\s*closingSectionHtml\s*\}\}/);
+  assert.match(template, /\{\{\s*greetingHtml\s*\}\}/);
+  assert.match(template, /\{\{\s*introHtml\s*\}\}/);
+  assert.match(template, /\{\{\s*generatedAtLine\s*\}\}/);
 });
 
 test('intelligent email context rebuilds the high-value analytical sections', () => {
   const source = fs.readFileSync(smartServicePath, 'utf8');
-  assert.match(source, /Top riesgo real/);
-  assert.match(source, /Correlaciones detectadas/);
-  assert.match(source, /Hoja de ruta de mitigación/);
-  assert.match(source, /Base técnica analizada/);
+  assert.match(source, /Top riesgo \(Top 3\)/);
+  assert.match(source, /Qué hacer hoy \/ Hoja de ruta de mitigación/);
+  assert.match(source, /Base técnica analizada \(compacta\)/);
   assert.match(source, /Por qué recibes esta alerta/);
-  assert.match(source, /buildIntelligentCorrelationBlock/);
-  assert.match(source, /buildIntelligentRoadmapHtml/);
-  assert.match(source, /buildIntelligentTechnicalTable/);
+  assert.match(source, /buildIntelligentFindingSectionHtml/);
+  assert.match(source, /buildIntelligentMitigationSectionHtml/);
+  assert.match(source, /buildIntelligentTechnicalSectionHtml/);
 });
