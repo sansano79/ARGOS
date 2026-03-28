@@ -1149,6 +1149,17 @@ export default function VulnDashboard() {
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState("#3B6CB5");
 
+  // API Keys Management
+  const [apiKeys, setApiKeys] = useState([]);
+  const [apiKeysLoading, setApiKeysLoading] = useState(false);
+  const [showApiKeyForm, setShowApiKeyForm] = useState(false);
+  const [newApiKeyName, setNewApiKeyName] = useState("");
+  const [newApiKeyScopes, setNewApiKeyScopes] = useState(["vulnerabilities:read", "products:read", "catalog:read", "collector:read", "reports:read"]);
+  const [newApiKeyExpiry, setNewApiKeyExpiry] = useState("");
+  const [apiKeyCreating, setApiKeyCreating] = useState(false);
+  const [createdApiKey, setCreatedApiKey] = useState(null);
+  const [apiKeyCopied, setApiKeyCopied] = useState(false);
+
   // Vulnerability Detail & Actions (consolidated)
   const [vulnDetail, setVulnDetail] = useState(null);
   const [vulnLoading, setVulnLoading] = useState(false);
@@ -1698,6 +1709,10 @@ export default function VulnDashboard() {
         if (tagsRes.status === "fulfilled") {
           setTags(Array.isArray(tagsRes.value) ? tagsRes.value : []);
         }
+
+        // Load API keys
+        setApiKeysLoading(true);
+        apiFetch("/api-keys").then(r => r.json()).then(d => setApiKeys(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setApiKeysLoading(false));
 
         setAiConfigLoading(true);
         const [aiConfigRes, aiModelsRes] = await Promise.allSettled([
@@ -5472,7 +5487,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
             {view === "settings" && <>
               <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Configuración</h1>
               <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                {[{ id: "smtp", label: "SMTP" }, { id: "notifications", label: "Notificaciones" }, { id: "ia", label: "IA" }, { id: "tags", label: "Etiquetas" }].map(t => (
+                {[{ id: "smtp", label: "SMTP" }, { id: "notifications", label: "Notificaciones" }, { id: "ia", label: "IA" }, { id: "tags", label: "Etiquetas" }, { id: "api-keys", label: "API Keys" }].map(t => (
                   <div key={t.id} onClick={() => setSettingsTab(t.id)} style={{ padding: "8px 18px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: settingsTab === t.id ? C.navy : C.gray100, color: settingsTab === t.id ? "#fff" : C.gray600, transition: "all 0.15s" }}>{t.label}</div>
                 ))}
               </div>
