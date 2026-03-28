@@ -758,7 +758,7 @@ model IntelligentNotificationSubscriberMatch {
   finding    IntelligentNotificationFinding @relation(fields: [findingId], references: [id], onDelete: Cascade)
   subscriber User                           @relation("intelligent_notification_subscriber_matches", fields: [subscriberUserId], references: [id], onDelete: Cascade)
 
-  @@unique([findingId, subscriberUserId])
+  @@unique([findingId, subscriberUserId], map: "insm_finding_subscriber_key")
   @@index([subscriberUserId])
   @@index([shouldNotify])
   @@index([isTest])

@@ -33,7 +33,18 @@ export class AzureOidcService {
   ) {}
 
   isEnabled() {
-    return this.config.get<string>('AZURE_OIDC_ENABLED') === 'true';
+    if (this.config.get<string>('AZURE_OIDC_ENABLED') !== 'true') return false;
+    const tenantId = (this.config.get<string>('AZURE_TENANT_ID') || '').trim();
+    const redirectUri = (this.config.get<string>('AZURE_OIDC_REDIRECT_URI') || '').trim();
+    const clientId = (this.config.get<string>('AZURE_OIDC_CLIENT_ID') || '').trim();
+    const clientSecret = (this.config.get<string>('AZURE_OIDC_CLIENT_SECRET') || '').trim();
+    if (!tenantId || !redirectUri || !clientId || !clientSecret) return false;
+    try {
+      const parsed = new URL(redirectUri);
+      return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+    } catch {
+      return false;
+    }
   }
 
   private getTenantId() {

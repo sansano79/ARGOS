@@ -86,14 +86,14 @@ const callBackfillApi = async (suffix, opts = {}) => {
 
 // ─── SEIDOR Brand Colors ─────────────────────────────────────────────────────
 const C = {
-  navy: "#1B2A4A", navyDark: "#0F1B33", navyDeep: "#0A1628", navyLight: "#2A3F6A",
-  blue: "#3B6CB5", blueLight: "#5A8FD4", bluePale: "#E8EFF8", accent: "#4ECDC4",
-  white: "#FFFFFF", gray50: "#F8FAFB", gray100: "#EFF2F5", gray200: "#DDE2E8",
-  gray300: "#C4CCD6", gray400: "#8E99A8", gray500: "#6B7688", gray600: "#4A5568",
-  gray700: "#2D3748", text: "#1A202C",
-  critical: "#DC2626", criticalBg: "#FEF2F2", high: "#EA580C", highBg: "#FFF7ED",
-  medium: "#CA8A04", mediumBg: "#FEFCE8", low: "#16A34A", lowBg: "#F0FDF4",
-  info: "#2563EB", infoBg: "#EFF6FF",
+  navy: "#1e293b", navyDark: "#0f172a", navyDeep: "#020617", navyLight: "#334155",
+  blue: "#2563eb", blueLight: "#60a5fa", bluePale: "#eff6ff", accent: "#06b6d4",
+  white: "#FFFFFF", gray50: "#f8fafc", gray100: "#f1f5f9", gray200: "#e2e8f0",
+  gray300: "#cbd5e1", gray400: "#94a3b8", gray500: "#64748b", gray600: "#475569",
+  gray700: "#334155", text: "#0f172a",
+  critical: "#dc2626", criticalBg: "#fef2f2", high: "#ea580c", highBg: "#fff7ed",
+  medium: "#ca8a04", mediumBg: "#fefce8", low: "#16a34a", lowBg: "#f0fdf4",
+  info: "#2563eb", infoBg: "#eff6ff",
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -181,15 +181,15 @@ const isUrgentRisk = (tier) => ["urgent", "emergency"].includes(String(tier || "
 const hasUnknownPatch = (v) => v?.patchAvailable === false || (!v?.patchAvailable && !(ensureArray(v?.fixedVersions).length));
 const getRowPriorityStyle = (v) => {
   if (String(v?.exploitStatus || "").toLowerCase() === "active_exploitation" || v?.isKnownExploited) {
-    return { background: C.criticalBg, borderLeft: `4px solid ${C.critical}` };
+    return { background: C.criticalBg, borderLeft: `3px solid ${C.critical}` };
   }
   if (isUrgentRisk(v?.operationalRiskTier)) {
-    return { background: "#FFF8F1", borderLeft: `4px solid ${C.high}` };
+    return { background: "#FFF8F1", borderLeft: `3px solid ${C.high}` };
   }
   if (hasUnknownPatch(v)) {
-    return { background: "#FFFDF7", borderLeft: `4px solid ${C.medium}` };
+    return { background: "#FFFDF7", borderLeft: `3px solid ${C.medium}` };
   }
-  return { background: "#fff", borderLeft: "4px solid transparent" };
+  return { background: "#fff", borderLeft: "3px solid transparent" };
 };
 const getChangeTypeLabel = (type) => ({
   nvd_ingestion: "Ingesta NVD",
@@ -424,17 +424,17 @@ const I = ({ name, size = 18, color = "currentColor" }) => {
 
 // ─── Sub-Components ──────────────────────────────────────────────────────────
 const SevBadge = ({ s, small }) => (
-  <span style={{ display: "inline-flex", padding: small ? "1px 6px" : "2px 10px", borderRadius: 3, fontSize: small ? 9 : 10, fontWeight: 700, background: sevColor(s), color: "#fff", letterSpacing: "0.5px", fontFamily: "'JetBrains Mono', monospace" }}>{s}</span>
+  <span style={{ display: "inline-flex", padding: small ? "1px 6px" : "2px 10px", borderRadius: 4, fontSize: small ? 9 : 9.5, fontWeight: 600, background: sevColor(s), color: "#fff", letterSpacing: "0.5px", fontFamily: "'JetBrains Mono', monospace" }}>{s}</span>
 );
 
 const SoftBadge = ({ label, bg = C.gray100, color = C.gray700, border = C.gray300, small }) => (
   <span style={{
     display: "inline-flex",
     alignItems: "center",
-    padding: small ? "2px 7px" : "4px 9px",
-    borderRadius: 999,
-    fontSize: small ? 10 : 11,
-    fontWeight: 700,
+    padding: small ? "2px 7px" : "3px 8px",
+    borderRadius: 5,
+    fontSize: small ? 10 : 10.5,
+    fontWeight: 600,
     background: bg,
     color,
     border: `1px solid ${border}`,
@@ -463,7 +463,7 @@ const ComponentTypeBadge = ({ type, small }) => {
 };
 
 const SignalPill = ({ signal }) => (
-  <span style={{ display: "inline-flex", padding: "4px 9px", borderRadius: 999, fontSize: 10, fontWeight: 700, background: C.bluePale, color: C.navy, border: `1px solid ${C.gray200}` }}>
+  <span style={{ display: "inline-flex", padding: "3px 8px", borderRadius: 5, fontSize: 10, fontWeight: 600, background: C.bluePale, color: C.navy, border: `1px solid ${C.gray200}` }}>
     {toSentence(signal)}
   </span>
 );
@@ -512,13 +512,13 @@ const SemanticCompactAffected = ({
 };
 
 const Metric = ({ icon, label, value, sub, color = C.navy }) => (
-  <div className="occ-panel" style={{ background: "#fff", borderRadius: 18, padding: "18px 20px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
-    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: color }} />
+  <div className="occ-panel" style={{ background: "#fff", borderRadius: 12, padding: "16px 18px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
+    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: color }} />
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-      <span style={{ fontSize: 11, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.8px" }}>{label}</span>
-      <I name={icon} size={15} color={C.gray400} />
+      <span style={{ fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</span>
+      <I name={icon} size={14} color={C.gray400} />
     </div>
-    <div style={{ fontSize: 30, fontWeight: 800, color: C.text, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "-1px" }}>{value}</div>
+    <div style={{ fontSize: 26, fontWeight: 800, color: C.text, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "-1px" }}>{value}</div>
     {sub && <div style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>{sub}</div>}
   </div>
 );
@@ -596,11 +596,11 @@ const getKevSortDirectionIndicator = (key, sortState) => {
 const Btn = ({ children, onClick, primary, danger, small, disabled, style: s = {} }) => (
   <button onClick={onClick} disabled={disabled} style={{
     display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-    padding: small ? "5px 10px" : "9px 18px", fontSize: small ? 11 : 13, fontWeight: 600,
-    borderRadius: 6, border: primary || danger ? "none" : `1px solid ${C.gray300}`,
+    padding: small ? "5px 10px" : "8px 16px", fontSize: small ? 11 : 12.5, fontWeight: 600,
+    borderRadius: 8, border: primary || danger ? "none" : `1px solid ${C.gray200}`,
     background: disabled ? C.gray300 : primary ? C.navy : danger ? C.critical : "#fff",
     color: primary || danger ? "#fff" : C.gray700,
-    cursor: disabled ? "not-allowed" : "pointer", transition: "all 0.15s", ...s,
+    cursor: disabled ? "not-allowed" : "pointer", transition: "all 0.12s", ...s,
   }}>{children}</button>
 );
 
@@ -608,25 +608,25 @@ const Input = ({ value, onChange, placeholder, icon, style: s = {} }) => (
   <div style={{ position: "relative", ...s }}>
     {icon && <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }}><I name={icon} size={16} color={C.gray400} /></span>}
     <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={{
-      width: "100%", padding: icon ? "10px 12px 10px 38px" : "10px 12px", fontSize: 13,
-      border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", color: C.text,
-      outline: "none", transition: "border 0.15s", boxSizing: "border-box",
-    }} onFocus={e => e.target.style.borderColor = C.blue} onBlur={e => e.target.style.borderColor = C.gray200} />
+      width: "100%", padding: icon ? "9px 12px 9px 38px" : "9px 12px", fontSize: 13,
+      border: `1px solid ${C.gray200}`, borderRadius: 8, background: "#fff", color: C.text,
+      outline: "none", transition: "border-color 0.12s, box-shadow 0.12s", boxSizing: "border-box",
+    }} onFocus={e => { e.target.style.borderColor = C.blue; e.target.style.boxShadow = "0 0 0 3px rgba(37,99,235,0.08)"; }} onBlur={e => { e.target.style.borderColor = C.gray200; e.target.style.boxShadow = "none"; }} />
   </div>
 );
 
 const Card = ({ title, icon, action, children, noPad, style: s = {} }) => (
-  <div className="occ-panel" style={{ background: "#fff", borderRadius: 18, border: `1px solid ${C.gray200}`, overflow: "hidden", ...s }}>
+  <div className="occ-panel" style={{ background: "#fff", borderRadius: 12, border: `1px solid ${C.gray200}`, overflow: "hidden", ...s }}>
     {title && (
-      <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.gray100}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ padding: "12px 18px", borderBottom: `1px solid ${C.gray100}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {icon && <I name={icon} size={16} color={C.navy} />}
-          <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{title}</span>
+          {icon && <I name={icon} size={15} color={C.gray600} />}
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{title}</span>
         </div>
         {action}
       </div>
     )}
-    {noPad ? children : <div style={{ padding: 20 }}>{children}</div>}
+    {noPad ? children : <div style={{ padding: 18 }}>{children}</div>}
   </div>
 );
 
@@ -932,10 +932,42 @@ const ProductDetailList = ({ items, primaryKey = "" }) => {
 };
 
 const VisualBanner = () => (
-  <section
-    className="occ-hero occ-hero-clean occ-page-banner"
-    aria-label="Banner institucional OCC"
-  />
+  <div style={{
+    height: 4,
+    background: "linear-gradient(90deg, #1e3a5f 0%, #2563eb 35%, #06b6d4 70%, #1e3a5f 100%)",
+    borderRadius: 2,
+    margin: "20px 0 24px",
+  }} aria-hidden="true" />
+);
+
+const PageHeader = ({ title, subtitle, actions }) => (
+  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, gap: 16 }}>
+    <div>
+      <h1 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: 0, letterSpacing: "-0.01em" }}>{title}</h1>
+      {subtitle && <p style={{ color: C.gray500, fontSize: 12, margin: "4px 0 0", lineHeight: 1.4 }}>{subtitle}</p>}
+    </div>
+    {actions && <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>{actions}</div>}
+  </div>
+);
+
+const TabBar = ({ tabs, active, onChange }) => (
+  <div style={{ display: "flex", gap: 2, padding: 3, background: C.gray100, borderRadius: 10, marginBottom: 20, width: "fit-content" }}>
+    {tabs.map(t => {
+      const isActive = active === t.id;
+      return (
+        <button key={t.id} onClick={() => onChange(t.id)} style={{
+          padding: "7px 16px", fontSize: 12, fontWeight: isActive ? 600 : 500,
+          background: isActive ? "#fff" : "transparent",
+          color: isActive ? C.text : C.gray500,
+          border: "none", borderRadius: 8, cursor: "pointer",
+          boxShadow: isActive ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+          transition: "all 0.15s ease",
+        }}>
+          {t.label}
+        </button>
+      );
+    })}
+  </div>
 );
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -967,10 +999,32 @@ export default function VulnDashboard() {
   const [resetErr, setResetErr] = useState("");
   const [resetMsg, setResetMsg] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
+  const [authProviders, setAuthProviders] = useState({ local: true, azureOidc: false, azureSaml: false });
 
   // Navigation
   const [view, setView] = useState("overview");
   const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (isLoggedIn) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/auth/providers`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) {
+          setAuthProviders({
+            local: true,
+            azureOidc: Boolean(data?.azureOidc),
+            azureSaml: Boolean(data?.azureSaml),
+          });
+        }
+      } catch {
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isLoggedIn]);
 
   // Data from API
   const [dash, setDash] = useState({
@@ -3265,7 +3319,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     }
   };
 
-  const sw = collapsed ? 58 : 230;
+  const sw = collapsed ? 56 : 232;
   const currentUser = getUser();
   const allNav = [
     { id: "overview", label: "Visión General", icon: "shield" },
@@ -3348,12 +3402,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
   return (
     !isLoggedIn ? (
       <div className="occ-login-shell" style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "var(--occ-font-sans)" }}>
-        <div className="occ-login-card occ-panel" style={{ background: "#fff", borderRadius: 24, padding: "40px 36px", width: 380 }}>
+        <div className="occ-login-card occ-panel" style={{ background: "#fff", borderRadius: 16, padding: "36px 32px", width: 380 }}>
           <div style={{ textAlign: "center", marginBottom: 28 }}>
-            <div style={{ width: 64, height: 64, background: "linear-gradient(135deg, var(--occ-primary) 0%, #3d8bff 100%)", borderRadius: 18, display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 12, padding: 12 }}>
+            <div style={{ width: 56, height: 56, background: "linear-gradient(135deg, var(--occ-primary) 0%, #3d8bff 100%)", borderRadius: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 12, padding: 10 }}>
               <img src={occLogo} alt="OCC" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
             </div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Servicios OCC</h1>
+            <h1 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: "0 0 4px", letterSpacing: "-0.01em" }}>Servicios OCC</h1>
             <p style={{ fontSize: 11, color: C.gray500, margin: 0, letterSpacing: 1, textTransform: "uppercase" }}>Oficina de Ciberseguridad Corporativa</p>
           </div>
           {authMode === "login" && (
@@ -3373,14 +3427,18 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
               </div>
               {loginErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{loginErr}</div>}
               <button type="submit" disabled={loginLoading} style={{ width: "100%", padding: "12px", fontSize: 14, fontWeight: 700, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>{loginLoading ? "Accediendo..." : "Iniciar Sesión"}</button>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0" }}>
-                <div style={{ height: 1, background: C.gray200, flex: 1 }} />
-                <div style={{ fontSize: 11, color: C.gray500, fontWeight: 700 }}>o</div>
-                <div style={{ height: 1, background: C.gray200, flex: 1 }} />
-              </div>
-              <a href={`${API_BASE}/auth/azure/login`} style={{ display: "block", textAlign: "center", width: "100%", padding: "11px", fontSize: 13, fontWeight: 800, background: "#fff", color: C.navy, border: `1px solid ${C.gray300}`, borderRadius: 8, textDecoration: "none" }}>
-                Entrar con Azure
-              </a>
+              {authProviders.azureOidc && (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0" }}>
+                    <div style={{ height: 1, background: C.gray200, flex: 1 }} />
+                    <div style={{ fontSize: 11, color: C.gray500, fontWeight: 700 }}>o</div>
+                    <div style={{ height: 1, background: C.gray200, flex: 1 }} />
+                  </div>
+                  <a href={`${API_BASE}/auth/azure/login`} style={{ display: "block", textAlign: "center", width: "100%", padding: "11px", fontSize: 13, fontWeight: 800, background: "#fff", color: C.navy, border: `1px solid ${C.gray300}`, borderRadius: 8, textDecoration: "none" }}>
+                    Entrar con Azure
+                  </a>
+                </>
+              )}
             </form>
           )}
 
@@ -3482,9 +3540,9 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
       <div className="occ-app-shell" style={{ display: "flex", minHeight: "100vh", background: "var(--occ-bg-page)", fontFamily: "var(--occ-font-sans)" }}>
         <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
-        @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
         @keyframes spin { to{transform:rotate(360deg)} }
-        .fade { animation: fadeIn 0.35s ease both; }
+        .fade { animation: fadeIn 0.25s ease both; }
         .rh:hover { background: ${C.gray50} !important; }
         .bh:hover { filter: brightness(0.93); }
         .occ-vuln-detail-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(280px, 360px); gap: 20px; align-items: start; }
@@ -3503,33 +3561,51 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
           .occ-vuln-metrics-grid { grid-template-columns: minmax(0, 1fr); }
           .occ-vuln-header-actions { justify-content: flex-start; }
         }
-        ::-webkit-scrollbar { width: 5px; }
-        ::-webkit-scrollbar-thumb { background: ${C.gray300}; border-radius: 3px; }
-        textarea:focus, select:focus { outline: none; border-color: ${C.blue} !important; }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: ${C.gray300}; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: ${C.gray400}; }
+        ::selection { background: rgba(37, 99, 235, 0.15); }
+        input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-visible {
+          outline: 2px solid rgba(37, 99, 235, 0.4);
+          outline-offset: 1px;
+        }
+        textarea:focus, select:focus { outline: none; border-color: ${C.blue} !important; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08); }
       `}</style>
 
         {/* ── SIDEBAR ── */}
         <nav className="occ-sidebar" style={{ width: sw, position: "fixed", top: 0, left: 0, height: "100vh", zIndex: 100, transition: "width 0.2s ease", overflow: "hidden" }}>
-          <div className="occ-brand" style={{ padding: collapsed ? "16px 12px" : "18px", borderBottom: "1px solid rgba(255,255,255,0.07)", justifyContent: collapsed ? "center" : "flex-start" }}>
-            <div className="occ-brand-logo" style={{ width: 40, height: 40, borderRadius: 12, flexShrink: 0, padding: 8 }}>
+          <div className="occ-brand" style={{ padding: collapsed ? "14px 10px" : "16px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)", justifyContent: collapsed ? "center" : "flex-start" }}>
+            <div className="occ-brand-logo" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, padding: 7 }}>
               <img src={occLogo} alt="OCC" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
             </div>
-            {!collapsed && <div><div style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>Servicios OCC</div><div className="occ-brand-subtitle">Oficina de Ciberseguridad Corporativa</div></div>}
+            {!collapsed && <div><div style={{ fontSize: 14, fontWeight: 700, color: "#fff", letterSpacing: "-0.01em" }}>Servicios OCC</div><div className="occ-brand-subtitle" style={{ fontSize: 10, color: "rgba(148,163,184,0.7)" }}>Oficina de Ciberseguridad Corporativa</div></div>}
           </div>
-          <div style={{ flex: 1, padding: "12px 0", overflowY: "auto" }}>
-            {!collapsed && <div style={{ padding: "4px 18px 8px", fontSize: 8, fontWeight: 700, color: C.gray500, letterSpacing: "2px", textTransform: "uppercase" }}>Módulos</div>}
-            {nav.map(n => {
+          <div style={{ flex: 1, padding: "10px 0", overflowY: "auto" }}>
+            {!collapsed && <div style={{ padding: "4px 20px 6px", fontSize: 9, fontWeight: 600, color: "rgba(148,163,184,0.5)", letterSpacing: "1.5px", textTransform: "uppercase" }}>Módulos</div>}
+            {nav.map((n, idx) => {
               const isActive = navActiveView === n.id;
               const isChild = !!n.parent;
+              const adminSectionIds = ["manufacturers", "notifications", "reports", "ai", "collector", "user-mgmt", "settings"];
+              const isFirstAdmin = isAdmin && n.id === "manufacturers" && idx > 0;
               return (
-                <div className="occ-sidebar-nav-item" key={n.id} onClick={() => { setVulnDetail(null); setSelectedVuln(null); setView(n.id); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: collapsed ? "10px 18px" : isChild ? "10px 18px 10px 34px" : "11px 18px", cursor: "pointer", color: isActive ? "#fff" : C.gray500, background: isActive ? "rgba(19,91,236,0.18)" : "transparent", borderLeft: isActive ? `3px solid var(--occ-primary)` : "3px solid transparent", transition: "all 0.12s" }} onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
-                  <I name={n.icon} size={isChild ? 16 : 17} color={isActive ? C.blueLight : C.gray500} />
-                  {!collapsed && <span style={{ fontSize: isChild ? 11 : 12, fontWeight: isActive ? 600 : 400 }}>{n.label}</span>}
+                <div key={n.id}>
+                  {isFirstAdmin && !collapsed && (
+                    <>
+                      <div style={{ height: 1, background: "rgba(255,255,255,0.06)", margin: "8px 20px" }} />
+                      <div style={{ padding: "6px 20px 6px", fontSize: 9, fontWeight: 600, color: "rgba(148,163,184,0.5)", letterSpacing: "1.5px", textTransform: "uppercase" }}>Administración</div>
+                    </>
+                  )}
+                  {isFirstAdmin && collapsed && <div style={{ height: 1, background: "rgba(255,255,255,0.06)", margin: "6px 12px" }} />}
+                  <div className="occ-sidebar-nav-item" onClick={() => { setVulnDetail(null); setSelectedVuln(null); setView(n.id); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: collapsed ? "9px 16px" : isChild ? "8px 14px 8px 30px" : "9px 14px", cursor: "pointer", color: isActive ? "#fff" : "rgba(255,255,255,0.5)", background: isActive ? "rgba(37,99,235,0.12)" : "transparent", borderLeft: "none", transition: "all 0.12s", margin: collapsed ? "1px 6px" : "1px 10px", borderRadius: 8 }} onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
+                    <I name={n.icon} size={16} color={isActive ? C.blueLight : "rgba(255,255,255,0.4)"} />
+                    {!collapsed && <span style={{ fontSize: 12.5, fontWeight: isActive ? 600 : 400, letterSpacing: "-0.005em" }}>{n.label}</span>}
+                  </div>
                 </div>
               );
             })}
           </div>
-          <div style={{ padding: "10px 14px", borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 10 }}>
+          <div style={{ padding: "8px 12px", borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 10 }}>
             {currentUser && (
               <div
                 onClick={handleLogout}
@@ -3539,41 +3615,42 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                   alignItems: "center",
                   gap: 10,
                   padding: collapsed ? "8px 6px" : "8px 10px",
-                  borderRadius: 10,
+                  borderRadius: 8,
                   cursor: "pointer",
-                  marginBottom: 10,
-                  background: "rgba(255,255,255,0.04)",
+                  marginBottom: 8,
+                  transition: "background 0.12s ease",
                 }}
+                onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.04)"}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
               >
-                <div style={{ width: 34, height: 34, borderRadius: 12, background: "rgba(19,91,236,0.22)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 12, flexShrink: 0 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(37,99,235,0.18)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 12, flexShrink: 0 }}>
                   {(currentUser?.name || currentUser?.email || "A")[0].toUpperCase()}
                 </div>
                 {!collapsed && (
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {currentUser.name || currentUser.email}
                     </div>
-                    <div style={{ fontSize: 10, color: C.gray500 }}>Cerrar sesión</div>
+                    <div style={{ fontSize: 10, color: "rgba(148,163,184,0.6)" }}>Cerrar sesión</div>
                   </div>
                 )}
               </div>
             )}
-            <div onClick={() => setCollapsed(!collapsed)} style={{ cursor: "pointer", color: C.gray500, display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ transform: collapsed ? "rotate(180deg)" : "none", transition: "transform 0.2s", display: "inline-block" }}>◀</span>
-              {!collapsed && "Colapsar"}
+            <div onClick={() => setCollapsed(!collapsed)} style={{ cursor: "pointer", color: "rgba(148,163,184,0.5)", display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, transition: "color 0.12s" }} onMouseEnter={e => e.currentTarget.style.color = "rgba(148,163,184,0.8)"} onMouseLeave={e => e.currentTarget.style.color = "rgba(148,163,184,0.5)"}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: collapsed ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}><polyline points="15 18 9 12 15 6" /></svg>
+              {!collapsed && <span style={{ fontSize: 11 }}>Colapsar</span>}
             </div>
           </div>
         </nav>
 
         {/* ── MAIN ── */}
         <main className="occ-app-main" style={{ flex: 1, marginLeft: sw, transition: "margin-left 0.2s ease", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "0 22px 22px", flex: 1 }} className="fade" key={view}>
+          <div style={{ padding: "0 24px 24px", flex: 1 }} className="fade" key={view}>
             <VisualBanner />
 
             {/* ═══ OVERVIEW ═══ */}
             {view === "overview" && <>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Panel de Vulnerabilidades</h1>
-              <p style={{ color: C.gray500, fontSize: 12, marginBottom: 20 }}>Última actualización: {fmtDate(dash?.lastRun?.finishedAt)}</p>
+              <PageHeader title="Panel de Vulnerabilidades" subtitle={`Última actualización: ${fmtDate(dash?.lastRun?.finishedAt)}`} />
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
                 <Metric icon="bug" label="Total CVEs" value={dash?.totalAll ?? 0} sub="En base de datos" color={C.navy} />
@@ -3625,8 +3702,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         style={{
                           padding: 0,
                           textAlign: "left",
-                          fontSize: 9,
-                          borderBottom: `2px solid ${C.gray200}`,
+                          fontSize: 10,
+                          borderBottom: `1px solid ${C.gray200}`,
                           whiteSpace: "nowrap",
                           cursor: "pointer",
                           userSelect: "none",
@@ -3727,19 +3804,13 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
             {/* ═══ VULNERABILITIES ═══ */}
             {
               view === "vulns" && <>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                  <div>
-                    <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: 0 }}>Catálogo de vulnerabilidades</h1>
-                    <p style={{ color: C.gray500, fontSize: 12, margin: "4px 0 0" }}>
-                      Catálogo completo con búsqueda, filtros y carga progresiva.
-                    </p>
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
+                <PageHeader title="Catálogo de vulnerabilidades" subtitle="Catálogo completo con búsqueda, filtros y carga progresiva." actions={
+                  <div style={{ display: "flex", gap: 4 }}>
                     {["", "CRITICAL", "HIGH", "MEDIUM", "LOW"].map(s => (
-                      <button key={s} onClick={() => setSevFilter(s)} className="bh" style={{ padding: "5px 12px", borderRadius: 5, fontSize: 10, fontWeight: 600, border: sevFilter === s ? "none" : `1px solid ${C.gray200}`, background: sevFilter === s ? (s ? sevColor(s) : C.navy) : "#fff", color: sevFilter === s ? "#fff" : C.gray600, cursor: "pointer", transition: "all 0.12s" }}>{s || "Todas"}</button>
+                      <button key={s} onClick={() => setSevFilter(s)} className="bh" style={{ padding: "5px 12px", borderRadius: 6, fontSize: 10, fontWeight: 600, border: sevFilter === s ? "none" : `1px solid ${C.gray200}`, background: sevFilter === s ? (s ? sevColor(s) : C.navy) : "#fff", color: sevFilter === s ? "#fff" : C.gray600, cursor: "pointer", transition: "all 0.12s" }}>{s || "Todas"}</button>
                     ))}
                   </div>
-                </div>
+                } />
 
                 <Card style={{ marginBottom: 14 }}>
                   <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 2fr) minmax(140px, 160px)", gap: 10, marginBottom: 12 }}>
@@ -3832,7 +3903,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead><tr style={{ background: C.gray50 }}>
                       {["CVE", "Riesgo", "CVSS", "EPSS", "Explotación", "Producto", "Estado", "Tags", "Origen", "Publicada"].map(h => (
-                        <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", borderBottom: `2px solid ${C.gray200}`, whiteSpace: "nowrap" }}>{h}</th>
+                        <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: `1px solid ${C.gray200}`, whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr></thead>
                     <tbody>{explorerRows.map(v => {
@@ -4314,10 +4385,10 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
             {view === DETAIL_VIEW && <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 18, flexWrap: "wrap" }}>
                 <div>
-                  <div style={{ fontSize: 11, color: C.gray500, fontWeight: 700, letterSpacing: "0.9px", textTransform: "uppercase", marginBottom: 6 }}>
+                  <div style={{ fontSize: 10, color: C.gray500, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 6 }}>
                     {detailSourceView === "exploited" ? "KEV / Explotación confirmada" : "Catálogo de vulnerabilidades"}
                   </div>
-                  <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: 0 }}>
+                  <h1 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: 0, letterSpacing: "-0.01em" }}>
                     {detailCveId || "Detalle de vulnerabilidad"}
                   </h1>
                   <p style={{ color: C.gray500, fontSize: 12, margin: "4px 0 0" }}>
@@ -4331,7 +4402,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ EXPLOITED ═══ */}
             {view === "exploited" && <>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 14px" }}>KEV / Explotación Confirmada</h1>
+              <PageHeader title="KEV / Explotación Confirmada" />
               <div style={{ background: C.critical, color: "#fff", borderRadius: 8, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
                 <I name="alert" size={20} color="#fff" />
                 <div><div style={{ fontWeight: 700, fontSize: 13 }}>{kevListRows.length} vulnerabilidades con explotación confirmada</div><div style={{ fontSize: 11, opacity: 0.85 }}>Casos priorizados por KEV, riesgo operacional y evidencia de exploit</div></div>
@@ -4377,18 +4448,14 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ SUBSCRIBER PORTAL ═══ */}
             {view === "portal" && <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-                <div>
-                  <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Mis Suscripciones</h1>
-                  <p style={{ color: C.gray500, fontSize: 12, margin: 0 }}>Gestiona el software que monitoriza Servicios OCC para tus alertas.</p>
-                </div>
+              <PageHeader title="Mis Suscripciones" subtitle="Gestiona el software que monitoriza Servicios OCC para tus alertas." actions={
                 <div style={{ display: "flex", gap: 8 }}>
                   <Btn onClick={() => loadData("portal")} disabled={portalLoading || portalSaving}><I name="refresh" size={12} /> Actualizar</Btn>
                   <Btn primary onClick={savePortalSubscriptions} disabled={portalLoading || portalSaving}>
                     {portalSaving ? "Guardando..." : "Guardar"}
                   </Btn>
                 </div>
-              </div>
+              } />
 
               {portalMsg && (
                 <div style={{
@@ -4471,12 +4538,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ MANUFACTURERS ═══ */}
             {view === "manufacturers" && <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-                <div>
-                  <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Fabricantes y Catálogo</h1>
-                  <p style={{ color: C.gray500, fontSize: 12 }}>Catálogo operativo apoyado en la semántica actual de vulnerabilidades, con herramientas de armonización y normalización.</p>
-                </div>
-              </div>
+              <PageHeader title="Fabricantes y Catálogo" subtitle="Catálogo operativo apoyado en la semántica actual de vulnerabilidades, con herramientas de armonización y normalización." />
 
               {/* ── Stats bar ── */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
@@ -4510,12 +4572,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
               {/* ── Tabs ── */}
               <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4, marginBottom: 16 }}>
-                <div style={{ display: "flex", gap: 4 }}>
+                <div style={{ display: "flex", gap: 2, padding: 3, background: C.gray100, borderRadius: 10, width: "fit-content" }}>
                   {[
-                    { id: "catalog", label: "📦 Catálogo" },
-                    { id: "aliases", label: "🔗 Aliases / Normalización" },
-                    { id: "merge", label: "🔄 Armonizar" },
-                    { id: "add", label: "➕ Añadir" },
+                    { id: "catalog", label: "Catálogo" },
+                    { id: "aliases", label: "Aliases" },
+                    { id: "merge", label: "Armonizar" },
+                    { id: "add", label: "Añadir" },
                   ].map(t => (
                     <button key={t.id} onClick={() => {
                       setMfrTab(t.id);
@@ -4525,9 +4587,10 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         apiFetch("/manufacturers/aliases").then(r => r.json()).then(d => setMfrAliases(d)).catch(() => {}).finally(() => setMfrAliasesLoading(false));
                       }
                     }} style={{
-                      padding: "8px 16px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: "none",
-                      background: mfrTab === t.id ? C.navy : C.gray100, color: mfrTab === t.id ? "#fff" : C.gray600,
+                      padding: "7px 16px", fontSize: 12, fontWeight: mfrTab === t.id ? 600 : 500, borderRadius: 8, border: "none",
+                      background: mfrTab === t.id ? "#fff" : "transparent", color: mfrTab === t.id ? C.text : C.gray500,
                       cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap",
+                      boxShadow: mfrTab === t.id ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
                     }}>{t.label}</button>
                   ))}
                 </div>
@@ -4839,13 +4902,9 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ CONTACTS ═══ */}
             {view === "contacts" && <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <div>
-                  <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: 0 }}>Servicios IT</h1>
-                  <p style={{ color: C.gray500, fontSize: 12, marginTop: 2 }}>Directorio de equipos IT para comunicación de vulnerabilidades</p>
-                </div>
+              <PageHeader title="Servicios IT" subtitle="Directorio de equipos IT para comunicación de vulnerabilidades" actions={
                 <Btn primary onClick={() => { setEditContact({ id: null, name: "", email: "", products: [], notes: "", contactPerson: "", phone: "", department: "" }); setShowContactForm(true); }}><I name="plus" size={14} color="#fff" /> Nuevo servicio</Btn>
-              </div>
+              } />
 
               {showContactForm && editContact && (
                 <Card title={editContact.id ? "Editar servicio IT" : "Nuevo servicio IT"} icon="edit" style={{ marginBottom: 16 }}>
@@ -4929,7 +4988,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ NOTIFICATIONS HISTORY ═══ */}
             {view === "notifications" && <>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Comunicaciones</h1>
+              <PageHeader title="Comunicaciones" />
               {notifMsg && (
                 <div className="fade" style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 6, fontSize: 12, fontWeight: 700, background: notifMsg.type === "success" ? C.lowBg : C.criticalBg, color: notifMsg.type === "success" ? C.low : C.critical }}>
                   {notifMsg.text}
@@ -4945,7 +5004,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: C.gray50 }}>
                     {["Fecha/Hora", "Tipo", "Destinatario", "Asunto", "Plantilla", "Vulns", "Canal", "Estado", "Motivo"].map(h => (
-                      <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", borderBottom: `2px solid ${C.gray200}` }}>{h}</th>
+                      <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: `1px solid ${C.gray200}` }}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>{notifHistory.length === 0 ? (
@@ -5011,7 +5070,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ REPORTS ═══ */}
             {view === "reports" && <>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Informes</h1>
+              <PageHeader title="Informes" />
               <Card title="Módulo en construcción" icon="file">
                 <div style={{ textAlign: "center", padding: "22px 10px" }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: C.gray700, marginBottom: 8 }}>
@@ -5027,8 +5086,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ AI ASSISTANT ═══ */}
             {view === "ai" && <>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 4px" }}>Asistente IA — Oficina de Ciberseguridad</h1>
-              <p style={{ color: C.gray500, fontSize: 12, marginBottom: 14 }}>Análisis de impacto, recomendaciones de parcheo, correlación con infraestructura. Conectado a Ollama.</p>
+              <PageHeader title="Asistente IA" subtitle="Análisis de impacto, recomendaciones de parcheo, correlación con infraestructura. Conectado a Ollama." />
 
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
                 {[
@@ -5091,7 +5149,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ ACCOUNT ═══ */}
             {view === "account" && <>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Tu cuenta</h1>
+              <PageHeader title="Tu cuenta" />
               <Card
                 title="Perfil"
                 icon="users"
@@ -5274,12 +5332,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ USER MANAGEMENT ═══ */}
             {view === "user-mgmt" && <>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Gestión usuarios</h1>
+              <PageHeader title="Gestión de usuarios" />
               <Card title="Gestión de Usuarios" icon="users" action={<Btn small primary onClick={() => openUserForm()}><I name="plus" size={14} /> Nuevo</Btn>}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: C.gray50 }}>
                     {["Nombre", "Email", "Rol", "Notif.", "Estado", "Último acceso", "Acciones"].map(h => (
-                      <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", borderBottom: `2px solid ${C.gray200}` }}>{h}</th>
+                      <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: `1px solid ${C.gray200}` }}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>{users.map(u => (
@@ -5485,12 +5543,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ SETTINGS ═══ */}
             {view === "settings" && <>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Configuración</h1>
-              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                {[{ id: "smtp", label: "SMTP" }, { id: "notifications", label: "Notificaciones" }, { id: "ia", label: "IA" }, { id: "tags", label: "Etiquetas" }, { id: "api-keys", label: "API Keys" }].map(t => (
-                  <div key={t.id} onClick={() => setSettingsTab(t.id)} style={{ padding: "8px 18px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, background: settingsTab === t.id ? C.navy : C.gray100, color: settingsTab === t.id ? "#fff" : C.gray600, transition: "all 0.15s" }}>{t.label}</div>
-                ))}
-              </div>
+              <PageHeader title="Configuración" />
+              <TabBar tabs={[{ id: "smtp", label: "SMTP" }, { id: "notifications", label: "Notificaciones" }, { id: "ia", label: "IA" }, { id: "tags", label: "Etiquetas" }, { id: "api-keys", label: "API Keys" }]} active={settingsTab} onChange={setSettingsTab} />
 
               {/* SMTP Tab */}
               {settingsTab === "smtp" && <Card title="Configuración SMTP" icon="settings">
@@ -5544,25 +5598,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
               {settingsTab === "notifications" && <>
                 <Card title="Centro de Notificaciones" icon="mail" style={{ marginBottom: 16 }}>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-                    {NOTIFICATION_SETTINGS_TABS.map((tab) => (
-                      <div
-                        key={tab.id}
-                        onClick={() => setNotificationSettingsTab(tab.id)}
-                        style={{
-                          padding: "8px 14px",
-                          borderRadius: 999,
-                          cursor: "pointer",
-                          fontSize: 12,
-                          fontWeight: 700,
-                          background: notificationSettingsTab === tab.id ? C.navy : C.gray100,
-                          color: notificationSettingsTab === tab.id ? "#fff" : C.gray600,
-                        }}
-                      >
-                        {tab.label}
-                      </div>
-                    ))}
-                  </div>
+                  <TabBar tabs={NOTIFICATION_SETTINGS_TABS} active={notificationSettingsTab} onChange={setNotificationSettingsTab} />
 
                   {notificationCenterMsg && (
                     <div className="fade" style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 6, fontSize: 12, fontWeight: 700, background: notificationCenterMsg.type === "success" ? C.lowBg : C.criticalBg, color: notificationCenterMsg.type === "success" ? C.low : C.critical }}>
@@ -6178,7 +6214,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                   ) : (
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                       <thead>
-                        <tr style={{ borderBottom: `2px solid ${C.gray200}`, textAlign: "left" }}>
+                        <tr style={{ borderBottom: `1px solid ${C.gray200}`, textAlign: "left" }}>
                           <th style={{ padding: "8px 12px", fontWeight: 700, color: C.gray600 }}>Nombre</th>
                           <th style={{ padding: "8px 12px", fontWeight: 700, color: C.gray600 }}>Prefijo</th>
                           <th style={{ padding: "8px 12px", fontWeight: 700, color: C.gray600 }}>Scopes</th>
@@ -6360,7 +6396,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ COLLECTOR ═══ */}
             {view === "collector" && <>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: "0 0 16px" }}>Collector</h1>
+              <PageHeader title="Collector" />
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 18 }}>
                 <Metric icon="clock" label="Intervalo" value="30m" sub="*/30 * * * *" color={C.navy} />
                 <Metric icon="server" label="Fuentes" value="7" sub="NVD · MITRE · KEV · EPSS · GitHub · ExploitDB · OSV" color={C.blue} />
@@ -6492,7 +6528,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: C.gray50 }}>
                     {["#", "Inicio", "Fuente", "Estado", "Obtenidos", "Nuevos", "Duración"].map(h => (
-                      <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.gray500, textTransform: "uppercase", borderBottom: `2px solid ${C.gray200}` }}>{h}</th>
+                      <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: `1px solid ${C.gray200}` }}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>{(Array.isArray(runs) ? runs : []).map(r => (

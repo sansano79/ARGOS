@@ -45,14 +45,13 @@ export class SamlStrategy extends PassportStrategy(Strategy, 'saml') {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
   ) {
-    const enabled = config.get<string>('AZURE_SAML_ENABLED') === 'true';
+    const enabledFlag = config.get<string>('AZURE_SAML_ENABLED') === 'true';
     const entryPoint = config.get<string>('AZURE_SAML_ENTRY_POINT') || '';
     const issuer = config.get<string>('AZURE_SAML_ISSUER') || '';
     const callbackUrl = config.get<string>('AZURE_SAML_CALLBACK_URL') || '';
-    const cert = enabled ? normalizePem(config.get<string>('AZURE_SAML_CERT')) : dummyCert;
-    if (enabled && (!entryPoint || !issuer || !callbackUrl || !cert)) {
-      throw new Error('Azure SAML enabled but config is incomplete');
-    }
+    const certCandidate = normalizePem(config.get<string>('AZURE_SAML_CERT'));
+    const enabled = enabledFlag && !!entryPoint && !!issuer && !!callbackUrl && !!certCandidate;
+    const cert = enabled ? certCandidate : dummyCert;
     super({
       entryPoint: entryPoint || 'https://invalid.local/saml',
       issuer: issuer || 'invalid-issuer',

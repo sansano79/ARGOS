@@ -1,23 +1,48 @@
 :root {
-  --occ-primary: #135bec;
-  --occ-primary-hover: #0e4ccc;
-  --occ-bg-page: #f1f5f9;
+  /* Primary */
+  --occ-primary: #2563eb;
+  --occ-primary-hover: #1d4ed8;
+  --occ-primary-soft: rgba(37, 99, 235, 0.08);
+
+  /* Backgrounds */
+  --occ-bg-page: #f8fafc;
   --occ-bg-panel: #ffffff;
-  --occ-bg-sidebar: #020824;
+  --occ-bg-sidebar: #0b1222;
+  --occ-bg-elevated: #f1f5f9;
+
+  /* Text */
   --occ-text-primary: #0f172a;
-  --occ-text-muted: #64748b;
-  --occ-border: #cbd5e1;
+  --occ-text-secondary: #475569;
+  --occ-text-muted: #94a3b8;
+
+  /* Borders */
+  --occ-border: #e2e8f0;
+  --occ-border-subtle: #f1f5f9;
+
+  /* Semantic */
   --occ-success: #16a34a;
   --occ-warning: #d97706;
   --occ-danger: #dc2626;
+
+  /* Radius */
+  --occ-radius-xs: 0.375rem;
   --occ-radius-sm: 0.5rem;
-  --occ-radius-md: 0.75rem;
-  --occ-radius-lg: 1rem;
-  --occ-radius-xl: 1.25rem;
+  --occ-radius-md: 0.625rem;
+  --occ-radius-lg: 0.75rem;
+  --occ-radius-xl: 1rem;
   --occ-radius-hero: 2.2rem;
-  --occ-shadow-panel: 0 4px 16px rgba(15, 23, 42, 0.08);
+
+  /* Shadows */
+  --occ-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --occ-shadow-panel: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --occ-shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.06);
   --occ-shadow-hero: 0 8px 20px rgba(2, 6, 23, 0.28);
-  --occ-font-sans: Inter, sans-serif;
+
+  /* Typography */
+  --occ-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --occ-font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+
+  /* Hero */
   --occ-hero-image: url("../assets/banner_occ_corporate.png");
   --occ-hero-overlay: linear-gradient(to right, rgba(0, 7, 30, 0.34), rgba(0, 6, 28, 0.05) 55%, rgba(0, 7, 30, 0.16));
 }
@@ -36,14 +61,14 @@ body {
 .occ-panel {
   background: var(--occ-bg-panel);
   border: 1px solid var(--occ-border);
-  border-radius: var(--occ-radius-xl);
+  border-radius: var(--occ-radius-lg);
   box-shadow: var(--occ-shadow-panel);
 }
 
 .occ-badge {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
+  border-radius: 5px;
   font-size: 0.75rem;
   font-weight: 600;
   padding: 0.2rem 0.6rem;
@@ -70,7 +95,7 @@ body {
   overflow: hidden;
   border-radius: var(--occ-radius-hero);
   box-shadow: var(--occ-shadow-hero);
-  min-height: 18rem;
+  min-height: auto;
   background-color: #00132b;
 }
 

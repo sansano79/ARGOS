@@ -130,13 +130,33 @@ export class AuthController {
 
   @Get('saml/metadata')
   async samlMetadata(@Res() res: Response) {
-    const enabled = this.config.get<string>('AZURE_SAML_ENABLED') === 'true';
+    const enabledFlag = this.config.get<string>('AZURE_SAML_ENABLED') === 'true';
+    const entryPoint = (this.config.get<string>('AZURE_SAML_ENTRY_POINT') || '').trim();
+    const issuer = (this.config.get<string>('AZURE_SAML_ISSUER') || '').trim();
+    const callbackUrl = (this.config.get<string>('AZURE_SAML_CALLBACK_URL') || '').trim();
+    const cert = (this.config.get<string>('AZURE_SAML_CERT') || '').trim();
+    const enabled = enabledFlag && !!entryPoint && !!issuer && !!callbackUrl && !!cert;
     if (!enabled) throw new NotFoundException();
     const signingCertRaw = this.config.get<string>('AZURE_SAML_SIGNING_CERT') || undefined;
     const signingCert = signingCertRaw ? String(signingCertRaw).replace(/\\n/g, '\n').trim() : undefined;
     const xml = (this.samlStrategy as any).generateServiceProviderMetadata(undefined, signingCert);
     res.setHeader('Content-Type', 'application/xml');
     return res.send(xml);
+  }
+
+  @Get('providers')
+  async providers() {
+    const samlEnabledFlag = this.config.get<string>('AZURE_SAML_ENABLED') === 'true';
+    const samlEntryPoint = (this.config.get<string>('AZURE_SAML_ENTRY_POINT') || '').trim();
+    const samlIssuer = (this.config.get<string>('AZURE_SAML_ISSUER') || '').trim();
+    const samlCallbackUrl = (this.config.get<string>('AZURE_SAML_CALLBACK_URL') || '').trim();
+    const samlCert = (this.config.get<string>('AZURE_SAML_CERT') || '').trim();
+    const azureSaml = samlEnabledFlag && !!samlEntryPoint && !!samlIssuer && !!samlCallbackUrl && !!samlCert;
+    return {
+      local: true,
+      azureOidc: this.azureOidc.isEnabled(),
+      azureSaml,
+    };
   }
 
   @Post('mfa/setup')

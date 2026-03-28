@@ -60,7 +60,7 @@ CREATE TABLE `intelligent_notification_subscriber_matches` (
   `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   `updated_at` DATETIME(3) NOT NULL,
 
-  UNIQUE INDEX `intelligent_notification_subscriber_matches_finding_id_subscriber_user_id_key`(`finding_id`, `subscriber_user_id`),
+  UNIQUE INDEX `insm_finding_subscriber_key`(`finding_id`, `subscriber_user_id`),
   INDEX `intelligent_notification_subscriber_matches_subscriber_user_id_idx`(`subscriber_user_id`),
   INDEX `intelligent_notification_subscriber_matches_should_notify_idx`(`should_notify`),
   INDEX `intelligent_notification_subscriber_matches_is_test_idx`(`is_test`),

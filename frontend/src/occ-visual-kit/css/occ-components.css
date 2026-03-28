@@ -1,8 +1,8 @@
 .occ-sidebar {
-  width: 18rem;
+  width: 232px;
   background: var(--occ-bg-sidebar);
   color: #ffffff;
-  border-right: 1px solid #1e293b;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   flex-direction: column;
 }
@@ -10,14 +10,14 @@
 .occ-brand {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 1.5rem;
+  gap: 0.7rem;
+  padding: 1.25rem;
 }
 
 .occ-brand-logo {
-  width: 2.75rem;
-  height: 2.75rem;
-  border-radius: 0.75rem;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.625rem;
   background: var(--occ-primary);
   display: flex;
   align-items: center;
@@ -35,9 +35,9 @@
 }
 
 .occ-brand-subtitle {
-  margin: 0.2rem 0 0;
-  color: #94a3b8;
-  font-size: 0.78rem;
+  margin: 0.15rem 0 0;
+  color: rgba(148, 163, 184, 0.8);
+  font-size: 0.68rem;
   letter-spacing: 0.02em;
 }
 
@@ -96,12 +96,13 @@
 
 .occ-button-primary {
   border: 0;
-  border-radius: var(--occ-radius-md);
+  border-radius: var(--occ-radius-sm);
   background: var(--occ-primary);
   color: #ffffff;
   font-weight: 600;
-  padding: 0.6rem 1rem;
+  padding: 0.55rem 1rem;
   cursor: pointer;
+  transition: background 0.12s ease;
 }
 
 .occ-button-primary:hover {
@@ -112,15 +113,30 @@
 .occ-select {
   width: 100%;
   border: 1px solid var(--occ-border);
-  border-radius: var(--occ-radius-md);
+  border-radius: var(--occ-radius-sm);
   background: #ffffff;
   color: var(--occ-text-primary);
-  padding: 0.65rem 0.85rem;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.8125rem;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.occ-input:focus,
+.occ-select:focus {
+  outline: none;
+  border-color: var(--occ-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+}
+
+.occ-sidebar-nav-item {
+  border-radius: 8px;
+  margin: 1px 10px;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 @media (max-width: 900px) {
   .occ-hero {
-    min-height: 11rem;
+    min-height: auto;
     border-radius: 1.4rem;
   }
 
