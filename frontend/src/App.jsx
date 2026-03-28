@@ -6159,6 +6159,203 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                   {tags.length === 0 && <div style={{ color: C.gray400, fontSize: 12, padding: 8 }}>No hay etiquetas. Añade una para empezar.</div>}
                 </div>
               </Card>}
+
+              {/* API Keys Tab */}
+              {settingsTab === "api-keys" && <>
+                <Card title="API Keys — Acceso para Aplicaciones Externas" icon="link" action={
+                  <Btn primary onClick={() => { setShowApiKeyForm(true); setCreatedApiKey(null); setNewApiKeyName(""); setNewApiKeyExpiry(""); setNewApiKeyScopes(["vulnerabilities:read", "products:read", "catalog:read", "collector:read", "reports:read"]); }}>
+                    <I name="plus" size={14} /> Nueva API Key
+                  </Btn>
+                }>
+                  <div style={{ fontSize: 12, color: C.gray500, marginBottom: 16 }}>
+                    Las API Keys permiten que aplicaciones externas (SIEMs, dashboards, scripts) accedan a los datos de la plataforma vía <code style={{ background: C.gray100, padding: "1px 6px", borderRadius: 4 }}>/api/v1/*</code> con el header <code style={{ background: C.gray100, padding: "1px 6px", borderRadius: 4 }}>X-API-Key</code>.
+                  </div>
+
+                  {apiKeysLoading ? (
+                    <div style={{ textAlign: "center", padding: 24, color: C.gray400 }}>Cargando...</div>
+                  ) : apiKeys.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: 24, color: C.gray400, fontSize: 13 }}>No hay API keys creadas. Crea una para empezar a consumir la API externa.</div>
+                  ) : (
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ borderBottom: `2px solid ${C.gray200}`, textAlign: "left" }}>
+                          <th style={{ padding: "8px 12px", fontWeight: 700, color: C.gray600 }}>Nombre</th>
+                          <th style={{ padding: "8px 12px", fontWeight: 700, color: C.gray600 }}>Prefijo</th>
+                          <th style={{ padding: "8px 12px", fontWeight: 700, color: C.gray600 }}>Scopes</th>
+                          <th style={{ padding: "8px 12px", fontWeight: 700, color: C.gray600 }}>Estado</th>
+                          <th style={{ padding: "8px 12px", fontWeight: 700, color: C.gray600 }}>Último uso</th>
+                          <th style={{ padding: "8px 12px", fontWeight: 700, color: C.gray600 }}>Expira</th>
+                          <th style={{ padding: "8px 12px", fontWeight: 700, color: C.gray600 }}>Creado por</th>
+                          <th style={{ padding: "8px 12px", fontWeight: 700, color: C.gray600 }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {apiKeys.map(k => (
+                          <tr key={k.id} style={{ borderBottom: `1px solid ${C.gray100}` }}>
+                            <td style={{ padding: "10px 12px", fontWeight: 600, color: C.text }}>{k.name}</td>
+                            <td style={{ padding: "10px 12px" }}>
+                              <code style={{ background: C.gray100, padding: "2px 8px", borderRadius: 4, fontSize: 11, fontFamily: "monospace" }}>{k.keyPrefix}...</code>
+                            </td>
+                            <td style={{ padding: "10px 12px" }}>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                {(Array.isArray(k.scopes) ? k.scopes : []).map(s => (
+                                  <span key={s} style={{ background: `${C.blue}15`, color: C.blue, padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600 }}>{s.split(":")[0]}</span>
+                                ))}
+                              </div>
+                            </td>
+                            <td style={{ padding: "10px 12px" }}>
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: k.isActive ? `${C.low}18` : `${C.critical}18`, color: k.isActive ? C.low : C.critical }}>
+                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: k.isActive ? C.low : C.critical }} />
+                                {k.isActive ? "Activa" : "Revocada"}
+                              </span>
+                            </td>
+                            <td style={{ padding: "10px 12px", color: C.gray500, fontSize: 11 }}>
+                              {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString("es", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "Nunca"}
+                            </td>
+                            <td style={{ padding: "10px 12px", color: C.gray500, fontSize: 11 }}>
+                              {k.expiresAt ? new Date(k.expiresAt).toLocaleDateString("es", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                            </td>
+                            <td style={{ padding: "10px 12px", color: C.gray500, fontSize: 11 }}>{k.user?.name || "—"}</td>
+                            <td style={{ padding: "10px 12px" }}>
+                              {k.isActive && (
+                                <Btn small danger onClick={async () => {
+                                  if (!confirm("¿Revocar esta API key? Las aplicaciones que la usen dejarán de funcionar.")) return;
+                                  try { await apiFetch(`/api-keys/${k.id}`, { method: "DELETE" }); setApiKeys(apiKeys.map(ak => ak.id === k.id ? { ...ak, isActive: false } : ak)); } catch (e) { console.error(e); }
+                                }}>Revocar</Btn>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </Card>
+
+                {/* Modal: Create API Key */}
+                {showApiKeyForm && (
+                  <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => { if (!createdApiKey) setShowApiKeyForm(false); }}>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 520, maxHeight: "80vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }} onClick={e => e.stopPropagation()}>
+
+                      {createdApiKey ? (
+                        <>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                            <div style={{ width: 36, height: 36, borderRadius: "50%", background: `${C.low}18`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <I name="check" size={18} color={C.low} />
+                            </div>
+                            <div>
+                              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: C.text }}>API Key creada</h3>
+                              <div style={{ fontSize: 11, color: C.gray500 }}>Copia la key ahora — no se mostrará de nuevo</div>
+                            </div>
+                          </div>
+
+                          <div style={{ background: C.gray100, borderRadius: 8, padding: 14, marginBottom: 16, position: "relative" }}>
+                            <div style={{ fontSize: 10, color: C.gray500, marginBottom: 4, fontWeight: 600 }}>API KEY</div>
+                            <code style={{ fontSize: 13, fontFamily: "monospace", wordBreak: "break-all", color: C.navy, fontWeight: 700 }}>{createdApiKey.key}</code>
+                            <Btn small style={{ position: "absolute", top: 10, right: 10 }} onClick={() => {
+                              navigator.clipboard.writeText(createdApiKey.key);
+                              setApiKeyCopied(true);
+                              setTimeout(() => setApiKeyCopied(false), 2000);
+                            }}>
+                              {apiKeyCopied ? <><I name="check" size={12} /> Copiada</> : <><I name="link" size={12} /> Copiar</>}
+                            </Btn>
+                          </div>
+
+                          <div style={{ background: `${C.high}10`, border: `1px solid ${C.high}30`, borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12, color: C.high, fontWeight: 600 }}>
+                            <I name="alert" size={14} /> Guarda esta key de forma segura. No se puede recuperar después de cerrar este diálogo.
+                          </div>
+
+                          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, color: C.gray500, fontWeight: 600, marginBottom: 2 }}>Nombre</div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{createdApiKey.name}</div>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, color: C.gray500, fontWeight: 600, marginBottom: 2 }}>Expira</div>
+                              <div style={{ fontSize: 13, color: C.text }}>{createdApiKey.expiresAt ? new Date(createdApiKey.expiresAt).toLocaleDateString("es") : "Nunca"}</div>
+                            </div>
+                          </div>
+
+                          <div style={{ marginBottom: 16 }}>
+                            <div style={{ fontSize: 10, color: C.gray500, fontWeight: 600, marginBottom: 4 }}>Scopes</div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                              {(createdApiKey.scopes || []).map(s => (
+                                <span key={s} style={{ background: `${C.blue}15`, color: C.blue, padding: "3px 10px", borderRadius: 10, fontSize: 11, fontWeight: 600 }}>{s}</span>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div style={{ fontSize: 12, color: C.gray500, marginBottom: 16 }}>
+                            <strong>Ejemplo de uso:</strong>
+                            <pre style={{ background: C.gray100, borderRadius: 6, padding: 12, marginTop: 6, fontSize: 11, overflow: "auto", whiteSpace: "pre-wrap" }}>{`curl -H "X-API-Key: ${createdApiKey.key}" \\\n     ${window.location.origin}/api/v1/vulnerabilities?limit=5`}</pre>
+                          </div>
+
+                          <div style={{ textAlign: "right" }}>
+                            <Btn primary onClick={() => { setShowApiKeyForm(false); setCreatedApiKey(null); }}>Cerrar</Btn>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 800, color: C.text }}>
+                            <I name="link" size={18} color={C.navy} /> Nueva API Key
+                          </h3>
+
+                          <div style={{ marginBottom: 14 }}>
+                            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.gray600, marginBottom: 4 }}>Nombre *</label>
+                            <Input value={newApiKeyName} onChange={setNewApiKeyName} placeholder="Ej: Dashboard SIEM, Script de auditoría" />
+                          </div>
+
+                          <div style={{ marginBottom: 14 }}>
+                            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.gray600, marginBottom: 4 }}>Fecha de expiración (opcional)</label>
+                            <input type="date" value={newApiKeyExpiry} onChange={e => setNewApiKeyExpiry(e.target.value)}
+                              style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${C.gray200}`, fontSize: 13, fontFamily: "inherit" }} />
+                          </div>
+
+                          <div style={{ marginBottom: 18 }}>
+                            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.gray600, marginBottom: 8 }}>Permisos (scopes)</label>
+                            {[
+                              { id: "vulnerabilities:read", label: "Vulnerabilidades", desc: "CVEs, estadísticas, historial de cambios" },
+                              { id: "products:read", label: "Productos y Activos", desc: "Assets, dependencias, impacto de vulns" },
+                              { id: "catalog:read", label: "Catálogo", desc: "Fabricantes, tags, KEV, exploits" },
+                              { id: "collector:read", label: "Collector", desc: "Ejecuciones, salud de fuentes" },
+                              { id: "reports:read", label: "Reportes", desc: "Reportes generados" },
+                            ].map(scope => (
+                              <label key={scope.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 6, cursor: "pointer", background: newApiKeyScopes.includes(scope.id) ? `${C.blue}08` : "transparent", border: `1px solid ${newApiKeyScopes.includes(scope.id) ? C.blue + "30" : C.gray200}`, marginBottom: 6, transition: "all 0.15s" }}>
+                                <input type="checkbox" checked={newApiKeyScopes.includes(scope.id)} onChange={() => {
+                                  setNewApiKeyScopes(prev => prev.includes(scope.id) ? prev.filter(s => s !== scope.id) : [...prev, scope.id]);
+                                }} style={{ width: 16, height: 16, accentColor: C.blue }} />
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{scope.label}</div>
+                                  <div style={{ fontSize: 11, color: C.gray500 }}>{scope.desc}</div>
+                                </div>
+                              </label>
+                            ))}
+                          </div>
+
+                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                            <Btn onClick={() => setShowApiKeyForm(false)}>Cancelar</Btn>
+                            <Btn primary disabled={!newApiKeyName.trim() || newApiKeyScopes.length === 0 || apiKeyCreating} onClick={async () => {
+                              setApiKeyCreating(true);
+                              try {
+                                const body = { name: newApiKeyName.trim(), scopes: newApiKeyScopes };
+                                if (newApiKeyExpiry) body.expiresAt = new Date(newApiKeyExpiry).toISOString();
+                                const r = await apiFetch("/api-keys", { method: "POST", body: JSON.stringify(body) });
+                                const d = await r.json();
+                                if (d.key) {
+                                  setCreatedApiKey(d);
+                                  setApiKeys(prev => [{ ...d, user: { name: currentUser?.name } }, ...prev]);
+                                }
+                              } catch (e) { console.error(e); }
+                              setApiKeyCreating(false);
+                            }}>
+                              {apiKeyCreating ? "Creando..." : "Crear API Key"}
+                            </Btn>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>}
             </>}
 
             {/* ═══ COLLECTOR ═══ */}
