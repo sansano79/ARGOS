@@ -71,6 +71,10 @@ async function bootstrap() {
       .setDescription('API para recolección, análisis y reporte de vulnerabilidades')
       .setVersion('1.0')
       .addBearerAuth()
+      .addApiKey(
+        { type: 'apiKey', name: 'X-API-Key', in: 'header', description: 'API key for external application access' },
+        'api-key',
+      )
       .build();
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('api/docs', app, document);

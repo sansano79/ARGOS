@@ -55,6 +55,7 @@ model User {
   notificationPolicy         NotificationPolicy?
   pendingDigestNotifications PendingDigestNotification[]
   patchedCves                SubscriberPatchedCve[]
+  apiKeys                    ApiKey[]
 
   @@map("users")
 }
@@ -493,6 +494,31 @@ model ApiConfiguration {
 
   @@index([provider])
   @@map("api_configurations")
+}
+
+// ══════════════════════════════════════════════════════════════
+// API KEYS (autenticación para API externa)
+// ══════════════════════════════════════════════════════════════
+
+model ApiKey {
+  id         Int       @id @default(autoincrement())
+  name       String
+  keyHash    String    @unique @map("key_hash")
+  keyPrefix  String    @map("key_prefix") @db.VarChar(12)
+  userId     Int       @map("user_id")
+  scopes     String    @default("[]") @db.Text
+  isActive   Boolean   @default(true) @map("is_active")
+  expiresAt  DateTime? @map("expires_at")
+  lastUsedAt DateTime? @map("last_used_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([keyPrefix])
+  @@index([userId])
+  @@index([isActive])
+  @@map("api_keys")
 }
 
 // ══════════════════════════════════════════════════════════════
