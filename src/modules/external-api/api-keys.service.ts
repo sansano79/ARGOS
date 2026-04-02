@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -22,18 +22,32 @@ export class ApiKeysService {
     const rawKey = 'occ_' + crypto.randomBytes(20).toString('hex');
     const keyPrefix = rawKey.substring(0, 12);
     const keyHash = await bcrypt.hash(rawKey, 10);
-    const scopes = data.scopes && data.scopes.length > 0 ? data.scopes : ALL_SCOPES;
+    const requestedScopes = data.scopes && data.scopes.length > 0 ? data.scopes : ALL_SCOPES;
+    const invalidScopes = requestedScopes.filter((scope) => !ALL_SCOPES.includes(scope));
+    if (invalidScopes.length > 0) {
+      throw new BadRequestException(`Invalid scopes: ${invalidScopes.join(', ')}`);
+    }
+    const scopes = Array.from(new Set(requestedScopes));
 
-    const apiKey = await this.prisma.apiKey.create({
-      data: {
-        name: data.name,
-        keyHash,
-        keyPrefix,
-        userId,
-        scopes: JSON.stringify(scopes),
-        expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
-      },
-    });
+    let apiKey: any;
+    try {
+      apiKey = await this.prisma.apiKey.create({
+        data: {
+          name: data.name,
+          keyHash,
+          keyPrefix,
+          userId,
+          scopes: JSON.stringify(scopes),
+          expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
+        },
+      });
+    } catch (error: any) {
+      const message = String(error?.message || '');
+      if (error?.code === 'P2021' || /api_keys/i.test(message) && /doesn'?t exist/i.test(message)) {
+        throw new ServiceUnavailableException('API key storage is not initialized. Apply database migrations and retry.');
+      }
+      throw error;
+    }
 
     return {
       id: apiKey.id,
