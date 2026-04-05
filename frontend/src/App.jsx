@@ -1156,6 +1156,8 @@ export default function VulnDashboard() {
   const [vendorFilter, setVendorFilter] = useState("");
   const [productFilter, setProductFilter] = useState("");
   const [changedSinceHoursFilter, setChangedSinceHoursFilter] = useState("");
+  const [notificableFilter, setNotificableFilter] = useState("");
+  const [notificadaFilter, setNotificadaFilter] = useState("");
   const [selectedVuln, setSelectedVuln] = useState(null);
   const [detailContext, setDetailContext] = useState({ sourceView: "vulns", cveId: "" });
   const [kevTableSort, setKevTableSort] = useState({ key: "default", direction: "default" });
@@ -1481,6 +1483,8 @@ export default function VulnDashboard() {
     if (searchMinScore) { const n = parseFloat(searchMinScore); if (!Number.isNaN(n)) params.set("minCvss", String(n)); }
     if (searchPublishedFrom) params.set("publishedFrom", searchPublishedFrom);
     if (searchPublishedTo) params.set("publishedTo", searchPublishedTo);
+    if (notificableFilter) params.set("notificable", notificableFilter);
+    if (notificadaFilter) params.set("notificada", notificadaFilter);
 
     if (append) setVulnsLoadingMore(true);
     else setVulnsLoading(true);
@@ -1506,7 +1510,7 @@ export default function VulnDashboard() {
       setVulnsLoading(false);
       setVulnsLoadingMore(false);
     }
-  }, [VULN_PAGE_LIMIT, sevFilter, riskTierFilter, exploitStatusFilter, vendorFilter, productFilter, changedSinceHoursFilter, searchQ, searchTagId, searchMinScore, searchPublishedFrom, searchPublishedTo]);
+  }, [VULN_PAGE_LIMIT, sevFilter, riskTierFilter, exploitStatusFilter, vendorFilter, productFilter, changedSinceHoursFilter, searchQ, searchTagId, searchMinScore, searchPublishedFrom, searchPublishedTo, notificableFilter, notificadaFilter]);
 
   const loadSubscriberPortal = useCallback(async () => {
     setPortalLoading(true);
@@ -2098,7 +2102,9 @@ export default function VulnDashboard() {
     searchPublishedTo !== "" ||
     searchMinScore !== "" ||
     searchExploit !== "all" ||
-    searchSeverity !== ""
+    searchSeverity !== "" ||
+    notificableFilter !== "" ||
+    notificadaFilter !== ""
   );
 
   // Client-side exploit/severity filtering (lightweight, applied on top of server results)
@@ -2126,6 +2132,8 @@ export default function VulnDashboard() {
     setVendorFilter("");
     setProductFilter("");
     setChangedSinceHoursFilter("");
+    setNotificableFilter("");
+    setNotificadaFilter("");
   };
   const loadMoreVulns = async () => {
     if (vulnsLoadingMore || !vulnsHasMore) return;
@@ -2387,6 +2395,54 @@ export default function VulnDashboard() {
                 <Metric icon="clock" label="Publicada" value={detail.publishedAt ? fmtDate(detail.publishedAt).split(",")[0] : "-"} sub={timeAgo(detail.publishedAt)} color={C.navy} />
                 <Metric icon="refresh" label="Última comprobación" value={detail.exploitLastCheckedAt ? fmtDate(detail.exploitLastCheckedAt).split(",")[0] : "-"} sub={fmtConfidence(detail.exploitConfidence)} color={C.info} />
               </div>
+
+              <DetailBlock title="Estado de Notificación" icon="bell">
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12, marginBottom: 16 }}>
+                  <div style={{ padding: 14, background: detail.notificable ? "#D1FAE5" : C.gray50, borderRadius: 10, textAlign: "center", border: `1px solid ${detail.notificable ? "#6EE7B7" : C.gray200}` }}>
+                    <div style={{ fontSize: 10, color: C.gray500, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Notificable</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: detail.notificable ? "#065F46" : C.gray400 }}>
+                      {detail.notificable ? "SI" : "NO"}
+                    </div>
+                  </div>
+                  <div style={{ padding: 14, background: detail.notificada ? "#DBEAFE" : C.gray50, borderRadius: 10, textAlign: "center", border: `1px solid ${detail.notificada ? "#93C5FD" : C.gray200}` }}>
+                    <div style={{ fontSize: 10, color: C.gray500, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Notificada</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: detail.notificada ? "#1E40AF" : C.gray400 }}>
+                      {detail.notificada ? "SI" : "NO"}
+                    </div>
+                  </div>
+                  <div style={{ padding: 14, background: C.gray50, borderRadius: 10, textAlign: "center", border: `1px solid ${C.gray200}` }}>
+                    <div style={{ fontSize: 10, color: C.gray500, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Fecha Notificación</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: detail.fechaNotificacion ? C.text : C.gray400 }}>
+                      {detail.fechaNotificacion ? fmtDate(detail.fechaNotificacion) : "—"}
+                    </div>
+                  </div>
+                  <div style={{ padding: 14, background: C.gray50, borderRadius: 10, textAlign: "center", border: `1px solid ${C.gray200}` }}>
+                    <div style={{ fontSize: 10, color: C.gray500, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Suscriptores Notificados</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: (detail.suscriptoresNotificados || []).length > 0 ? C.blue : C.gray400 }}>
+                      {(detail.suscriptoresNotificados || []).length}
+                    </div>
+                  </div>
+                </div>
+                {(detail.suscriptoresNotificados || []).length > 0 && (
+                  <div style={{ borderTop: `1px solid ${C.gray200}`, paddingTop: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", marginBottom: 8 }}>Detalle de envíos</div>
+                    <div style={{ display: "grid", gap: 6 }}>
+                      {(detail.suscriptoresNotificados || []).map((s, idx) => (
+                        <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "#FAFBFC", borderRadius: 8, border: `1px solid ${C.gray100}` }}>
+                          <div style={{ width: 28, height: 28, borderRadius: "50%", background: C.bluePale, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: C.blue }}>
+                            {(s.recipientName || s.recipientEmail || "?")[0].toUpperCase()}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{s.recipientName || "Sin nombre"}</div>
+                            <div style={{ fontSize: 11, color: C.gray500 }}>{s.recipientEmail}</div>
+                          </div>
+                          <div style={{ fontSize: 10, color: C.gray400, fontFamily: "monospace" }}>{fmtDate(s.sentAt)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </DetailBlock>
 
               <DetailBlock title="Resumen Ejecutivo y Análisis Técnico" icon="shield">
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginBottom: 16 }}>
@@ -3860,6 +3916,18 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                       <option value="any">Cualquier explotación</option>
                       <option value="none">Sin explotación</option>
                     </select>
+                    <select value={notificableFilter} onChange={e => setNotificableFilter(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#fff" }}>
+                      <option value="">Notificable (todos)</option>
+                      <option value="true">SI - Notificable</option>
+                      <option value="false">NO - No notificable</option>
+                    </select>
+                    <select value={notificadaFilter} onChange={e => setNotificadaFilter(e.target.value)} style={{ padding: "10px 12px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#fff" }}>
+                      <option value="">Notificada (todos)</option>
+                      <option value="true">SI - Notificada</option>
+                      <option value="false">NO - Sin notificar</option>
+                    </select>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 10 }}>
                     <input
                       type="number"
                       min="0"
@@ -3902,7 +3970,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 <Card noPad>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead><tr style={{ background: C.gray50 }}>
-                      {["CVE", "Riesgo", "CVSS", "EPSS", "Explotación", "Producto", "Estado", "Tags", "Origen", "Publicada"].map(h => (
+                      {["CVE", "Riesgo", "CVSS", "EPSS", "Explotación", "Producto", "Estado", "Notificable", "Notificada", "Tags", "Origen", "Publicada"].map(h => (
                         <th key={h} style={{ padding: "9px 12px", textAlign: "left", fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: `1px solid ${C.gray200}`, whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr></thead>
@@ -3959,6 +4027,22 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                               {v.patchAvailable === true ? "Parche disponible" : "Parche no confirmado"}
                             </span>
                           </div>
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "center" }}>
+                          {v.notificable
+                            ? <SoftBadge label="SI" bg="#D1FAE5" color="#065F46" border="#6EE7B7" small />
+                            : <SoftBadge label="NO" bg={C.gray100} color={C.gray500} border={C.gray200} small />
+                          }
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "center" }}>
+                          {v.notificada
+                            ? <span title={(v.suscriptoresNotificados || []).map(s => `${s.recipientName || s.recipientEmail} (${fmtDate(s.sentAt)})`).join("\n")}>
+                                <SoftBadge label="SI" bg="#DBEAFE" color="#1E40AF" border="#93C5FD" small />
+                                {v.fechaNotificacion && <div style={{ fontSize: 9, color: C.gray500, marginTop: 2, fontFamily: "monospace" }}>{fmtDate(v.fechaNotificacion).split(",")[0]}</div>}
+                                {(v.suscriptoresNotificados || []).length > 0 && <div style={{ fontSize: 9, color: C.gray400, marginTop: 1 }}>{(v.suscriptoresNotificados || []).length} suscriptor{(v.suscriptoresNotificados || []).length !== 1 ? "es" : ""}</div>}
+                              </span>
+                            : <SoftBadge label="NO" bg={C.gray100} color={C.gray500} border={C.gray200} small />
+                          }
                         </td>
                         <td style={{ padding: "10px 12px" }}>{(v.tags || []).map(t => <span key={t.id} style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: t.color, marginRight: 2 }} title={t.name} />)}</td>
                         <td style={{ padding: "10px 12px" }}>

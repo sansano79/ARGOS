@@ -195,6 +195,8 @@ model Vulnerability {
   firstSeenAt      DateTime  @default(now()) @map("first_seen_at")
   enrichedAt       DateTime? @map("enriched_at")
 
+  isNotificable Boolean @default(false) @map("is_notificable")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -221,6 +223,7 @@ model Vulnerability {
   @@index([cvssVersion])
   @@index([recordStatus])
   @@index([lastChangeDetectedAt])
+  @@index([isNotificable])
   @@map("vulnerabilities")
 }
 

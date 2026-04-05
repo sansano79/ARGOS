@@ -193,4 +193,10 @@ export class NotificationController {
     async testSmartNotification(@Body() body: { email: string; userId?: number }) {
         return await this.notificationService.testSmartNotification(body.email, body.userId);
     }
+
+    @Post('recalculate-notificable')
+    @Roles('ADMIN')
+    async recalculateNotificable() {
+        return await this.notificationService.recalculateAllNotificable();
+    }
 }

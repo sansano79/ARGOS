@@ -82,6 +82,12 @@ export class ExternalApiService {
       }
     }
 
+    // Notification filters
+    if (query.notificable === 'true') where.isNotificable = true;
+    if (query.notificable === 'false') where.isNotificable = false;
+    if (query.notificada === 'true') where.notifications = { some: { status: 'sent' } };
+    if (query.notificada === 'false') where.notifications = { none: { status: 'sent' } };
+
     const [data, total] = await Promise.all([
       this.prisma.vulnerability.findMany({
         where,
@@ -107,7 +113,17 @@ export class ExternalApiService {
           cweIds: true, cweNames: true, weaknessCategory: true,
           sourcesPresent: true, sourceCount: true,
           publishedAt: true, lastModifiedAt: true, firstSeenAt: true,
+          isNotificable: true,
           tags: { select: { id: true, name: true, color: true } },
+          notifications: {
+            where: { status: 'sent' },
+            select: {
+              id: true, sentAt: true, recipientEmail: true, recipientName: true,
+              subscriberUser: { select: { id: true, name: true, email: true } },
+            },
+            orderBy: { sentAt: 'desc' as const },
+            take: 10,
+          },
         },
       }),
       this.prisma.vulnerability.count({ where }),
@@ -522,34 +538,56 @@ export class ExternalApiService {
   }
 
   private serializeVuln(vuln: any) {
+    const { notifications: rawNotifs, ...rest } = vuln;
+    const sentNotifs = Array.isArray(rawNotifs) ? rawNotifs : [];
     return {
-      ...vuln,
-      affectedProducts: this.parseJson(vuln.affectedProducts),
-      affectedProductsDetailed: this.parseJson(vuln.affectedProductsDetailed),
-      fixedVersions: this.parseJson(vuln.fixedVersions),
-      sourcesPresent: this.parseJson(vuln.sourcesPresent),
-      cweIds: this.parseJson(vuln.cweIds),
-      cweNames: this.parseJson(vuln.cweNames),
+      ...rest,
+      affectedProducts: this.parseJson(rest.affectedProducts),
+      affectedProductsDetailed: this.parseJson(rest.affectedProductsDetailed),
+      fixedVersions: this.parseJson(rest.fixedVersions),
+      sourcesPresent: this.parseJson(rest.sourcesPresent),
+      cweIds: this.parseJson(rest.cweIds),
+      cweNames: this.parseJson(rest.cweNames),
+      notificable: vuln.isNotificable ?? false,
+      notificada: sentNotifs.length > 0,
+      fechaNotificacion: sentNotifs.length > 0 ? sentNotifs[0].sentAt : null,
+      suscriptoresNotificados: sentNotifs.map((n: any) => ({
+        sentAt: n.sentAt,
+        recipientEmail: n.recipientEmail,
+        recipientName: n.recipientName,
+        subscriberUser: n.subscriberUser,
+      })),
     };
   }
 
   private serializeVulnDetail(vuln: any) {
+    const { notifications: rawNotifs, ...rest } = vuln;
+    const sentNotifs = Array.isArray(rawNotifs) ? rawNotifs.filter((n: any) => n.status === 'sent' || !n.status) : [];
     return {
-      ...vuln,
-      affectedProducts: this.parseJson(vuln.affectedProducts),
-      affectedProductsDetailed: this.parseJson(vuln.affectedProductsDetailed),
-      remediationInfo: this.parseJson(vuln.remediationInfo),
-      exploitReferences: this.parseJson(vuln.exploitReferences),
-      references: this.parseJson(vuln.references),
-      riskSignals: this.parseJson(vuln.riskSignals),
-      rawData: this.parseJson(vuln.rawData),
-      fixedVersions: this.parseJson(vuln.fixedVersions),
-      workarounds: this.parseJson(vuln.workarounds),
-      detectionOpportunities: this.parseJson(vuln.detectionOpportunities),
-      sourcesPresent: this.parseJson(vuln.sourcesPresent),
-      cweIds: this.parseJson(vuln.cweIds),
-      cweNames: this.parseJson(vuln.cweNames),
-      affectedCpes: this.parseJson(vuln.affectedCpes),
+      ...rest,
+      affectedProducts: this.parseJson(rest.affectedProducts),
+      affectedProductsDetailed: this.parseJson(rest.affectedProductsDetailed),
+      remediationInfo: this.parseJson(rest.remediationInfo),
+      exploitReferences: this.parseJson(rest.exploitReferences),
+      references: this.parseJson(rest.references),
+      riskSignals: this.parseJson(rest.riskSignals),
+      rawData: this.parseJson(rest.rawData),
+      fixedVersions: this.parseJson(rest.fixedVersions),
+      workarounds: this.parseJson(rest.workarounds),
+      detectionOpportunities: this.parseJson(rest.detectionOpportunities),
+      sourcesPresent: this.parseJson(rest.sourcesPresent),
+      cweIds: this.parseJson(rest.cweIds),
+      cweNames: this.parseJson(rest.cweNames),
+      affectedCpes: this.parseJson(rest.affectedCpes),
+      notificable: vuln.isNotificable ?? false,
+      notificada: sentNotifs.length > 0,
+      fechaNotificacion: sentNotifs.length > 0 ? sentNotifs[0].sentAt : null,
+      suscriptoresNotificados: sentNotifs.map((n: any) => ({
+        sentAt: n.sentAt,
+        recipientEmail: n.recipientEmail,
+        recipientName: n.recipientName,
+        subscriberUser: n.subscriberUser,
+      })),
     };
   }
 }

@@ -369,6 +369,11 @@ export class NotificationService {
             await this.prisma.apiConfiguration.create({ data: payload });
         }
 
+        // Recalculate isNotificable asynchronously after config change
+        this.recalculateAllNotificable().catch((err) =>
+            this.logger.error(`Failed to recalculate isNotificable: ${err.message}`),
+        );
+
         return this.getNotificationCenterSettings();
     }
 
@@ -2379,5 +2384,148 @@ export class NotificationService {
         if (!value) return [];
         if (typeof value === 'object') return value;
         try { return JSON.parse(value); } catch { return []; }
+    }
+
+    // ── Notificable evaluation ─────────────────────────────────────
+
+    private static readonly SEVERITY_ORDER: Record<string, number> = {
+        NONE: 0, LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4,
+    };
+
+    private vulnMeetsLevelCriteria(
+        vuln: { cvssV31Score?: number | null; cvssV31Severity?: string | null; epssScore?: number | null; epssPercentile?: number | null; isKnownExploited?: boolean; hasPublicExploit?: boolean; exploitStatus?: string | null; patchAvailable?: boolean | null; dataConfidence?: number | null; sourceCount?: number; primaryVendor?: string | null; primaryProduct?: string | null; weaknessCategory?: string | null },
+        level: { enabled: boolean; minSeverity: string; minCvss: number; minEpss: number; minConfidence: number; minSources: number; kevOnly?: boolean; publicExploitOnly?: boolean; activeExploitationOnly?: boolean; patchUnconfirmedOnly?: boolean; vendorFilters: string[]; productFilters: string[]; categoryFilters: string[]; exclusions: string[] },
+    ): boolean {
+        if (!level.enabled) return false;
+
+        const vulnSev = String(vuln.cvssV31Severity || 'NONE').toUpperCase();
+        const minSev = String(level.minSeverity || 'NONE').toUpperCase();
+        if ((NotificationService.SEVERITY_ORDER[vulnSev] ?? 0) < (NotificationService.SEVERITY_ORDER[minSev] ?? 0)) return false;
+
+        if (level.minCvss > 0 && (vuln.cvssV31Score ?? 0) < level.minCvss) return false;
+        if (level.minEpss > 0 && (vuln.epssScore ?? 0) < level.minEpss) return false;
+        if (level.minConfidence > 0 && (vuln.dataConfidence ?? 0) < level.minConfidence) return false;
+        if (level.minSources > 1 && (vuln.sourceCount ?? 1) < level.minSources) return false;
+
+        if (level.kevOnly && !vuln.isKnownExploited) return false;
+        if (level.publicExploitOnly && !vuln.hasPublicExploit) return false;
+        if (level.activeExploitationOnly && vuln.exploitStatus !== 'active') return false;
+        if (level.patchUnconfirmedOnly && vuln.patchAvailable === true) return false;
+
+        const vendor = String(vuln.primaryVendor || '').toLowerCase();
+        const product = String(vuln.primaryProduct || '').toLowerCase();
+        const category = String(vuln.weaknessCategory || '').toLowerCase();
+
+        if (level.vendorFilters.length > 0 && vendor && !level.vendorFilters.some((f) => vendor.includes(f.toLowerCase()))) return false;
+        if (level.productFilters.length > 0 && product && !level.productFilters.some((f) => product.includes(f.toLowerCase()))) return false;
+        if (level.categoryFilters.length > 0 && category && !level.categoryFilters.some((f) => category.includes(f.toLowerCase()))) return false;
+        if (level.exclusions.length > 0) {
+            const combined = `${vendor} ${product} ${vuln.cvssV31Severity || ''}`.toLowerCase();
+            if (level.exclusions.some((ex) => combined.includes(ex.toLowerCase()))) return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Evaluate whether a vulnerability meets the notification criteria
+     * from the notification center config (immediate OR digest levels).
+     */
+    async evaluateIsNotificable(vuln: {
+        cvssV31Score?: number | null; cvssV31Severity?: string | null;
+        epssScore?: number | null; epssPercentile?: number | null;
+        isKnownExploited?: boolean; hasPublicExploit?: boolean;
+        exploitStatus?: string | null; patchAvailable?: boolean | null;
+        dataConfidence?: number | null; sourceCount?: number;
+        primaryVendor?: string | null; primaryProduct?: string | null;
+        weaknessCategory?: string | null;
+    }): Promise<boolean> {
+        const config = await this.getNotificationCenterSettingsRaw();
+        if (!config.general.processEnabled) return false;
+
+        return this.vulnMeetsLevelCriteria(vuln, config.immediate) ||
+               this.vulnMeetsLevelCriteria(vuln, config.digest);
+    }
+
+    /**
+     * Recalculate isNotificable for all vulnerabilities based on current config.
+     * Uses two-pass updateMany for efficiency.
+     */
+    async recalculateAllNotificable(): Promise<{ markedTrue: number; markedFalse: number }> {
+        const config = await this.getNotificationCenterSettingsRaw();
+
+        if (!config.general.processEnabled) {
+            const result = await this.prisma.vulnerability.updateMany({
+                where: { isNotificable: true },
+                data: { isNotificable: false },
+            });
+            return { markedTrue: 0, markedFalse: result.count };
+        }
+
+        // Build OR conditions for immediate and digest levels
+        const buildWhereForLevel = (level: typeof config.immediate | typeof config.digest): any | null => {
+            if (!level.enabled) return null;
+            const where: any = {};
+
+            const minSev = String(level.minSeverity || 'NONE').toUpperCase();
+            const sevOrder = NotificationService.SEVERITY_ORDER[minSev] ?? 0;
+            if (sevOrder > 0) {
+                const allowedSevs = Object.entries(NotificationService.SEVERITY_ORDER)
+                    .filter(([, v]) => v >= sevOrder)
+                    .map(([k]) => k);
+                where.cvssV31Severity = { in: allowedSevs };
+            }
+
+            if (level.minCvss > 0) where.cvssV31Score = { gte: level.minCvss };
+            if (level.minEpss > 0) where.epssScore = { gte: level.minEpss };
+            if (level.minConfidence > 0) where.dataConfidence = { gte: level.minConfidence };
+            if (level.minSources > 1) where.sourceCount = { gte: level.minSources };
+
+            if ('kevOnly' in level && level.kevOnly) where.isKnownExploited = true;
+            if ('publicExploitOnly' in level && level.publicExploitOnly) where.hasPublicExploit = true;
+            if ('activeExploitationOnly' in level && level.activeExploitationOnly) where.exploitStatus = 'active';
+            if ('patchUnconfirmedOnly' in level && level.patchUnconfirmedOnly) where.patchAvailable = { not: true };
+
+            if (level.vendorFilters.length > 0) {
+                where.OR = [
+                    ...(where.OR || []),
+                    ...level.vendorFilters.map((v) => ({ primaryVendor: { contains: v.toLowerCase() } })),
+                ];
+            }
+
+            return where;
+        };
+
+        const immediateWhere = buildWhereForLevel(config.immediate);
+        const digestWhere = buildWhereForLevel(config.digest);
+
+        const orConditions: any[] = [];
+        if (immediateWhere) orConditions.push(immediateWhere);
+        if (digestWhere) orConditions.push(digestWhere);
+
+        if (orConditions.length === 0) {
+            const result = await this.prisma.vulnerability.updateMany({
+                where: { isNotificable: true },
+                data: { isNotificable: false },
+            });
+            return { markedTrue: 0, markedFalse: result.count };
+        }
+
+        const matchWhere = orConditions.length === 1 ? orConditions[0] : { OR: orConditions };
+
+        // Pass 1: mark matching as true
+        const trueResult = await this.prisma.vulnerability.updateMany({
+            where: { ...matchWhere, isNotificable: false },
+            data: { isNotificable: true },
+        });
+
+        // Pass 2: mark non-matching as false
+        const falseResult = await this.prisma.vulnerability.updateMany({
+            where: { NOT: matchWhere, isNotificable: true },
+            data: { isNotificable: false },
+        });
+
+        this.logger.log(`Recalculated isNotificable: ${trueResult.count} marked true, ${falseResult.count} marked false`);
+        return { markedTrue: trueResult.count, markedFalse: falseResult.count };
     }
 }
