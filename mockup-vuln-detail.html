@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maqueta — Vista Detalle CVE Rediseñada</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background: #F1F5F9; color: #1e293b; padding: 24px; }
+
+  .page { max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  .card { background: #fff; border-radius: 12px; border: 1px solid #E2E8F0; overflow: hidden; }
+  .card-header { padding: 12px 18px; border-bottom: 1px solid #F1F5F9; display: flex; align-items: center; gap: 8px; }
+  .card-header-title { font-size: 13px; font-weight: 600; color: #1e293b; }
+  .card-body { padding: 16px 18px; }
+
+  /* Header */
+  .header { padding: 20px 24px; }
+  .header-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
+  .header-left { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .breadcrumb { font-size: 11px; color: #64748B; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; }
+  .cve-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .cve-id { font-size: 28px; font-weight: 900; font-family: 'JetBrains Mono', monospace; color: #0f172a; }
+  .dates-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+
+  /* Badges */
+  .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 5px; font-size: 10.5px; font-weight: 600; border: 1px solid; line-height: 1.3; white-space: nowrap; }
+  .badge-critical { background: #FEE2E2; color: #dc2626; border-color: #FCA5A5; }
+  .badge-high { background: #FFF7ED; color: #ea580c; border-color: #FDBA74; }
+  .badge-low { background: #F0FDF4; color: #16a34a; border-color: #BBF7D0; }
+  .badge-gray { background: #F8FAFC; color: #64748B; border-color: #CBD5E1; }
+  .badge-blue { background: #EFF6FF; color: #1E40AF; border-color: #93C5FD; }
+  .badge-info { background: #F0F9FF; color: #0369A1; border-color: #BAE6FD; }
+  .badge-navy { background: #EEF2FF; color: #0f172a; border-color: #C7D2FE; }
+
+  /* Risk Box — coherente con el resto (fondo blanco) */
+  .risk-box { background: #fff; border-radius: 14px; padding: 16px 20px; min-width: 280px; border: 2px solid #E2E8F0; position: relative; overflow: hidden; }
+  .risk-box::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #ea580c, #dc2626); }
+  .risk-box-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #64748B; margin-bottom: 10px; }
+  .risk-tags { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 12px; }
+  .risk-tag { padding: 2px 8px; border-radius: 5px; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; border: 1px solid; }
+  .risk-tag-active { background: #FEE2E2; color: #dc2626; border-color: #FCA5A5; }
+  .risk-tag-kev { background: #FFF7ED; color: #ea580c; border-color: #FDBA74; }
+  .risk-tag-exploit { background: #FFFBEB; color: #B45309; border-color: #FDE68A; }
+  .risk-tag-patch-no { background: #FEE2E2; color: #dc2626; border-color: #FCA5A5; }
+  .risk-tag-patch-yes { background: #F0FDF4; color: #16a34a; border-color: #BBF7D0; }
+  .risk-score-row { display: flex; align-items: center; gap: 12px; }
+  .risk-score-bar { flex: 1; height: 6px; background: #F1F5F9; border-radius: 3px; overflow: hidden; }
+  .risk-score-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+  .risk-score-value { font-size: 28px; font-weight: 900; font-family: 'JetBrains Mono', monospace; cursor: help; position: relative; }
+  .risk-score-label { font-size: 10px; color: #64748B; font-weight: 600; }
+
+  /* Tooltip (hover) */
+  .tooltip-wrap { position: relative; cursor: help; }
+  .tooltip-wrap .tooltip { visibility: hidden; opacity: 0; position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background: #0f172a; color: #E2E8F0; padding: 10px 14px; border-radius: 8px; font-size: 11px; line-height: 1.5; z-index: 100; pointer-events: none; transition: opacity 0.15s, visibility 0.15s; box-shadow: 0 4px 12px rgba(0,0,0,0.25); max-width: 320px; white-space: normal; }
+  .tooltip-wrap .tooltip::after { content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #0f172a; }
+  .tooltip-wrap:hover .tooltip { visibility: visible; opacity: 1; }
+  /* Tooltip right-aligned for items near right edge */
+  .tooltip-right .tooltip { left: auto; right: 0; transform: none; }
+  .tooltip-right .tooltip::after { left: auto; right: 16px; transform: none; }
+
+  /* Popover (click) */
+  .popover-wrap { position: relative; cursor: pointer; }
+  .popover-content { display: none; position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #fff; border: 1px solid #E2E8F0; border-radius: 10px; padding: 12px 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 200; min-width: 280px; max-width: 340px; }
+  .popover-wrap.open .popover-content { display: block; }
+  .popover-arrow { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-bottom-color: #E2E8F0; }
+  .popover-arrow-inner { position: absolute; bottom: calc(100% - 1px); left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-bottom-color: #fff; }
+  .subscriber-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; }
+  .subscriber-row:hover { background: #F8FAFC; }
+  .subscriber-avatar { width: 26px; height: 26px; border-radius: 50%; background: #EEF2FF; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #2563eb; }
+  .subscriber-info { flex: 1; }
+  .subscriber-name { font-size: 12px; font-weight: 700; color: #1e293b; }
+  .subscriber-email { font-size: 10px; color: #64748B; }
+  .subscriber-date { font-size: 10px; color: #94A3B8; font-family: 'JetBrains Mono', monospace; }
+
+  /* Compact Metrics */
+  .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .metric-compact { background: #fff; border-radius: 10px; padding: 12px 14px; border: 1px solid #E2E8F0; position: relative; overflow: hidden; }
+  .metric-compact .bar-top { position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+  .metric-compact .label { font-size: 10px; font-weight: 600; color: #64748B; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
+  .metric-compact .value { font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: #1e293b; letter-spacing: -0.5px; }
+
+  /* Notification bar */
+  .notif-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .notif-cell { padding: 10px 12px; border-radius: 8px; text-align: center; border: 1px solid; }
+  .notif-label { font-size: 9px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 3px; }
+  .notif-value { font-size: 15px; font-weight: 800; }
+
+  /* Layout */
+  .layout { display: grid; grid-template-columns: 1fr 260px; gap: 16px; align-items: start; }
+  .main { display: flex; flex-direction: column; gap: 14px; }
+  .side { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 24px; }
+
+  /* Searchable list */
+  .search-input { width: 100%; padding: 8px 12px 8px 32px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 12px; background: #F8FAFC; outline: none; margin-bottom: 8px; }
+  .search-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.08); }
+  .search-wrap { position: relative; }
+  .search-icon { position: absolute; left: 10px; top: 9px; color: #94A3B8; font-size: 13px; }
+  .scroll-list { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+  .scroll-list::-webkit-scrollbar { width: 4px; }
+  .scroll-list::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 2px; }
+
+  .product-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #F8FAFC; border-radius: 8px; border: 1px solid #F1F5F9; font-size: 12px; }
+  .product-vendor { font-weight: 700; color: #0f172a; min-width: 100px; }
+  .product-name { color: #334155; flex: 1; }
+  .product-ver { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #64748B; }
+
+  .exploit-row { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 8px; border: 1px solid #F1F5F9; font-size: 11px; cursor: pointer; transition: background 0.1s; }
+  .exploit-row:hover { background: #EFF6FF; }
+  .exploit-source { font-weight: 700; color: #1E40AF; min-width: 80px; font-size: 10px; text-transform: uppercase; }
+  .exploit-url { color: #334155; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .exploit-arrow { color: #94A3B8; font-size: 14px; }
+
+  /* KV compact */
+  .kv-row { display: grid; gap: 8px; }
+  .kv { padding: 8px 12px; border-radius: 8px; border: 1px solid #E2E8F0; }
+  .kv-label { font-size: 9px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.04em; }
+  .kv-value { font-size: 12px; font-weight: 600; color: #334155; margin-top: 2px; }
+
+  /* Description */
+  .desc-text { font-size: 13px; color: #334155; line-height: 1.7; }
+  .section-title { font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 6px; }
+
+  /* Sidebar KV */
+  .side-kv { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #F1F5F9; font-size: 11px; }
+  .side-kv:last-child { border-bottom: none; }
+  .side-kv-label { color: #64748B; font-weight: 600; }
+  .side-kv-value { color: #1e293b; font-weight: 700; text-align: right; }
+
+  /* Buttons */
+  .btn { padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; border: 1px solid #E2E8F0; background: #fff; color: #334155; cursor: pointer; transition: all 0.1s; display: inline-flex; align-items: center; gap: 4px; }
+  .btn:hover { background: #F8FAFC; border-color: #CBD5E1; }
+  .actions-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+
+  /* Change timeline */
+  .change-item { padding: 10px 14px; border-radius: 8px; border: 1px solid #E2E8F0; background: #F8FAFC; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .change-item.significant { border-color: #FCA5A5; background: #FEF2F2; }
+  .change-left { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .change-date { font-size: 10px; color: #64748B; font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
+  .change-summary { font-size: 11px; color: #334155; font-weight: 600; margin-top: 4px; }
+
+  /* Reference links */
+  .ref-group { margin-bottom: 10px; }
+  .ref-link { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; font-size: 11px; color: #1E40AF; font-weight: 600; text-decoration: none; margin: 2px; transition: background 0.1s; }
+  .ref-link:hover { background: #EFF6FF; }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- ═══════ HEADER ═══════ -->
+  <div class="card header">
+    <div class="header-top">
+      <div class="header-left">
+        <div class="breadcrumb">Catálogo de vulnerabilidades / Detalle CVE</div>
+        <div class="cve-row">
+          <span class="cve-id">CVE-2025-21590</span>
+          <span class="tooltip-wrap">
+            <span class="badge badge-critical">CRITICAL</span>
+            <div class="tooltip" style="width: 260px;">
+              <strong>Severidad: CRITICAL</strong><br><br>
+              Origen: CVSS v3.1 Base Score<br>
+              Puntuación: 9.8 / 10.0<br>
+              Vector: AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H<br><br>
+              <em style="color:#94A3B8;">Clasificación asignada por NVD (NIST).</em>
+            </div>
+          </span>
+        </div>
+        <!-- Fechas como badges con recuadro (misma visual que antes) -->
+        <div class="dates-row">
+          <span class="badge badge-gray">Publicado 12/03/2025</span>
+          <span class="badge badge-gray">Actualizado 28/03/2025</span>
+          <span class="badge badge-info">Exploit verificado 27/03/2025</span>
+          <span class="badge badge-navy">Enriquecido 29/03/2025</span>
+        </div>
+        <div class="actions-row">
+          <button class="btn">← Volver</button>
+          <button class="btn">Anterior</button>
+          <button class="btn">Siguiente</button>
+          <button class="btn">Copiar CVE</button>
+          <button class="btn">Abrir advisory</button>
+        </div>
+      </div>
+
+      <!-- ═══════ RIESGO REAL (fondo blanco coherente) ═══════ -->
+      <div class="risk-box">
+        <div class="risk-box-title">Riesgo Real</div>
+        <div class="risk-tags">
+          <span class="risk-tag risk-tag-active">● Explotación activa</span>
+          <span class="risk-tag risk-tag-kev">KEV · EPSS 42%</span>
+          <span class="risk-tag risk-tag-exploit">Exploit público</span>
+          <span class="risk-tag risk-tag-patch-no">✗ Sin parche</span>
+        </div>
+        <div class="risk-score-row">
+          <div style="flex:1">
+            <div class="risk-score-bar">
+              <div class="risk-score-fill" style="width: 85%; background: linear-gradient(90deg, #ea580c, #dc2626);"></div>
+            </div>
+            <div class="risk-score-label" style="margin-top: 4px;">Puntuación compuesta</div>
+          </div>
+          <div class="tooltip-wrap tooltip-right">
+            <span class="risk-score-value" style="color: #dc2626;">85</span>
+            <div class="tooltip" style="width: 280px;">
+              <strong>Cálculo del Riesgo Real (0-100):</strong><br><br>
+              Composición ponderada de:<br>
+              • CVSS v3.1: 9.8 (peso 30%)<br>
+              • EPSS probabilidad: 0.42 (peso 20%)<br>
+              • KEV / Explotación activa: +15<br>
+              • Exploit público disponible: +10<br>
+              • Parche no disponible: +10<br>
+              • Confianza del dato: 0.92<br><br>
+              <em style="color:#94A3B8;">Pasa el ratón por encima para ver este detalle.</em>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════ LAYOUT 2 COLUMNAS ═══════ -->
+  <div class="layout">
+    <div class="main">
+
+      <!-- ═══════ DESCRIPCIÓN (compacta) ═══════ -->
+      <div class="card">
+        <div class="card-body">
+          <div class="desc-text">
+            Una vulnerabilidad de aislamiento insuficiente en Juniper Networks Junos OS permite a un atacante local con acceso shell ejecutar código arbitrario, comprometiendo la integridad del dispositivo. Esta vulnerabilidad afecta a todas las versiones de Junos OS en las plataformas de la serie SRX, EX y QFX.
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════ MÉTRICAS COMPACTAS (4 en 1 línea) ═══════ -->
+      <div class="metrics-row">
+        <div class="metric-compact tooltip-wrap">
+          <div class="bar-top" style="background: #dc2626;"></div>
+          <div class="label">CVSS v3.1</div>
+          <div class="value" style="color: #dc2626;">9.8</div>
+          <div class="tooltip">
+            <strong>CVSS v3.1:</strong> 9.8 CRITICAL<br>
+            Vector: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H<br><br>
+            <strong>CVSS v4.0:</strong> 9.4 CRITICAL<br>
+            Vector: CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/...
+          </div>
+        </div>
+        <div class="metric-compact tooltip-wrap">
+          <div class="bar-top" style="background: #2563eb;"></div>
+          <div class="label">EPSS</div>
+          <div class="value">42.3%</div>
+          <div class="tooltip">
+            <strong>Probabilidad de explotación:</strong> 0.423<br>
+            <strong>Percentil:</strong> 97.2%<br>
+            Posición relativa frente a todas las CVE conocidas.
+          </div>
+        </div>
+        <div class="metric-compact tooltip-wrap">
+          <div class="bar-top" style="background: #ea580c;"></div>
+          <div class="label">CWE</div>
+          <div class="value" style="font-size: 16px;">CWE-668</div>
+          <div class="tooltip">
+            <strong>CWE-668:</strong> Exposure of Resource to Wrong Sphere<br>
+            Categoría: access-control
+          </div>
+        </div>
+        <div class="metric-compact tooltip-wrap">
+          <div class="bar-top" style="background: #0f172a;"></div>
+          <div class="label">Confianza</div>
+          <div class="value">0.92</div>
+          <div class="tooltip">
+            <strong>Confianza del dato:</strong> 92%<br>
+            Basado en 4 fuentes independientes:<br>
+            NVD, CISA KEV, EPSS, ExploitDB
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════ ESTADO NOTIFICACIÓN (con popover suscriptores) ═══════ -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-header-title">Estado de notificación</span>
+        </div>
+        <div class="card-body">
+          <div class="notif-grid">
+            <div class="notif-cell" style="background: #D1FAE5; border-color: #6EE7B7;">
+              <div class="notif-label">Notificable</div>
+              <div class="notif-value" style="color: #065F46;">SI</div>
+            </div>
+            <div class="notif-cell" style="background: #DBEAFE; border-color: #93C5FD;">
+              <div class="notif-label">Notificada</div>
+              <div class="notif-value" style="color: #1E40AF;">SI</div>
+            </div>
+            <div class="notif-cell" style="background: #F8FAFC; border-color: #E2E8F0;">
+              <div class="notif-label">Fecha</div>
+              <div class="notif-value" style="color: #334155; font-size: 11px; font-family: 'JetBrains Mono', monospace;">15/03 09:42</div>
+            </div>
+            <!-- Suscriptores: clic para ver lista -->
+            <div class="notif-cell popover-wrap" style="background: #F8FAFC; border-color: #E2E8F0;" onclick="this.classList.toggle('open'); event.stopPropagation();">
+              <div class="notif-label">Suscriptores</div>
+              <div class="notif-value" style="color: #2563eb;">3 <span style="font-size: 9px; font-weight: 600; color: #94A3B8;">▼</span></div>
+              <!-- Popover con lista de suscriptores -->
+              <div class="popover-content" onclick="event.stopPropagation();">
+                <div class="popover-arrow"></div>
+                <div class="popover-arrow-inner"></div>
+                <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-bottom: 8px;">Suscriptores notificados</div>
+                <div class="subscriber-row">
+                  <div class="subscriber-avatar">JG</div>
+                  <div class="subscriber-info">
+                    <div class="subscriber-name">Juan García</div>
+                    <div class="subscriber-email">jgarcia@empresa.com</div>
+                  </div>
+                  <div class="subscriber-date">15/03 09:42</div>
+                </div>
+                <div class="subscriber-row">
+                  <div class="subscriber-avatar">ML</div>
+                  <div class="subscriber-info">
+                    <div class="subscriber-name">María López</div>
+                    <div class="subscriber-email">mlopez@empresa.com</div>
+                  </div>
+                  <div class="subscriber-date">15/03 09:42</div>
+                </div>
+                <div class="subscriber-row">
+                  <div class="subscriber-avatar">CP</div>
+                  <div class="subscriber-info">
+                    <div class="subscriber-name">Carlos Pérez</div>
+                    <div class="subscriber-email">cperez@empresa.com</div>
+                  </div>
+                  <div class="subscriber-date">15/03 09:43</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════ PRODUCTOS AFECTADOS (scroll + búsqueda) ═══════ -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-header-title">Productos afectados</span>
+          <span style="font-size: 10px; color: #64748B; margin-left: auto;">6 productos</span>
+        </div>
+        <div class="card-body">
+          <div class="search-wrap">
+            <span class="search-icon">⌕</span>
+            <input class="search-input" placeholder="Buscar fabricante o producto..." id="prodSearch" oninput="filterProducts()">
+          </div>
+          <div class="scroll-list" id="prodList">
+            <div class="product-row" data-filter="juniper junos os srx series">
+              <span class="product-vendor">Juniper</span>
+              <span class="product-name">Junos OS (SRX Series)</span>
+              <span class="product-ver">todas las versiones</span>
+              <span class="badge badge-critical" style="font-size:9px;">Principal</span>
+            </div>
+            <div class="product-row" data-filter="juniper junos os ex series">
+              <span class="product-vendor">Juniper</span>
+              <span class="product-name">Junos OS (EX Series)</span>
+              <span class="product-ver">< 21.4R3-S9</span>
+            </div>
+            <div class="product-row" data-filter="juniper junos os qfx series">
+              <span class="product-vendor">Juniper</span>
+              <span class="product-name">Junos OS (QFX Series)</span>
+              <span class="product-ver">< 22.2R3-S5</span>
+            </div>
+            <div class="product-row" data-filter="juniper junos os evolved">
+              <span class="product-vendor">Juniper</span>
+              <span class="product-name">Junos OS Evolved</span>
+              <span class="product-ver">< 23.2R2</span>
+            </div>
+            <div class="product-row" data-filter="juniper junos mx series">
+              <span class="product-vendor">Juniper</span>
+              <span class="product-name">Junos OS (MX Series)</span>
+              <span class="product-ver">< 23.4R1</span>
+            </div>
+            <div class="product-row" data-filter="juniper junos ptx series">
+              <span class="product-vendor">Juniper</span>
+              <span class="product-name">Junos OS (PTX Series)</span>
+              <span class="product-ver">todas las versiones</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════ EXPLOTACIÓN (compacta + scroll exploits) ═══════ -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-header-title">Explotación</span>
+        </div>
+        <div class="card-body">
+          <div class="kv-row" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 12px;">
+            <div class="kv">
+              <div class="kv-label">Estado</div>
+              <div class="kv-value"><span class="badge badge-critical" style="font-size:10px;">Activa</span></div>
+            </div>
+            <div class="kv">
+              <div class="kv-label">Confianza</div>
+              <div class="kv-value">Alta (92%)</div>
+            </div>
+            <div class="kv">
+              <div class="kv-label">Primera detección</div>
+              <div class="kv-value" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">12/03/2025</div>
+            </div>
+          </div>
+
+          <div class="section-title">Referencias de exploits</div>
+          <div class="search-wrap">
+            <span class="search-icon">⌕</span>
+            <input class="search-input" placeholder="Filtrar exploits..." id="exploitSearch" oninput="filterExploits()">
+          </div>
+          <div class="scroll-list" id="exploitList">
+            <div class="exploit-row" data-filter="exploitdb edb-51234 junos local code execution" onclick="window.open('#')">
+              <span class="exploit-source">ExploitDB</span>
+              <span class="exploit-url">EDB-51234 — Junos OS Local Code Execution</span>
+              <span class="exploit-arrow">→</span>
+            </div>
+            <div class="exploit-row" data-filter="github poc junos isolation bypass rapid7" onclick="window.open('#')">
+              <span class="exploit-source">GitHub</span>
+              <span class="exploit-url">rapid7/junos-isolation-bypass — PoC</span>
+              <span class="exploit-arrow">→</span>
+            </div>
+            <div class="exploit-row" data-filter="packetstorm juniper rce local privilege escalation" onclick="window.open('#')">
+              <span class="exploit-source">PacketStorm</span>
+              <span class="exploit-url">Juniper Junos OS Local Privilege Escalation</span>
+              <span class="exploit-arrow">→</span>
+            </div>
+            <div class="exploit-row" data-filter="cisa kev known exploited vulnerabilities catalog" onclick="window.open('#')">
+              <span class="exploit-source">CISA KEV</span>
+              <span class="exploit-url">Added to Known Exploited Vulnerabilities Catalog</span>
+              <span class="exploit-arrow">→</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════ REMEDIACIÓN ═══════ -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-header-title">Remediación</span>
+        </div>
+        <div class="card-body">
+          <div class="kv-row" style="grid-template-columns: repeat(2, 1fr); margin-bottom: 12px;">
+            <div class="kv" style="background: #FFF7ED;">
+              <div class="kv-label">Estado de parche</div>
+              <div class="kv-value" style="color: #ea580c;">Sin parche confirmado</div>
+            </div>
+            <div class="kv">
+              <div class="kv-label">Prioridad</div>
+              <div class="kv-value">Urgente</div>
+            </div>
+          </div>
+          <div style="margin-bottom: 10px;">
+            <div class="section-title">Versiones corregidas</div>
+            <div class="desc-text" style="font-size: 12px;">21.4R3-S9, 22.2R3-S5, 22.4R3-S4, 23.2R2-S2, 23.4R2, 24.2R1-S1</div>
+          </div>
+          <div>
+            <div class="section-title">Mitigaciones</div>
+            <div class="desc-text" style="font-size: 12px;">Restringir el acceso shell solo a usuarios de confianza. Monitorizar procesos sospechosos en el dispositivo. Aplicar las actualizaciones del fabricante en cuanto estén disponibles.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════ REFERENCIAS ═══════ -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-header-title">Referencias</span>
+        </div>
+        <div class="card-body">
+          <div class="ref-group">
+            <div class="section-title">Fabricante</div>
+            <a href="#" class="ref-link">Juniper Advisory JSA-2025-001 →</a>
+            <a href="#" class="ref-link">Juniper Support KB-39142 →</a>
+          </div>
+          <div class="ref-group">
+            <div class="section-title">NVD / Gobierno</div>
+            <a href="#" class="ref-link">NVD NIST →</a>
+            <a href="#" class="ref-link">CISA Alert →</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════ HISTORIAL DE CAMBIOS ═══════ -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-header-title">Historial de cambios</span>
+        </div>
+        <div class="card-body" style="display: flex; flex-direction: column; gap: 6px;">
+          <div class="change-item significant">
+            <div>
+              <div class="change-left">
+                <span class="badge badge-critical" style="font-size: 9px;">Explotación</span>
+                <span class="badge badge-gray" style="font-size: 9px;">exploit_status</span>
+                <span class="badge badge-critical" style="font-size: 9px;">Significativo</span>
+              </div>
+              <div class="change-summary">Estado de explotación actualizado a "activa" tras confirmación CISA.</div>
+            </div>
+            <span class="change-date">28/03 14:22</span>
+          </div>
+          <div class="change-item">
+            <div>
+              <div class="change-left">
+                <span class="badge badge-blue" style="font-size: 9px;">Enriquecimiento</span>
+                <span class="badge badge-gray" style="font-size: 9px;">epss_score</span>
+              </div>
+              <div class="change-summary">EPSS actualizado de 0.31 a 0.42.</div>
+            </div>
+            <span class="change-date">25/03 08:00</span>
+          </div>
+          <div class="change-item">
+            <div>
+              <div class="change-left">
+                <span class="badge badge-info" style="font-size: 9px;">Nuevo dato</span>
+                <span class="badge badge-gray" style="font-size: 9px;">exploit_references</span>
+              </div>
+              <div class="change-summary">Añadida referencia ExploitDB EDB-51234.</div>
+            </div>
+            <span class="change-date">20/03 11:45</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════ SIDEBAR ═══════ -->
+    <div class="side">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-header-title">Datos clave</span>
+        </div>
+        <div class="card-body">
+          <div class="side-kv"><span class="side-kv-label">CVE</span><span class="side-kv-value">CVE-2025-21590</span></div>
+          <div class="side-kv"><span class="side-kv-label">Producto</span><span class="side-kv-value">Junos OS</span></div>
+          <div class="side-kv"><span class="side-kv-label">Tipo</span><span class="side-kv-value">Librería</span></div>
+          <div class="side-kv"><span class="side-kv-label">Estado</span><span class="side-kv-value">Analizado</span></div>
+          <div class="side-kv"><span class="side-kv-label">Fuente</span><span class="side-kv-value">NVD</span></div>
+          <div class="side-kv"><span class="side-kv-label">Nº fuentes</span><span class="side-kv-value">4</span></div>
+          <div class="side-kv"><span class="side-kv-label">Confianza</span><span class="side-kv-value">0.92</span></div>
+          <div class="side-kv"><span class="side-kv-label">Último cambio</span><span class="side-kv-value" style="font-family:'JetBrains Mono',monospace; font-size:10px;">28/03/2025</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Close popovers when clicking outside
+document.addEventListener('click', () => {
+  document.querySelectorAll('.popover-wrap.open').forEach(el => el.classList.remove('open'));
+});
+
+function filterProducts() {
+  const q = document.getElementById('prodSearch').value.toLowerCase();
+  document.querySelectorAll('#prodList .product-row').forEach(row => {
+    row.style.display = row.dataset.filter.includes(q) ? '' : 'none';
+  });
+}
+function filterExploits() {
+  const q = document.getElementById('exploitSearch').value.toLowerCase();
+  document.querySelectorAll('#exploitList .exploit-row').forEach(row => {
+    row.style.display = row.dataset.filter.includes(q) ? '' : 'none';
+  });
+}
+</script>
+</body>
+</html>
