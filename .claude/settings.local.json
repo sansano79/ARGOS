@@ -5,7 +5,8 @@
       "Bash(npx -p typescript tsc --noEmit)",
       "Bash(npx prisma:*)",
       "Bash(./node_modules/.bin/prisma validate:*)",
-      "Bash(ls C:/Users/apere/Documents/GitHub/occ-vuls/node_modules/.bin/prisma*)"
+      "Bash(ls C:/Users/apere/Documents/GitHub/occ-vuls/node_modules/.bin/prisma*)",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }
