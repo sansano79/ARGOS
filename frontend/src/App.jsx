@@ -1158,6 +1158,7 @@ export default function VulnDashboard() {
   const [changedSinceHoursFilter, setChangedSinceHoursFilter] = useState("");
   const [notificableFilter, setNotificableFilter] = useState("");
   const [notificadaFilter, setNotificadaFilter] = useState("");
+  const [instantFilter, setInstantFilter] = useState("");
   const [selectedVuln, setSelectedVuln] = useState(null);
   const [detailContext, setDetailContext] = useState({ sourceView: "vulns", cveId: "" });
   const [kevTableSort, setKevTableSort] = useState({ key: "default", direction: "default" });
@@ -1219,6 +1220,8 @@ export default function VulnDashboard() {
   // Vulnerability Detail & Actions (consolidated)
   const [vulnDetail, setVulnDetail] = useState(null);
   const [vulnLoading, setVulnLoading] = useState(false);
+  const [detailProductFilter, setDetailProductFilter] = useState("");
+  const [detailExploitFilter, setDetailExploitFilter] = useState("");
   const [notifSending, setNotifSending] = useState(false);
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [notifContactsLoading, setNotifContactsLoading] = useState(false);
@@ -1229,6 +1232,11 @@ export default function VulnDashboard() {
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
   useEffect(() => { aiEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [aiMessages]);
+  useEffect(() => {
+    const closePopovers = () => document.querySelectorAll(".occ-popover-wrap.occ-open").forEach((el) => el.classList.remove("occ-open"));
+    document.addEventListener("click", closePopovers);
+    return () => document.removeEventListener("click", closePopovers);
+  }, []);
 
   useEffect(() => {
     const hash = String(window.location.hash || "");
@@ -2117,6 +2125,41 @@ export default function VulnDashboard() {
     else if (searchExploit === "none") exploitMatch = !v.isKnownExploited && !v.hasPublicExploit;
     return severityMatch && exploitMatch;
   });
+
+  // Client-side instant free-text filter across all visible fields
+  const applyInstantFilter = (rows) => {
+    const q = instantFilter.trim().toLowerCase();
+    if (!q) return rows;
+    const tokens = q.split(/\s+/).filter(Boolean);
+    return rows.filter((v) => {
+      const semantic = getSemanticSummary(v);
+      const haystack = [
+        v.cveId,
+        v.cvssV31Severity,
+        fmtScore(v.cvssV31Score),
+        fmtEpss(v.epssScore),
+        riskTierMeta(v.operationalRiskTier).label,
+        fmtRiskScore(v.operationalRiskScore),
+        exploitStatusMeta(v.exploitStatus).label,
+        semantic.displayTitle,
+        semantic.displaySubtitle,
+        componentTypeMeta(semantic.componentType).label,
+        recordStatusMeta(v.recordStatus).label,
+        v.patchAvailable === true ? "parche disponible" : "parche no confirmado",
+        v.isKnownExploited ? "kev" : "",
+        v.hasPublicExploit ? "exploit público" : "",
+        v.notificable ? "notificable si" : "no notificable",
+        v.notificada ? "notificada si" : "no notificada",
+        (v.tags || []).map(t => t.name).join(" "),
+        normalizeFieldList(v.sourcesPresent).map(s => String(s)).join(" "),
+        v.description || "",
+        v.summary || "",
+        v.shortDescription || "",
+      ].join(" ").toLowerCase();
+      return tokens.every((token) => haystack.includes(token));
+    });
+  };
+
   const clearExplorerFilters = () => {
     setSearchQ("");
     setSearchType("all");
@@ -2134,6 +2177,7 @@ export default function VulnDashboard() {
     setChangedSinceHoursFilter("");
     setNotificableFilter("");
     setNotificadaFilter("");
+    setInstantFilter("");
   };
   const loadMoreVulns = async () => {
     if (vulnsLoadingMore || !vulnsHasMore) return;
@@ -2174,10 +2218,13 @@ export default function VulnDashboard() {
       .slice(0, 4)
       .join(", ")
     : "";
-  const explorerRows = (searchExploit !== "all" || searchSeverity !== "") ? searchResults : vulns;
-  const explorerResultLabel = hasSearchCriteria
-    ? `${explorerRows.length} resultados de ${vulnsTotal} CVEs (búsqueda servidor)`
-    : `Mostrando ${vulns.length} de ${vulnsTotal} CVEs`;
+  const preInstantRows = (searchExploit !== "all" || searchSeverity !== "") ? searchResults : vulns;
+  const explorerRows = applyInstantFilter(preInstantRows);
+  const explorerResultLabel = instantFilter.trim()
+    ? `${explorerRows.length} de ${preInstantRows.length} CVEs (filtro local)`
+    : hasSearchCriteria
+      ? `${explorerRows.length} resultados de ${vulnsTotal} CVEs (búsqueda servidor)`
+      : `Mostrando ${vulns.length} de ${vulnsTotal} CVEs`;
   const kevListRows = sortKevModuleRows(vulns.filter((v) => v.isKnownExploited));
   const detailSourceView = normalizeDetailSourceView(detailContext.sourceView);
   const detailNavigationRows = detailSourceView === "exploited" ? kevListRows : explorerRows;
@@ -2322,311 +2369,397 @@ export default function VulnDashboard() {
       { label: "Último cambio detectado", value: fmtDate(detail.lastChangeDetectedAt) },
     ];
 
+    // ── Riesgo Real score ──
+    const riskScore = detail.operationalRiskScore != null ? Math.round(parseFloat(detail.operationalRiskScore)) : null;
+    const riskScoreColor = riskScore >= 75 ? C.critical : riskScore >= 50 ? C.high : riskScore >= 25 ? "#d97706" : C.low;
+
+    // ── Products grouped by vendor ──
+    const vendorGroups = {};
+    displayProducts.forEach((p) => {
+      if (typeof p === "string") { (vendorGroups["Otros"] = vendorGroups["Otros"] || []).push({ product: p, vendor: "Otros" }); return; }
+      const vName = p.vendor || "Vendor no informado";
+      (vendorGroups[vName] = vendorGroups[vName] || []).push(p);
+    });
+
+    // ── Exploit links for scrollable list ──
+    const exploitLinks = referenceGroups.exploit.links || [];
+
     return (
-      <div className="fade" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-        <Card style={{ padding: 24 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 20, flexWrap: "wrap", marginBottom: 18 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div className="fade" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {/* ═══ HEADER ═══ */}
+        <Card style={{ padding: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
               <div style={{ fontSize: 11, color: C.gray500, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase" }}>
                 {detailSourceView === "exploited" ? "KEV / Explotación confirmada" : "Catálogo de vulnerabilidades"} / Detalle CVE
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <h1 style={{ fontSize: 32, fontWeight: 900, margin: 0, fontFamily: "'JetBrains Mono', monospace", color: C.navy }}>{detail.cveId}</h1>
-                <SevBadge s={detail.cvssV31Severity} />
-                <RiskTierBadge tier={detail.operationalRiskTier} />
-                <ExploitStatusBadge status={detail.exploitStatus} />
-                <ComponentTypeBadge type={semantic.componentType} />
-                {detail.isKnownExploited && <SoftBadge label="KEV confirmada" bg={C.criticalBg} color={C.critical} border="#FCA5A5" />}
-                {detail.hasPublicExploit && <SoftBadge label="Exploit público" bg={C.highBg} color={C.high} border="#FDBA74" />}
-                <SoftBadge
-                  label={detail.patchAvailable === true ? "Parche confirmado" : detail.patchAvailable === false ? "Sin parche confirmado" : "Parche no informado"}
-                  bg={detail.patchAvailable === true ? C.lowBg : detail.patchAvailable === false ? C.highBg : C.gray50}
-                  color={detail.patchAvailable === true ? C.low : detail.patchAvailable === false ? C.high : C.gray600}
-                  border={detail.patchAvailable === true ? "#BBF7D0" : detail.patchAvailable === false ? "#FDBA74" : C.gray300}
-                />
+                <h1 style={{ fontSize: 28, fontWeight: 900, margin: 0, fontFamily: "'JetBrains Mono', monospace", color: C.navy }}>{detail.cveId}</h1>
+                <span className="occ-tooltip-wrap">
+                  <SevBadge s={detail.cvssV31Severity} />
+                  <span className="occ-tooltip" style={{ width: 260 }}>
+                    <strong>Severidad: {detail.cvssV31Severity || "N/A"}</strong><br /><br />
+                    Origen: CVSS v3.1 Base Score<br />
+                    Puntuación: {fmtScore(detail.cvssV31Score)} / 10.0<br />
+                    Vector: {detail.cvssV31Vector || "No informado"}<br /><br />
+                    <em style={{ color: "#94A3B8" }}>Clasificación asignada por NVD (NIST).</em>
+                  </span>
+                </span>
               </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 2 }}>
                 <SoftBadge label={`Publicado ${fmtDate(detail.publishedAt)}`} bg={C.gray50} color={C.gray700} border={C.gray300} />
                 <SoftBadge label={`Actualizado ${fmtDate(detail.lastModifiedAt)}`} bg={C.gray50} color={C.gray700} border={C.gray300} />
-                {hasValue(detail.exploitLastCheckedAt) && <SoftBadge label={`Exploit verificado ${fmtDate(detail.exploitLastCheckedAt)}`} bg={C.infoBg} color={C.info} border="#BFDBFE" />}
                 {hasValue(detail.enrichedAt) && <SoftBadge label={`Enriquecido ${fmtDate(detail.enrichedAt)}`} bg={C.bluePale} color={C.navy} border={C.gray200} />}
               </div>
+              <div className="occ-vuln-header-actions" style={{ justifyContent: "flex-start", marginTop: 4 }}>
+                <Btn onClick={closeVulnerabilityDetail}><I name="arrowRight" size={14} /> Volver</Btn>
+                <Btn onClick={() => openAdjacentVulnerability(-1)} disabled={!previousDetailRow}>Anterior</Btn>
+                <Btn onClick={() => openAdjacentVulnerability(1)} disabled={!nextDetailRow}>Siguiente</Btn>
+                <Btn onClick={() => copyText(detail.cveId, "CVE copiada")}>Copiar CVE</Btn>
+                <Btn onClick={() => primaryReferenceUrl && window.open(primaryReferenceUrl, "_blank", "noopener,noreferrer")} disabled={!primaryReferenceUrl}>Abrir advisory</Btn>
+                <Btn onClick={() => analyzeVulnerabilityWithAi(detail)}><I name="brain" size={14} /> Analizar con IA</Btn>
+              </div>
             </div>
-            <div className="occ-vuln-header-actions">
-              <Btn onClick={closeVulnerabilityDetail}><I name="arrowRight" size={14} /> Volver</Btn>
-              <Btn onClick={() => openAdjacentVulnerability(-1)} disabled={!previousDetailRow}>Anterior</Btn>
-              <Btn onClick={() => openAdjacentVulnerability(1)} disabled={!nextDetailRow}>Siguiente</Btn>
-              <Btn onClick={() => copyText(detail.cveId, "CVE copiada")}>Copiar CVE</Btn>
-              <Btn onClick={() => primaryReferenceUrl && window.open(primaryReferenceUrl, "_blank", "noopener,noreferrer")} disabled={!primaryReferenceUrl}>Abrir advisory</Btn>
+
+            {/* ═══ RIESGO REAL BOX ═══ */}
+            <div style={{ background: "#fff", borderRadius: 14, padding: "16px 20px", minWidth: 280, border: `2px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${C.high}, ${C.critical})` }} />
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", color: C.gray500, marginBottom: 10 }}>Riesgo Real</div>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 12 }}>
+                {detail.exploitStatus === "active_exploitation" && <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: C.criticalBg, color: C.critical, border: "1px solid #FCA5A5" }}>● Explotación activa</span>}
+                {detail.isKnownExploited && <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: C.highBg, color: C.high, border: "1px solid #FDBA74" }}>KEV{detail.epssScore != null ? ` · EPSS ${fmtEpss(detail.epssScore)}` : ""}</span>}
+                {detail.hasPublicExploit && <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: "#FFFBEB", color: "#B45309", border: "1px solid #FDE68A" }}>Exploit público</span>}
+                <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: detail.patchAvailable ? C.lowBg : C.criticalBg, color: detail.patchAvailable ? C.low : C.critical, border: `1px solid ${detail.patchAvailable ? "#BBF7D0" : "#FCA5A5"}` }}>
+                  {detail.patchAvailable ? "✓ Parche disponible" : "✗ Sin parche"}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ height: 6, background: "#F1F5F9", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${riskScore || 0}%`, borderRadius: 3, background: `linear-gradient(90deg, ${C.high}, ${C.critical})`, transition: "width 0.6s ease" }} />
+                  </div>
+                  <div style={{ fontSize: 10, color: C.gray500, fontWeight: 600, marginTop: 4 }}>Puntuación compuesta</div>
+                </div>
+                <span className="occ-tooltip-wrap occ-tooltip-right">
+                  <span style={{ fontSize: 28, fontWeight: 900, fontFamily: "'JetBrains Mono', monospace", color: riskScoreColor, cursor: "help" }}>
+                    {riskScore != null ? riskScore : "-"}<span style={{ fontSize: 14, fontWeight: 600, color: C.gray400 }}>/100</span>
+                  </span>
+                  <span className="occ-tooltip" style={{ width: 280 }}>
+                    <strong>Cálculo del Riesgo Real (0-100):</strong><br /><br />
+                    Composición ponderada de:<br />
+                    • CVSS v3.1: {fmtScore(detail.cvssV31Score)} (peso 30%)<br />
+                    • EPSS probabilidad: {detail.epssScore != null ? parseFloat(detail.epssScore).toFixed(3) : "N/A"} (peso 20%)<br />
+                    • KEV / Explotación activa: {detail.isKnownExploited ? "+15" : "+0"}<br />
+                    • Exploit público: {detail.hasPublicExploit ? "+10" : "+0"}<br />
+                    • Parche no disponible: {detail.patchAvailable === false ? "+10" : "+0"}<br />
+                    • Confianza del dato: {fmtConfidence(detail.dataConfidence)}<br /><br />
+                    <em style={{ color: "#94A3B8" }}>Pasa el ratón por encima para ver este detalle.</em>
+                  </span>
+                </span>
+              </div>
             </div>
           </div>
+        </Card>
 
-          <div className="occ-vuln-detail-layout">
-            <div className="occ-vuln-detail-main">
-              <div style={{ padding: 24, borderRadius: 18, background: "linear-gradient(180deg, #FFFFFF 0%, #F8FAFB 100%)", border: `1px solid ${C.gray200}` }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 10 }}>
-                  Hero Summary
+        {/* ═══ LAYOUT 2 COLUMNAS ═══ */}
+        <div className="occ-vuln-detail-layout">
+          <div className="occ-vuln-detail-main">
+
+            {/* ═══ DESCRIPCIÓN (compacta) ═══ */}
+            <Card>
+              <div style={{ fontSize: 13, color: C.gray700, lineHeight: 1.7 }}>{summaryText}</div>
+              {summaryText !== technicalText && technicalText !== "Sin descripción técnica adicional." && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.gray100}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>Descripción técnica</div>
+                  <div style={{ fontSize: 13, color: C.gray700, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{technicalText}</div>
                 </div>
-                <div style={{ fontSize: 14, color: C.gray700, lineHeight: 1.8, marginBottom: 16, maxWidth: 900 }}>
-                  {summaryText}
-                </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                  {semantic.hasReliablePrimaryEntity ? (
-                    <SoftBadge label={`Principal ${semantic.displayTitle}`} bg={C.white} color={C.navy} border={C.gray300} />
-                  ) : (
-                    <SoftBadge label="Clasificación pendiente" bg={C.gray50} color={C.gray600} border={C.gray300} />
-                  )}
-                  {displayContextTags.slice(0, 4).map((tag) => <ContextTagPill key={tag} tag={tag} />)}
-                </div>
-                {riskSignals.length > 0 && (
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {riskSignals.map((signal, idx) => <SignalPill key={`${signal}-${idx}`} signal={signal} />)}
-                  </div>
-                )}
+              )}
+            </Card>
+
+            {/* ═══ MÉTRICAS COMPACTAS (4 en 1 línea) ═══ */}
+            <div className="occ-vuln-metrics-grid">
+              <div className="occ-tooltip-wrap" style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: sevColor(detail.cvssV31Severity) }} />
+                <div style={{ fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>CVSS v3.1</div>
+                <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: C.text, letterSpacing: "-0.5px" }}>{fmtScore(detail.cvssV31Score)}</div>
+                <span className="occ-tooltip">
+                  <strong>CVSS v3.1:</strong> {fmtScore(detail.cvssV31Score)} {detail.cvssV31Severity || "N/A"}<br />
+                  Vector: {detail.cvssV31Vector || "No informado"}<br /><br />
+                  {detail.cvssV40Score != null && <><strong>CVSS v4.0:</strong> {fmtScore(detail.cvssV40Score)} {detail.cvssV40Severity || "N/A"}<br />Vector: {detail.cvssV40Vector || "No informado"}</>}
+                </span>
               </div>
-
-              <div className="occ-vuln-metrics-grid">
-                <Metric icon="shield" label="CVSS v3.1" value={fmtScore(detail.cvssV31Score)} sub={`${detail.cvssV31Severity || "N/A"} · ${detail.cvssV31Vector || "Vector no informado"}`} color={sevColor(detail.cvssV31Severity)} />
-                <Metric icon="shield" label="CVSS v4.0" value={fmtScore(detail.cvssV40Score)} sub={`${detail.cvssV40Severity || "N/A"} · ${detail.cvssV40Vector || "Vector no informado"}`} color={sevColor(detail.cvssV40Severity)} />
-                <Metric icon="activity" label="EPSS" value={fmtEpss(detail.epssScore)} sub={`Percentil ${(Number(detail.epssPercentile || 0) * 100).toFixed(0)}%`} color={C.blue} />
-                <Metric icon="alert" label="Riesgo operacional" value={fmtRiskScore(detail.operationalRiskScore)} sub={riskTierMeta(detail.operationalRiskTier).label} color={riskTierMeta(detail.operationalRiskTier).color} />
-                <Metric icon="bug" label="CWE" value={cweIds[0] || "N/A"} sub={cweNames[0] || detail.weaknessCategory || "No informado"} color={C.high} />
-                <Metric icon="check" label="Prioridad parche" value={detail.patchPriority || "N/A"} sub={describePatchStatus(detail.patchAvailable)} color={detail.patchAvailable ? C.low : C.high} />
-                <Metric icon="clock" label="Publicada" value={detail.publishedAt ? fmtDate(detail.publishedAt).split(",")[0] : "-"} sub={timeAgo(detail.publishedAt)} color={C.navy} />
-                <Metric icon="refresh" label="Última comprobación" value={detail.exploitLastCheckedAt ? fmtDate(detail.exploitLastCheckedAt).split(",")[0] : "-"} sub={fmtConfidence(detail.exploitConfidence)} color={C.info} />
+              <div className="occ-tooltip-wrap" style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: C.blue }} />
+                <div style={{ fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>EPSS</div>
+                <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>{fmtEpss(detail.epssScore)}</div>
+                <span className="occ-tooltip">
+                  <strong>Probabilidad de explotación:</strong> {detail.epssScore != null ? parseFloat(detail.epssScore).toFixed(3) : "N/A"}<br />
+                  <strong>Percentil:</strong> {(Number(detail.epssPercentile || 0) * 100).toFixed(0)}%<br />
+                  Posición relativa frente a todas las CVE conocidas.
+                </span>
               </div>
+              <div className="occ-tooltip-wrap" style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: C.high }} />
+                <div style={{ fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>CWE</div>
+                <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>{cweIds[0] || "N/A"}</div>
+                <span className="occ-tooltip">
+                  <strong>{cweIds[0] || "N/A"}:</strong> {cweNames[0] || "Sin nombre"}<br />
+                  {detail.weaknessCategory && <>Categoría: {detail.weaknessCategory}</>}
+                </span>
+              </div>
+              <div className="occ-tooltip-wrap" style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: C.navy }} />
+                <div style={{ fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>Confianza</div>
+                <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>{fmtConfidence(detail.dataConfidence)}</div>
+                <span className="occ-tooltip">
+                  <strong>Confianza del dato:</strong> {fmtConfidence(detail.dataConfidence)}<br />
+                  Basado en {detail.sourceCount || "?"} fuentes independientes:<br />
+                  {sourcesPresent.length > 0 ? sourcesPresent.map(s => String(s)).join(", ") : "No informadas"}
+                </span>
+              </div>
+            </div>
 
-              <DetailBlock title="Estado de Notificación" icon="bell">
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12, marginBottom: 16 }}>
-                  <div style={{ padding: 14, background: detail.notificable ? "#D1FAE5" : C.gray50, borderRadius: 10, textAlign: "center", border: `1px solid ${detail.notificable ? "#6EE7B7" : C.gray200}` }}>
-                    <div style={{ fontSize: 10, color: C.gray500, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Notificable</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: detail.notificable ? "#065F46" : C.gray400 }}>
-                      {detail.notificable ? "SI" : "NO"}
-                    </div>
-                  </div>
-                  <div style={{ padding: 14, background: detail.notificada ? "#DBEAFE" : C.gray50, borderRadius: 10, textAlign: "center", border: `1px solid ${detail.notificada ? "#93C5FD" : C.gray200}` }}>
-                    <div style={{ fontSize: 10, color: C.gray500, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Notificada</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: detail.notificada ? "#1E40AF" : C.gray400 }}>
-                      {detail.notificada ? "SI" : "NO"}
-                    </div>
-                  </div>
-                  <div style={{ padding: 14, background: C.gray50, borderRadius: 10, textAlign: "center", border: `1px solid ${C.gray200}` }}>
-                    <div style={{ fontSize: 10, color: C.gray500, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Fecha Notificación</div>
-                    <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: detail.fechaNotificacion ? C.text : C.gray400 }}>
-                      {detail.fechaNotificacion ? fmtDate(detail.fechaNotificacion) : "—"}
-                    </div>
-                  </div>
-                  <div style={{ padding: 14, background: C.gray50, borderRadius: 10, textAlign: "center", border: `1px solid ${C.gray200}` }}>
-                    <div style={{ fontSize: 10, color: C.gray500, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Suscriptores Notificados</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: (detail.suscriptoresNotificados || []).length > 0 ? C.blue : C.gray400 }}>
-                      {(detail.suscriptoresNotificados || []).length}
-                    </div>
+            {/* ═══ ESTADO NOTIFICACIÓN (con popover suscriptores) ═══ */}
+            <Card title="Estado de notificación" icon="bell" style={{ overflow: "visible" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+                <div style={{ padding: 10, background: detail.notificable ? "#D1FAE5" : C.gray50, borderRadius: 8, textAlign: "center", border: `1px solid ${detail.notificable ? "#6EE7B7" : C.gray200}` }}>
+                  <div style={{ fontSize: 9, color: C.gray500, marginBottom: 3, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Notificable</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: detail.notificable ? "#065F46" : C.gray400 }}>{detail.notificable ? "SI" : "NO"}</div>
+                </div>
+                <div style={{ padding: 10, background: detail.notificada ? "#DBEAFE" : C.gray50, borderRadius: 8, textAlign: "center", border: `1px solid ${detail.notificada ? "#93C5FD" : C.gray200}` }}>
+                  <div style={{ fontSize: 9, color: C.gray500, marginBottom: 3, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Notificada</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: detail.notificada ? "#1E40AF" : C.gray400 }}>{detail.notificada ? "SI" : "NO"}</div>
+                </div>
+                <div style={{ padding: 10, background: C.gray50, borderRadius: 8, textAlign: "center", border: `1px solid ${C.gray200}` }}>
+                  <div style={{ fontSize: 9, color: C.gray500, marginBottom: 3, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Fecha</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: detail.fechaNotificacion ? C.text : C.gray400 }}>
+                    {detail.fechaNotificacion ? fmtDate(detail.fechaNotificacion) : "—"}
                   </div>
                 </div>
-                {(detail.suscriptoresNotificados || []).length > 0 && (
-                  <div style={{ borderTop: `1px solid ${C.gray200}`, paddingTop: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", marginBottom: 8 }}>Detalle de envíos</div>
-                    <div style={{ display: "grid", gap: 6 }}>
+                <div
+                  className={`occ-popover-wrap${(detail.suscriptoresNotificados || []).length > 0 ? "" : ""}`}
+                  style={{ padding: 10, background: C.gray50, borderRadius: 8, textAlign: "center", border: `1px solid ${C.gray200}`, cursor: (detail.suscriptoresNotificados || []).length > 0 ? "pointer" : "default" }}
+                  onClick={(e) => { if ((detail.suscriptoresNotificados || []).length > 0) { e.currentTarget.classList.toggle("occ-open"); e.stopPropagation(); } }}
+                >
+                  <div style={{ fontSize: 9, color: C.gray500, marginBottom: 3, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Suscriptores</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: (detail.suscriptoresNotificados || []).length > 0 ? C.blue : C.gray400 }}>
+                    {(detail.suscriptoresNotificados || []).length}
+                    {(detail.suscriptoresNotificados || []).length > 0 && <span style={{ fontSize: 9, fontWeight: 600, color: C.gray400, marginLeft: 4 }}>▼</span>}
+                  </div>
+                  {(detail.suscriptoresNotificados || []).length > 0 && (
+                    <div className="occ-popover-content" onClick={(e) => e.stopPropagation()}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: C.gray500, textTransform: "uppercase", marginBottom: 8 }}>Suscriptores notificados</div>
                       {(detail.suscriptoresNotificados || []).map((s, idx) => (
-                        <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "#FAFBFC", borderRadius: 8, border: `1px solid ${C.gray100}` }}>
-                          <div style={{ width: 28, height: 28, borderRadius: "50%", background: C.bluePale, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: C.blue }}>
+                        <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 8px", borderRadius: 6 }}>
+                          <div style={{ width: 26, height: 26, borderRadius: "50%", background: C.bluePale, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: C.blue }}>
                             {(s.recipientName || s.recipientEmail || "?")[0].toUpperCase()}
                           </div>
-                          <div style={{ flex: 1 }}>
+                          <div style={{ flex: 1, textAlign: "left" }}>
                             <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{s.recipientName || "Sin nombre"}</div>
-                            <div style={{ fontSize: 11, color: C.gray500 }}>{s.recipientEmail}</div>
+                            <div style={{ fontSize: 10, color: C.gray500 }}>{s.recipientEmail}</div>
                           </div>
-                          <div style={{ fontSize: 10, color: C.gray400, fontFamily: "monospace" }}>{fmtDate(s.sentAt)}</div>
+                          <div style={{ fontSize: 10, color: "#94A3B8", fontFamily: "'JetBrains Mono', monospace" }}>{fmtDate(s.sentAt)}</div>
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
-              </DetailBlock>
-
-              <DetailBlock title="Resumen Ejecutivo y Análisis Técnico" icon="shield">
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginBottom: 16 }}>
-                  <KV label="Fabricante / producto" value={semantic.hasReliablePrimaryEntity ? semantic.displayTitle : "No inferido con fiabilidad suficiente"} />
-                  <KV label="Contexto detectado" value={displayContextTags.length > 0 ? displayContextTags.map((tag) => toSentence(tag)).join(", ") : "Sin contexto adicional"} />
+                  )}
                 </div>
-                <div style={{ display: "grid", gap: 14 }}>
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Lectura rápida</div>
-                    <div style={{ fontSize: 13, color: C.gray700, lineHeight: 1.75 }}>{summaryText}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Descripción técnica</div>
-                    <div style={{ fontSize: 13, color: C.gray700, lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{technicalText}</div>
-                  </div>
-                </div>
-              </DetailBlock>
+              </div>
+            </Card>
 
-              <DetailBlock title="Explotación" icon="zap">
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 16 }}>
-                  <KV label="En KEV" value={yesNoUnknown(detail.isKnownExploited)} tone={detail.isKnownExploited ? C.criticalBg : C.gray50} />
-                  <KV label="Exploit público" value={yesNoUnknown(detail.hasPublicExploit)} tone={detail.hasPublicExploit ? C.highBg : C.gray50} />
-                  <KV label="Estado de explotación" value={exploitStatusMeta(detail.exploitStatus).label} />
-                  <KV label="Confianza" value={fmtConfidence(detail.exploitConfidence)} />
-                  <KV label="Primera detección" value={fmtDate(detail.exploitFirstSeenAt)} />
-                  <KV label="Última comprobación" value={fmtDate(detail.exploitLastCheckedAt)} />
-                </div>
-                <LinkList
-                  items={referenceGroups.exploit.links}
-                  empty={REFERENCE_CATEGORY_META.exploit.empty}
-                  accent={REFERENCE_CATEGORY_META.exploit.accent}
-                  defaultLabel="Exploit Reference"
-                  defaultSource="exploit"
-                />
-                {referenceGroups.exploit.metadata.length > 0 && (
-                  <div style={{ marginTop: 12 }}>
-                    <RichValue value={referenceGroups.exploit.metadata} />
-                  </div>
-                )}
-              </DetailBlock>
+            {/* ═══ PRODUCTOS AFECTADOS (doble nivel con scroll y búsqueda) ═══ */}
+            <Card title="Productos afectados" icon="server" action={<span style={{ fontSize: 10, color: C.gray500 }}>{displayProducts.length} producto{displayProducts.length !== 1 ? "s" : ""}</span>}>
+              {displayProducts.length === 0 ? (
+                <div style={{ fontSize: 12, color: C.gray500 }}>Sin detalle de productos afectados.</div>
+              ) : (() => {
+                const [prodFilter, setProdFilter] = [detailProductFilter, setDetailProductFilter];
+                const filteredVendorGroups = Object.entries(vendorGroups).map(([vendor, products]) => {
+                  const q = (prodFilter || "").toLowerCase();
+                  if (!q) return { vendor, products, visible: true };
+                  const vendorMatch = vendor.toLowerCase().includes(q);
+                  const filteredProducts = vendorMatch ? products : products.filter((p) => {
+                    const text = `${p.product || ""} ${p.version || ""} ${p.versionRange || ""}`.toLowerCase();
+                    return text.includes(q);
+                  });
+                  return { vendor, products: filteredProducts, visible: filteredProducts.length > 0 };
+                }).filter((g) => g.visible);
 
-              <DetailBlock title="Remediación" icon="check">
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 16 }}>
-                  <KV label="Estado de parche" value={describePatchStatus(detail.patchAvailable)} tone={detail.patchAvailable === true ? C.lowBg : detail.patchAvailable === false ? C.highBg : C.gray50} />
-                  <KV label="Prioridad de parche" value={detail.patchPriority || "No informada"} />
-                </div>
-                {hasValue(fixedVersions) && (
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Versiones corregidas</div>
-                    <RichValue value={fixedVersions} />
-                  </div>
-                )}
-                {hasValue(workarounds) && (
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Workarounds</div>
-                    <RichValue value={workarounds} />
-                  </div>
-                )}
-                {hasValue(detectionOpportunities) && (
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Oportunidades de detección</div>
-                    <RichValue value={detectionOpportunities} />
-                  </div>
-                )}
-                {hasValue(remediationInfo) && (
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Notas de remediación</div>
-                    <RichValue value={remediationInfo} />
-                  </div>
-                )}
-              </DetailBlock>
-
-              <DetailBlock title="Referencias agrupadas" icon="link">
-                {Object.entries(REFERENCE_CATEGORY_META).map(([category, meta]) => {
-                  const group = referenceGroups[category];
-                  if (group.links.length === 0 && group.metadata.length === 0) return null;
-                  return (
-                    <div key={category} style={{ marginBottom: category === "other" ? 0 : 16 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>{meta.title}</div>
-                      <LinkList items={group.links} empty={meta.empty} accent={meta.accent} />
-                      {group.metadata.length > 0 && (
-                        <div style={{ marginTop: 10 }}>
-                          <RichValue value={group.metadata} />
-                        </div>
-                      )}
+                return (
+                  <>
+                    <div style={{ position: "relative", marginBottom: 8 }}>
+                      <span style={{ position: "absolute", left: 10, top: 9, color: "#94A3B8", fontSize: 13 }}>⌕</span>
+                      <input
+                        value={prodFilter}
+                        onChange={(e) => setProdFilter(e.target.value)}
+                        placeholder="Buscar fabricante o producto..."
+                        style={{ width: "100%", padding: "8px 12px 8px 32px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#F8FAFC", outline: "none", boxSizing: "border-box" }}
+                      />
                     </div>
-                  );
-                })}
-              </DetailBlock>
-
-              <DetailBlock title="Procedencia y estado" icon="file">
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>
-                  <KV label="Estado del registro" value={recordStatusMeta(detail.recordStatus).label} />
-                  <KV label="Canonical source" value={detail.canonicalSource || "No informada"} />
-                  <KV label="Source count" value={detail.sourceCount != null ? String(detail.sourceCount) : "No informado"} />
-                  <KV label="Primera vez visto" value={fmtDate(detail.firstSeenAt)} />
-                  <KV label="Enriquecido" value={fmtDate(detail.enrichedAt)} />
-                  <KV label="Data confidence" value={fmtConfidence(detail.dataConfidence)} />
-                </div>
-                {hasValue(detail.affectedCpes) && (
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Affected CPEs</div>
-                    <RichValue value={detail.affectedCpes} />
-                  </div>
-                )}
-                {sourcesPresent.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Fuentes presentes</div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {sourcesPresent.map((source, idx) => (
-                        <SoftBadge key={`${source}-${idx}`} label={String(source)} bg={C.gray50} color={C.gray700} border={C.gray300} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </DetailBlock>
-
-              {changeTimeline.length > 0 && (
-                <DetailBlock title="Historial de cambios" icon="clock">
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {changeTimeline.map((change) => (
-                      <div key={change.id} style={{ padding: "14px 16px", borderRadius: 12, border: `1px solid ${change.isSignificant ? "#FCA5A5" : C.gray200}`, background: change.isSignificant ? C.criticalBg : C.gray50 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 8 }}>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            <SoftBadge label={getChangeTypeLabel(change.changeType)} small bg={C.white} color={C.navy} border={C.gray300} />
-                            <SoftBadge label={toSentence(change.fieldName || "campo")} small bg={C.white} color={C.gray700} border={C.gray300} />
-                            {change.isSignificant && <SoftBadge label="Significativo" small bg={C.criticalBg} color={C.critical} border="#FCA5A5" />}
+                    <div className="occ-scroll-list">
+                      {filteredVendorGroups.map(({ vendor, products }) => (
+                        <div key={vendor} className="occ-vendor-group">
+                          <div className="occ-vendor-header" onClick={(e) => e.currentTarget.classList.toggle("occ-collapsed")}>
+                            <span className="occ-vendor-arrow">▼</span>
+                            {vendor}
+                            <span style={{ fontSize: 10, fontWeight: 600, color: C.gray500, marginLeft: "auto" }}>{products.length} producto{products.length !== 1 ? "s" : ""}</span>
                           </div>
-                          <span style={{ fontSize: 10, color: C.gray500, fontFamily: "monospace" }}>{fmtDate(change.detectedAt)}</span>
+                          <div className="occ-vendor-products">
+                            {products.map((p, idx) => (
+                              <div key={idx} className="occ-product-row">
+                                <span style={{ color: C.gray700, flex: 1 }}>{typeof p === "string" ? p : (p.product || "Producto no informado")}</span>
+                                {p.version && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: C.gray500 }}>{p.version}</span>}
+                                {p.versionRange && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: C.gray500 }}>{String(p.versionRange)}</span>}
+                                {semantic.hasReliablePrimaryEntity && primaryProducts.includes(p) && <SoftBadge label="Principal" small bg={C.criticalBg} color={C.critical} border="#FCA5A5" />}
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div style={{ fontSize: 12, color: C.gray700, fontWeight: 600 }}>
+                      ))}
+                      {filteredVendorGroups.length === 0 && <div style={{ fontSize: 12, color: C.gray500, padding: 8 }}>Sin resultados para "{prodFilter}"</div>}
+                    </div>
+                  </>
+                );
+              })()}
+            </Card>
+
+            {/* ═══ EXPLOTACIÓN (compacta + scroll exploits) ═══ */}
+            <DetailBlock title="Explotación" icon="zap">
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>
+                <KV label="Estado" value={<ExploitStatusBadge status={detail.exploitStatus} small />} />
+                <KV label="Confianza" value={fmtConfidence(detail.exploitConfidence)} />
+                <KV label="Primera detección" value={fmtDate(detail.exploitFirstSeenAt)} />
+              </div>
+              {exploitLinks.length > 0 && (() => {
+                const [exFilter, setExFilter] = [detailExploitFilter, setDetailExploitFilter];
+                const q = (exFilter || "").toLowerCase();
+                const filtered = q ? exploitLinks.filter((l) => `${l.label || ""} ${l.url || ""} ${l.source || ""}`.toLowerCase().includes(q)) : exploitLinks;
+                return (
+                  <>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>Referencias de exploits</div>
+                    <div style={{ position: "relative", marginBottom: 8 }}>
+                      <span style={{ position: "absolute", left: 10, top: 9, color: "#94A3B8", fontSize: 13 }}>⌕</span>
+                      <input
+                        value={exFilter}
+                        onChange={(e) => setExFilter(e.target.value)}
+                        placeholder="Filtrar exploits..."
+                        style={{ width: "100%", padding: "8px 12px 8px 32px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#F8FAFC", outline: "none", boxSizing: "border-box" }}
+                      />
+                    </div>
+                    <div className="occ-scroll-list">
+                      {filtered.map((link, idx) => (
+                        <div key={idx} className="occ-exploit-row" onClick={() => link.url && window.open(link.url, "_blank", "noopener,noreferrer")}>
+                          <span style={{ fontWeight: 700, color: "#1E40AF", minWidth: 80, fontSize: 10, textTransform: "uppercase" }}>{link.source || "Ref"}</span>
+                          <span style={{ color: C.gray700, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{link.label || link.url}</span>
+                          <span style={{ color: "#94A3B8", fontSize: 14 }}>→</span>
+                        </div>
+                      ))}
+                      {filtered.length === 0 && <div style={{ fontSize: 12, color: C.gray500, padding: 8 }}>Sin resultados</div>}
+                    </div>
+                  </>
+                );
+              })()}
+              {exploitLinks.length === 0 && (
+                <div style={{ fontSize: 12, color: C.gray500 }}>No hay referencias de exploit disponibles.</div>
+              )}
+              {referenceGroups.exploit.metadata.length > 0 && (
+                <div style={{ marginTop: 12 }}><RichValue value={referenceGroups.exploit.metadata} /></div>
+              )}
+            </DetailBlock>
+
+            {/* ═══ REMEDIACIÓN ═══ */}
+            <DetailBlock title="Remediación" icon="check">
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>
+                <KV label="Estado de parche" value={describePatchStatus(detail.patchAvailable)} tone={detail.patchAvailable === true ? C.lowBg : detail.patchAvailable === false ? C.highBg : C.gray50} />
+                <KV label="Prioridad" value={detail.patchPriority || "No informada"} />
+              </div>
+              {hasValue(fixedVersions) && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>Versiones corregidas</div>
+                  <RichValue value={fixedVersions} />
+                </div>
+              )}
+              {hasValue(workarounds) && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>Mitigaciones</div>
+                  <RichValue value={workarounds} />
+                </div>
+              )}
+              {hasValue(detectionOpportunities) && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>Oportunidades de detección</div>
+                  <RichValue value={detectionOpportunities} />
+                </div>
+              )}
+              {hasValue(remediationInfo) && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>Notas de remediación</div>
+                  <RichValue value={remediationInfo} />
+                </div>
+              )}
+            </DetailBlock>
+
+            {/* ═══ REFERENCIAS ═══ */}
+            <DetailBlock title="Referencias" icon="link">
+              {Object.entries(REFERENCE_CATEGORY_META).map(([category, meta]) => {
+                const group = referenceGroups[category];
+                if (group.links.length === 0 && group.metadata.length === 0) return null;
+                return (
+                  <div key={category} style={{ marginBottom: category === "other" ? 0 : 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>{meta.title}</div>
+                    <LinkList items={group.links} empty={meta.empty} accent={meta.accent} />
+                    {group.metadata.length > 0 && <div style={{ marginTop: 8 }}><RichValue value={group.metadata} /></div>}
+                  </div>
+                );
+              })}
+            </DetailBlock>
+
+            {/* ═══ HISTORIAL DE CAMBIOS ═══ */}
+            {changeTimeline.length > 0 && (
+              <DetailBlock title="Historial de cambios" icon="clock">
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {changeTimeline.map((change) => (
+                    <div key={change.id} style={{ padding: "10px 14px", borderRadius: 8, border: `1px solid ${change.isSignificant ? "#FCA5A5" : C.gray200}`, background: change.isSignificant ? C.criticalBg : C.gray50, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      <div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                          <SoftBadge label={getChangeTypeLabel(change.changeType)} small bg={C.white} color={C.navy} border={C.gray300} />
+                          <SoftBadge label={toSentence(change.fieldName || "campo")} small bg={C.white} color={C.gray700} border={C.gray300} />
+                          {change.isSignificant && <SoftBadge label="Significativo" small bg={C.criticalBg} color={C.critical} border="#FCA5A5" />}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.gray700, fontWeight: 600, marginTop: 4 }}>
                           {change.summary || "Cambio detectado sin resumen adicional."}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </DetailBlock>
-              )}
-            </div>
-
-            <aside className="occ-vuln-detail-side">
-              <Card title="Quick Facts" icon="bug">
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {keyFacts.map((item) => (
-                    <KV key={item.label} label={item.label} value={item.value} />
+                      <span style={{ fontSize: 10, color: C.gray500, fontFamily: "'JetBrains Mono', monospace", whiteSpace: "nowrap" }}>{fmtDate(change.detectedAt)}</span>
+                    </div>
                   ))}
                 </div>
-              </Card>
-
-              <Card title="Acciones rápidas" icon="arrowRight">
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <Btn primary onClick={() => copyText(detail.cveId, "CVE copiada")}>Copiar CVE</Btn>
-                  <Btn onClick={() => primaryReferenceUrl && window.open(primaryReferenceUrl, "_blank", "noopener,noreferrer")} disabled={!primaryReferenceUrl}>Abrir advisory principal</Btn>
-                  <Btn onClick={() => analyzeVulnerabilityWithAi(detail)}><I name="brain" size={14} /> Analizar con IA</Btn>
-                  <Btn onClick={() => openAdjacentVulnerability(-1)} disabled={!previousDetailRow}>Anterior</Btn>
-                  <Btn onClick={() => openAdjacentVulnerability(1)} disabled={!nextDetailRow}>Siguiente</Btn>
-                </div>
-              </Card>
-
-              <Card title="Productos afectados" icon="server">
-                {displayProducts.length === 0 ? (
-                  <div style={{ fontSize: 12, color: C.gray500 }}>Sin detalle de productos afectados.</div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    {primaryProducts.length > 0 && (
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Entidad principal</div>
-                        <ProductDetailList items={primaryProducts} />
-                      </div>
-                    )}
-                    {(otherProducts.length > 0 || primaryProducts.length === 0) && (
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>
-                          {primaryProducts.length > 0 ? "Otros productos o componentes" : "Productos o componentes detectados"}
-                        </div>
-                        <ProductDetailList items={otherProducts.length > 0 ? otherProducts : displayProducts} />
-                      </div>
-                    )}
-                  </div>
-                )}
-              </Card>
-            </aside>
+              </DetailBlock>
+            )}
           </div>
-        </Card>
+
+          {/* ═══ SIDEBAR ═══ */}
+          <aside className="occ-vuln-detail-side">
+            <Card title="Datos clave" icon="bug">
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {[
+                  { label: "CVE", value: detail.cveId },
+                  { label: "Producto", value: semantic.hasReliablePrimaryEntity ? semantic.displayTitle : "Clasificación pendiente" },
+                  { label: "Tipo", value: componentTypeMeta(semantic.componentType).label },
+                  { label: "Estado", value: recordStatusMeta(detail.recordStatus).label },
+                  { label: "Fuente", value: detail.canonicalSource || "NVD" },
+                  { label: "Nº fuentes", value: detail.sourceCount != null ? String(detail.sourceCount) : "?" },
+                  { label: "Confianza", value: fmtConfidence(detail.dataConfidence) },
+                  { label: "Último cambio", value: fmtDate(detail.lastChangeDetectedAt) },
+                ].map((item) => (
+                  <div key={item.label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.gray100}`, fontSize: 11 }}>
+                    <span style={{ color: C.gray500, fontWeight: 600 }}>{item.label}</span>
+                    <span style={{ color: C.text, fontWeight: 700, textAlign: "right" }}>{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </aside>
+        </div>
       </div>
     );
   };
@@ -2986,6 +3119,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     const id = v?.id || vulns.find((x) => x.cveId === cveId)?.id;
     if (!cveId && !id) return;
     setSelectedVuln(v);
+    setDetailProductFilter("");
+    setDetailExploitFilter("");
     setDetailContext({ sourceView, cveId: cveId || String(v?.cveId || "").trim() });
     setView(DETAIL_VIEW);
     window.history.pushState({}, "", getDetailPathForView(sourceView, cveId || v?.cveId));
@@ -3606,6 +3741,26 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         .occ-vuln-detail-side { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 24px; }
         .occ-vuln-metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
         .occ-vuln-header-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+        .occ-tooltip-wrap { position: relative; cursor: help; }
+        .occ-tooltip-wrap .occ-tooltip { visibility: hidden; opacity: 0; position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background: #0f172a; color: #E2E8F0; padding: 10px 14px; border-radius: 8px; font-size: 11px; line-height: 1.5; z-index: 100; pointer-events: none; transition: opacity 0.15s, visibility 0.15s; box-shadow: 0 4px 12px rgba(0,0,0,0.25); max-width: 320px; white-space: normal; font-weight: 400; letter-spacing: 0; text-transform: none; }
+        .occ-tooltip-wrap .occ-tooltip::after { content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #0f172a; }
+        .occ-tooltip-wrap:hover .occ-tooltip { visibility: visible; opacity: 1; }
+        .occ-tooltip-right .occ-tooltip { left: auto; right: 0; transform: none; }
+        .occ-tooltip-right .occ-tooltip::after { left: auto; right: 16px; transform: none; }
+        .occ-popover-wrap { position: relative; cursor: pointer; }
+        .occ-popover-content { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #fff; border: 1px solid ${C.gray200}; border-radius: 10px; padding: 12px 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 200; min-width: 300px; max-width: 380px; }
+        .occ-popover-wrap.occ-open .occ-popover-content { display: block; }
+        .occ-vendor-group { margin-bottom: 6px; }
+        .occ-vendor-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #EEF2FF; border-radius: 8px 8px 0 0; border: 1px solid #C7D2FE; font-size: 12px; font-weight: 700; color: #0f172a; cursor: pointer; user-select: none; }
+        .occ-vendor-header .occ-vendor-arrow { font-size: 10px; color: #64748B; transition: transform 0.15s; }
+        .occ-vendor-header.occ-collapsed .occ-vendor-arrow { transform: rotate(-90deg); }
+        .occ-vendor-products { border: 1px solid ${C.gray200}; border-top: none; border-radius: 0 0 8px 8px; overflow: hidden; }
+        .occ-vendor-header.occ-collapsed + .occ-vendor-products { display: none; }
+        .occ-product-row { display: flex; align-items: center; gap: 8px; padding: 7px 12px 7px 28px; background: #F8FAFC; border-bottom: 1px solid #F1F5F9; font-size: 12px; }
+        .occ-product-row:last-child { border-bottom: none; }
+        .occ-scroll-list { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+        .occ-exploit-row { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 8px; border: 1px solid #F1F5F9; font-size: 11px; cursor: pointer; transition: background 0.1s; }
+        .occ-exploit-row:hover { background: #EFF6FF; }
         @media (max-width: 1280px) {
           .occ-vuln-metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
@@ -3966,6 +4121,26 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                     <Btn small onClick={clearExplorerFilters}>Limpiar filtros</Btn>
                   </div>
                 </Card>
+
+                {/* Filtro instantáneo local */}
+                <div style={{ position: "relative", marginBottom: 0 }}>
+                  <span style={{ position: "absolute", left: 14, top: 11, color: "#94A3B8", fontSize: 15, pointerEvents: "none" }}>⌕</span>
+                  <input
+                    value={instantFilter}
+                    onChange={(e) => setInstantFilter(e.target.value)}
+                    placeholder="Filtro rápido: escribe cualquier texto para filtrar en tiempo real (CVE, producto, vendor, severidad, estado...)"
+                    style={{ width: "100%", padding: "10px 14px 10px 38px", border: `2px solid ${instantFilter.trim() ? C.blue : C.gray200}`, borderRadius: 10, fontSize: 13, background: "#fff", outline: "none", boxSizing: "border-box", transition: "border-color 0.15s", fontFamily: "inherit" }}
+                    onFocus={(e) => { e.target.style.borderColor = C.blue; e.target.style.boxShadow = "0 0 0 3px rgba(37,99,235,0.08)"; }}
+                    onBlur={(e) => { e.target.style.borderColor = instantFilter.trim() ? C.blue : C.gray200; e.target.style.boxShadow = "none"; }}
+                  />
+                  {instantFilter.trim() && (
+                    <span
+                      onClick={() => setInstantFilter("")}
+                      style={{ position: "absolute", right: 14, top: 11, color: C.gray400, fontSize: 14, cursor: "pointer", fontWeight: 700 }}
+                      title="Limpiar filtro"
+                    >✕</span>
+                  )}
+                </div>
 
                 <Card noPad>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>

@@ -102,8 +102,15 @@
   .scroll-list::-webkit-scrollbar { width: 4px; }
   .scroll-list::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 2px; }
 
-  .product-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #F8FAFC; border-radius: 8px; border: 1px solid #F1F5F9; font-size: 12px; }
-  .product-vendor { font-weight: 700; color: #0f172a; min-width: 100px; }
+  .vendor-group { margin-bottom: 6px; }
+  .vendor-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #EEF2FF; border-radius: 8px 8px 0 0; border: 1px solid #C7D2FE; font-size: 12px; font-weight: 700; color: #0f172a; cursor: pointer; user-select: none; }
+  .vendor-header .vendor-arrow { font-size: 10px; color: #64748B; transition: transform 0.15s; }
+  .vendor-header.collapsed .vendor-arrow { transform: rotate(-90deg); }
+  .vendor-header .vendor-count { font-size: 10px; font-weight: 600; color: #64748B; margin-left: auto; }
+  .vendor-products { border: 1px solid #E2E8F0; border-top: none; border-radius: 0 0 8px 8px; overflow: hidden; }
+  .vendor-header.collapsed + .vendor-products { display: none; }
+  .product-row { display: flex; align-items: center; gap: 8px; padding: 7px 12px 7px 28px; background: #F8FAFC; border-bottom: 1px solid #F1F5F9; font-size: 12px; }
+  .product-row:last-child { border-bottom: none; }
   .product-name { color: #334155; flex: 1; }
   .product-ver { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #64748B; }
 
@@ -173,7 +180,6 @@
         <div class="dates-row">
           <span class="badge badge-gray">Publicado 12/03/2025</span>
           <span class="badge badge-gray">Actualizado 28/03/2025</span>
-          <span class="badge badge-info">Exploit verificado 27/03/2025</span>
           <span class="badge badge-navy">Enriquecido 29/03/2025</span>
         </div>
         <div class="actions-row">
@@ -202,7 +208,7 @@
             <div class="risk-score-label" style="margin-top: 4px;">Puntuación compuesta</div>
           </div>
           <div class="tooltip-wrap tooltip-right">
-            <span class="risk-score-value" style="color: #dc2626;">85</span>
+            <span class="risk-score-value" style="color: #dc2626;">85<span style="font-size: 14px; font-weight: 600; color: #94A3B8;">/100</span></span>
             <div class="tooltip" style="width: 280px;">
               <strong>Cálculo del Riesgo Real (0-100):</strong><br><br>
               Composición ponderada de:<br>
@@ -347,36 +353,40 @@
             <input class="search-input" placeholder="Buscar fabricante o producto..." id="prodSearch" oninput="filterProducts()">
           </div>
           <div class="scroll-list" id="prodList">
-            <div class="product-row" data-filter="juniper junos os srx series">
-              <span class="product-vendor">Juniper</span>
-              <span class="product-name">Junos OS (SRX Series)</span>
-              <span class="product-ver">todas las versiones</span>
-              <span class="badge badge-critical" style="font-size:9px;">Principal</span>
-            </div>
-            <div class="product-row" data-filter="juniper junos os ex series">
-              <span class="product-vendor">Juniper</span>
-              <span class="product-name">Junos OS (EX Series)</span>
-              <span class="product-ver">< 21.4R3-S9</span>
-            </div>
-            <div class="product-row" data-filter="juniper junos os qfx series">
-              <span class="product-vendor">Juniper</span>
-              <span class="product-name">Junos OS (QFX Series)</span>
-              <span class="product-ver">< 22.2R3-S5</span>
-            </div>
-            <div class="product-row" data-filter="juniper junos os evolved">
-              <span class="product-vendor">Juniper</span>
-              <span class="product-name">Junos OS Evolved</span>
-              <span class="product-ver">< 23.2R2</span>
-            </div>
-            <div class="product-row" data-filter="juniper junos mx series">
-              <span class="product-vendor">Juniper</span>
-              <span class="product-name">Junos OS (MX Series)</span>
-              <span class="product-ver">< 23.4R1</span>
-            </div>
-            <div class="product-row" data-filter="juniper junos ptx series">
-              <span class="product-vendor">Juniper</span>
-              <span class="product-name">Junos OS (PTX Series)</span>
-              <span class="product-ver">todas las versiones</span>
+            <!-- Fabricante: Juniper -->
+            <div class="vendor-group" data-filter="juniper junos os srx ex qfx mx ptx evolved series">
+              <div class="vendor-header" onclick="this.classList.toggle('collapsed')">
+                <span class="vendor-arrow">▼</span>
+                Juniper Networks
+                <span class="vendor-count">6 productos</span>
+              </div>
+              <div class="vendor-products">
+                <div class="product-row">
+                  <span class="product-name">Junos OS (SRX Series)</span>
+                  <span class="product-ver">todas las versiones</span>
+                  <span class="badge badge-critical" style="font-size:9px;">Principal</span>
+                </div>
+                <div class="product-row">
+                  <span class="product-name">Junos OS (EX Series)</span>
+                  <span class="product-ver">&lt; 21.4R3-S9</span>
+                </div>
+                <div class="product-row">
+                  <span class="product-name">Junos OS (QFX Series)</span>
+                  <span class="product-ver">&lt; 22.2R3-S5</span>
+                </div>
+                <div class="product-row">
+                  <span class="product-name">Junos OS Evolved</span>
+                  <span class="product-ver">&lt; 23.2R2</span>
+                </div>
+                <div class="product-row">
+                  <span class="product-name">Junos OS (MX Series)</span>
+                  <span class="product-ver">&lt; 23.4R1</span>
+                </div>
+                <div class="product-row">
+                  <span class="product-name">Junos OS (PTX Series)</span>
+                  <span class="product-ver">todas las versiones</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -549,8 +559,21 @@ document.addEventListener('click', () => {
 
 function filterProducts() {
   const q = document.getElementById('prodSearch').value.toLowerCase();
-  document.querySelectorAll('#prodList .product-row').forEach(row => {
-    row.style.display = row.dataset.filter.includes(q) ? '' : 'none';
+  document.querySelectorAll('#prodList .vendor-group').forEach(group => {
+    const vendorName = group.querySelector('.vendor-header').textContent.toLowerCase();
+    const rows = group.querySelectorAll('.product-row');
+    let visibleCount = 0;
+    rows.forEach(row => {
+      const text = row.textContent.toLowerCase();
+      const match = !q || vendorName.includes(q) || text.includes(q);
+      row.style.display = match ? '' : 'none';
+      if (match) visibleCount++;
+    });
+    group.style.display = visibleCount > 0 ? '' : 'none';
+    // Auto-expand when filtering
+    if (q && visibleCount > 0) {
+      group.querySelector('.vendor-header').classList.remove('collapsed');
+    }
   });
 }
 function filterExploits() {
