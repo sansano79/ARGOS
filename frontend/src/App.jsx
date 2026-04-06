@@ -193,10 +193,36 @@ const getRowPriorityStyle = (v) => {
 };
 const getChangeTypeLabel = (type) => ({
   nvd_ingestion: "Ingesta NVD",
-  kev_enrichment: "KEV",
-  epss_enrichment: "EPSS",
-  exploit_enrichment: "Exploit",
+  kev_enrichment: "Enriquecimiento KEV",
+  epss_enrichment: "Enriquecimiento EPSS",
+  exploit_enrichment: "Enriquecimiento Exploit",
+  cveorg_ingestion: "Ingesta CVE.org",
+  manual_update: "Actualización manual",
 }[type] || toSentence(type));
+const translateFieldName = (name) => ({
+  affectedProductsDetailed: "Productos afectados",
+  affectedProducts: "Productos afectados",
+  cvssV31Score: "Puntuación CVSS",
+  cvssV31Severity: "Severidad CVSS",
+  epssScore: "Puntuación EPSS",
+  epssPercentile: "Percentil EPSS",
+  exploitStatus: "Estado de explotación",
+  exploitConfidence: "Confianza de explotación",
+  exploitReferences: "Referencias de explotación",
+  operationalRiskScore: "Puntuación de riesgo",
+  operationalRiskTier: "Nivel de riesgo",
+  patchAvailable: "Parche disponible",
+  recordStatus: "Estado del registro",
+  description: "Descripción",
+  summary: "Resumen",
+  references: "Referencias",
+  remediationInfo: "Información de remediación",
+  vendorAdvisories: "Advisories del fabricante",
+  isKnownExploited: "Explotación conocida (KEV)",
+  hasPublicExploit: "Exploit público",
+  dataConfidence: "Confianza del dato",
+  sourceCount: "Número de fuentes",
+}[name] || toSentence(name));
 const normalizeSemanticToken = (value) => String(value || "")
   .trim()
   .toLowerCase()
@@ -2319,12 +2345,12 @@ export default function VulnDashboard() {
     const exploitBundle = normalizeReferenceEntries(exploitReferences, {
       defaultCategory: "exploit",
       defaultSource: "exploit",
-      defaultLabel: "Exploit reference",
+      defaultLabel: "Referencia de explotación",
     });
     const vendorBundle = normalizeReferenceEntries([patchUrls, vendorAdvisories, advisoriesField], {
       defaultCategory: "vendor",
       defaultSource: "advisory",
-      defaultLabel: "Vendor Advisory",
+      defaultLabel: "Advisory del fabricante",
     });
     const generalBundle = normalizeReferenceEntries([references, allReferences, linksField], {
       defaultCategory: "other",
@@ -2378,12 +2404,21 @@ export default function VulnDashboard() {
     const riskScore = detail.operationalRiskScore != null ? Math.round(parseFloat(detail.operationalRiskScore)) : null;
     const riskScoreColor = riskScore >= 75 ? C.critical : riskScore >= 50 ? C.high : riskScore >= 25 ? "#d97706" : C.low;
 
-    // ── Products grouped by vendor ──
+    // ── Products grouped by vendor (deduplicated) ──
     const vendorGroups = {};
     displayProducts.forEach((p) => {
       if (typeof p === "string") { (vendorGroups["Otros"] = vendorGroups["Otros"] || []).push({ product: p, vendor: "Otros" }); return; }
       const vName = p.vendor || "Vendor no informado";
       (vendorGroups[vName] = vendorGroups[vName] || []).push(p);
+    });
+    Object.keys(vendorGroups).forEach((vName) => {
+      const seen = new Map();
+      vendorGroups[vName] = vendorGroups[vName].filter((p) => {
+        const key = `${p.product || ""}|${p.version || ""}|${p.versionRange || ""}`;
+        if (seen.has(key)) return false;
+        seen.set(key, true);
+        return true;
+      });
     });
 
     // ── Exploit links for scrollable list ──
@@ -2445,7 +2480,7 @@ export default function VulnDashboard() {
                   </div>
                   <div style={{ fontSize: 10, color: C.gray500, fontWeight: 600, marginTop: 4 }}>Puntuación compuesta</div>
                 </div>
-                <span className="occ-tooltip-wrap occ-tooltip-right">
+                <span className="occ-tooltip-wrap occ-tooltip-right occ-tooltip-below">
                   <span style={{ fontSize: 28, fontWeight: 900, fontFamily: "'JetBrains Mono', monospace", color: riskScoreColor, cursor: "help" }}>
                     {riskScore != null ? riskScore : "-"}<span style={{ fontSize: 14, fontWeight: 600, color: C.gray400 }}>/100</span>
                   </span>
@@ -2750,7 +2785,7 @@ export default function VulnDashboard() {
                               <div key={change.id || idx} style={{ padding: "8px 14px", borderBottom: idx < group.changes.length - 1 ? `1px solid ${C.gray100}` : "none", background: change.isSignificant ? C.criticalBg : "#fff" }}>
                                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                                   <SoftBadge label={getChangeTypeLabel(change.changeType)} small bg={C.white} color={C.navy} border={C.gray300} />
-                                  <SoftBadge label={toSentence(change.fieldName || "campo")} small bg={C.white} color={C.gray700} border={C.gray300} />
+                                  <SoftBadge label={translateFieldName(change.fieldName || "campo")} small bg={C.white} color={C.gray700} border={C.gray300} />
                                   {change.isSignificant && <SoftBadge label="Significativo" small bg={C.criticalBg} color={C.critical} border="#FCA5A5" />}
                                 </div>
                                 <div style={{ fontSize: 11, color: C.gray700, fontWeight: 600, marginTop: 3 }}>
@@ -3778,6 +3813,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         .occ-tooltip-wrap:hover .occ-tooltip { visibility: visible; opacity: 1; }
         .occ-tooltip-right .occ-tooltip { left: auto; right: 0; transform: none; }
         .occ-tooltip-right .occ-tooltip::after { left: auto; right: 16px; transform: none; }
+        .occ-tooltip-below .occ-tooltip { bottom: auto; top: calc(100% + 8px); }
+        .occ-tooltip-below .occ-tooltip::after { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: #0f172a; }
         .occ-popover-wrap { position: relative; cursor: pointer; }
         .occ-popover-content { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #fff; border: 1px solid ${C.gray200}; border-radius: 10px; padding: 12px 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 200; min-width: 300px; max-width: 380px; }
         .occ-popover-wrap.occ-open .occ-popover-content { display: block; }
@@ -4343,7 +4380,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                           [patchUrls, vendorAdvisories, advisoriesField],
                           {
                             defaultSource: "advisory",
-                            defaultLabel: "Vendor Advisory",
+                            defaultLabel: "Advisory del fabricante",
                           },
                         );
                         const generalReferenceBundle = normalizeReferenceEntries(
@@ -4517,7 +4554,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                                   items={exploitReferences}
                                   empty="Sin referencias de explotación"
                                   accent="#FED7AA"
-                                  defaultLabel="Exploit Reference"
+                                  defaultLabel="Referencia de explotación"
                                   defaultSource="exploit"
                                 />
                               </>}
@@ -4579,7 +4616,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                                   items={[patchUrls, vendorAdvisories, advisoriesField]}
                                   empty="Sin URLs de parche"
                                   accent="#BBF7D0"
-                                  defaultLabel="Vendor Advisory"
+                                  defaultLabel="Advisory del fabricante"
                                   defaultSource="advisory"
                                 />
                               </div>}
@@ -4603,7 +4640,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 6 }}>
                                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                                         <SoftBadge label={getChangeTypeLabel(change.changeType)} small bg={C.white} color={C.navy} border={C.gray300} />
-                                        <SoftBadge label={toSentence(change.fieldName || "campo")} small bg={C.white} color={C.gray700} border={C.gray300} />
+                                        <SoftBadge label={translateFieldName(change.fieldName || "campo")} small bg={C.white} color={C.gray700} border={C.gray300} />
                                         {change.isSignificant && <SoftBadge label="Significativo" small bg={C.criticalBg} color={C.critical} border="#FCA5A5" />}
                                       </div>
                                       <span style={{ fontSize: 10, color: C.gray500, fontFamily: "monospace" }}>{fmtDate(change.detectedAt)}</span>
