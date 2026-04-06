@@ -2661,9 +2661,6 @@ export default function VulnDashboard() {
               {exploitLinks.length === 0 && (
                 <div style={{ fontSize: 12, color: C.gray500 }}>No hay referencias de exploit disponibles.</div>
               )}
-              {referenceGroups.exploit.metadata.length > 0 && (
-                <div style={{ marginTop: 12 }}><RichValue value={referenceGroups.exploit.metadata} /></div>
-              )}
             </DetailBlock>
 
             {/* ═══ REMEDIACIÓN ═══ */}
@@ -2690,12 +2687,6 @@ export default function VulnDashboard() {
                   <RichValue value={detectionOpportunities} />
                 </div>
               )}
-              {hasValue(remediationInfo) && (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>Notas de remediación</div>
-                  <RichValue value={remediationInfo} />
-                </div>
-              )}
             </DetailBlock>
 
             {/* ═══ REFERENCIAS ═══ */}
@@ -2707,7 +2698,6 @@ export default function VulnDashboard() {
                   <div key={category} style={{ marginBottom: category === "other" ? 0 : 14 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>{meta.title}</div>
                     <LinkList items={group.links} empty={meta.empty} accent={meta.accent} />
-                    {group.metadata.length > 0 && <div style={{ marginTop: 8 }}><RichValue value={group.metadata} /></div>}
                   </div>
                 );
               })}

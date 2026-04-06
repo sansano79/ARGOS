@@ -9,8 +9,8 @@
     },
     {
       "name": "frontend",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "frontend:dev"],
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": ["-c", "source ~/.nvm/nvm.sh && npm run frontend:dev"],
       "port": 5173
     }
   ]

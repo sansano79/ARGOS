@@ -6,7 +6,9 @@
       "Bash(npx prisma:*)",
       "Bash(./node_modules/.bin/prisma validate:*)",
       "Bash(ls C:/Users/apere/Documents/GitHub/occ-vuls/node_modules/.bin/prisma*)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(source ~/.nvm/nvm.sh)",
+      "Bash(source ~/.zshrc)"
     ]
   }
 }
