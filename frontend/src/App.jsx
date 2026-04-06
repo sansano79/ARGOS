@@ -2427,7 +2427,7 @@ export default function VulnDashboard() {
     return (
       <div className="fade" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {/* ═══ HEADER ═══ */}
-        <Card style={{ padding: 20 }}>
+        <Card style={{ padding: 20, overflow: "visible" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
               <div style={{ fontSize: 11, color: C.gray500, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase" }}>
