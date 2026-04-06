@@ -447,6 +447,29 @@ const RiskTierBadge = ({ tier, small }) => {
   return <SoftBadge label={meta.label} bg={meta.bg} color={meta.color} border={meta.border} small={small} />;
 };
 
+const buildExploitContext = (detail) => {
+  const lines = [];
+  const vector = detail.cvssV31Vector || "";
+  const avMatch = vector.match(/AV:([NALP])/);
+  if (avMatch) {
+    const avMap = { N: "red (Network)", A: "adyacente (Adjacent)", L: "local", P: "físico" };
+    lines.push(`Vector de ataque: ${avMap[avMatch[1]] || avMatch[1]}`);
+  }
+  const acMatch = vector.match(/AC:([LH])/);
+  if (acMatch) lines.push(`Complejidad: ${acMatch[1] === "L" ? "baja" : "alta"}`);
+  const prMatch = vector.match(/PR:([NLH])/);
+  if (prMatch) {
+    const prMap = { N: "ninguno", L: "bajo", H: "alto" };
+    lines.push(`Privilegios requeridos: ${prMap[prMatch[1]] || prMatch[1]}`);
+  }
+  const uiMatch = vector.match(/UI:([NR])/);
+  if (uiMatch) lines.push(`Interacción del usuario: ${uiMatch[1] === "N" ? "no requerida" : "requerida"}`);
+  if (detail.isKnownExploited) lines.push("Incluida en el catálogo CISA KEV de vulnerabilidades explotadas conocidas");
+  if (detail.hasPublicExploit) lines.push("Existe exploit público disponible (PoC)");
+  if (detail.exploitStatus === "active_exploitation") lines.push("Se ha confirmado explotación activa en entornos reales");
+  return lines;
+};
+
 const ExploitStatusBadge = ({ status, small }) => {
   const meta = exploitStatusMeta(status);
   return <SoftBadge label={meta.label} bg={meta.bg} color={meta.color} border={meta.border} small={small} />;
@@ -747,74 +770,56 @@ const ReferenceCard = ({ reference, accent = C.gray200, index = 0 }) => (
     href={reference.url}
     target="_blank"
     rel="noopener noreferrer"
-    title={reference.url}
+    className="occ-ref-card"
     style={{
       display: "flex",
-      flexDirection: "column",
-      gap: 6,
-      flex: "1 1 240px",
-      minWidth: 200,
+      alignItems: "center",
+      gap: 8,
+      flex: "1 1 200px",
+      minWidth: 160,
       maxWidth: "100%",
-      padding: "10px 12px",
-      borderRadius: 10,
+      padding: "7px 10px",
+      borderRadius: 8,
       border: `1px solid ${accent}`,
       background: "#fff",
       textDecoration: "none",
       color: C.navy,
       boxSizing: "border-box",
+      position: "relative",
+      fontSize: 11,
     }}
   >
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-      <span style={{ fontSize: 12, fontWeight: 700, color: C.navy }}>
-        {reference.label || inferReferenceLabel({ item: reference, url: reference.url, index })}
-      </span>
-      <I name="link" size={12} color={C.gray500} />
-    </div>
+    <I name="link" size={11} color={C.gray400} />
+    <span style={{ fontWeight: 700, color: C.navy, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}>
+      {reference.label || inferReferenceLabel({ item: reference, url: reference.url, index })}
+    </span>
     {(reference.source || reference.domain) && (
-      <div style={{ fontSize: 10, color: C.gray500, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.6px" }}>
+      <span style={{ fontSize: 9, color: C.gray500, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", flexShrink: 0 }}>
         {reference.source || reference.domain}
-      </div>
+      </span>
     )}
-    <div style={{
-      fontSize: 11,
-      color: C.gray600,
-      whiteSpace: "nowrap",
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-    }}>
-      {reference.domain || reference.url}
-    </div>
-    <div style={{
-      fontSize: 10,
-      color: C.gray500,
-      whiteSpace: "nowrap",
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-    }}>
-      {reference.url}
-    </div>
-    {reference.tags?.length > 0 && (
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-        {reference.tags.slice(0, 3).map((tag) => (
-          <span
-            key={`${reference.url}-${tag}`}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              padding: "2px 8px",
-              borderRadius: 999,
-              background: C.gray50,
-              border: `1px solid ${C.gray200}`,
-              fontSize: 10,
-              color: C.gray600,
-              fontWeight: 600,
-            }}
-          >
-            {toSentence(tag)}
-          </span>
-        ))}
+    <div className="occ-ref-tooltip">
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#E2E8F0", marginBottom: 4 }}>
+        {reference.label || inferReferenceLabel({ item: reference, url: reference.url, index })}
       </div>
-    )}
+      {(reference.source || reference.domain) && (
+        <div style={{ fontSize: 10, color: "#94A3B8", fontWeight: 600, textTransform: "uppercase", marginBottom: 6 }}>
+          {reference.source || reference.domain}
+        </div>
+      )}
+      <div style={{ fontSize: 10, color: "#93C5FD", wordBreak: "break-all", marginBottom: reference.tags?.length > 0 ? 6 : 0 }}>
+        {reference.url}
+      </div>
+      {reference.tags?.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {reference.tags.slice(0, 5).map((tag) => (
+            <span key={`${reference.url}-${tag}`} style={{ padding: "1px 6px", borderRadius: 4, background: "rgba(255,255,255,0.1)", fontSize: 9, color: "#CBD5E1", fontWeight: 600 }}>
+              {toSentence(tag)}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   </a>
 );
 
@@ -2422,8 +2427,8 @@ export default function VulnDashboard() {
             </div>
 
             {/* ═══ RIESGO REAL BOX ═══ */}
-            <div style={{ background: "#fff", borderRadius: 14, padding: "16px 20px", minWidth: 280, border: `2px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
-              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${C.high}, ${C.critical})` }} />
+            <div style={{ background: "#fff", borderRadius: 14, padding: "16px 20px", minWidth: 280, border: `2px solid ${C.gray200}`, position: "relative" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${C.high}, ${C.critical})`, borderRadius: "14px 14px 0 0" }} />
               <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", color: C.gray500, marginBottom: 10 }}>Riesgo Real</div>
               <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 12 }}>
                 {detail.exploitStatus === "active_exploitation" && <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: C.criticalBg, color: C.critical, border: "1px solid #FCA5A5" }}>● Explotación activa</span>}
@@ -2629,6 +2634,17 @@ export default function VulnDashboard() {
                 <KV label="Confianza" value={fmtConfidence(detail.exploitConfidence)} />
                 <KV label="Primera detección" value={fmtDate(detail.exploitFirstSeenAt)} />
               </div>
+              {(() => {
+                const exploitContext = buildExploitContext(detail);
+                return exploitContext.length > 0 ? (
+                  <div style={{ padding: "10px 14px", borderRadius: 8, background: "#FFFBEB", border: "1px solid #FDE68A", marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>Contexto de explotación</div>
+                    <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: "#78350F", lineHeight: 1.7 }}>
+                      {exploitContext.map((line, idx) => <li key={idx}>{line}</li>)}
+                    </ul>
+                  </div>
+                ) : null;
+              })()}
               {exploitLinks.length > 0 && (() => {
                 const [exFilter, setExFilter] = [detailExploitFilter, setDetailExploitFilter];
                 const q = (exFilter || "").toLowerCase();
@@ -2704,27 +2720,52 @@ export default function VulnDashboard() {
             </DetailBlock>
 
             {/* ═══ HISTORIAL DE CAMBIOS ═══ */}
-            {changeTimeline.length > 0 && (
-              <DetailBlock title="Historial de cambios" icon="clock">
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {changeTimeline.map((change) => (
-                    <div key={change.id} style={{ padding: "10px 14px", borderRadius: 8, border: `1px solid ${change.isSignificant ? "#FCA5A5" : C.gray200}`, background: change.isSignificant ? C.criticalBg : C.gray50, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                      <div>
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                          <SoftBadge label={getChangeTypeLabel(change.changeType)} small bg={C.white} color={C.navy} border={C.gray300} />
-                          <SoftBadge label={toSentence(change.fieldName || "campo")} small bg={C.white} color={C.gray700} border={C.gray300} />
-                          {change.isSignificant && <SoftBadge label="Significativo" small bg={C.criticalBg} color={C.critical} border="#FCA5A5" />}
+            {changeTimeline.length > 0 && (() => {
+              const groupKey = (d) => {
+                if (!d) return "Fecha desconocida";
+                const dt = new Date(d);
+                if (isNaN(dt)) return "Fecha desconocida";
+                return `${dt.toLocaleDateString("es-ES", { year: "numeric", month: "short", day: "numeric" })} · ${dt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`;
+              };
+              const grouped = [];
+              const seen = new Map();
+              changeTimeline.forEach((change) => {
+                const key = groupKey(change.detectedAt);
+                if (!seen.has(key)) { seen.set(key, grouped.length); grouped.push({ key, changes: [] }); }
+                grouped[seen.get(key)].changes.push(change);
+              });
+              return (
+                <DetailBlock title="Historial de cambios" icon="clock">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {grouped.map((group) => {
+                      const hasSignificant = group.changes.some((c) => c.isSignificant);
+                      return (
+                        <div key={group.key} style={{ borderRadius: 8, border: `1px solid ${hasSignificant ? "#FCA5A5" : C.gray200}`, overflow: "hidden" }}>
+                          <div style={{ padding: "6px 14px", background: hasSignificant ? "#FEF2F2" : "#F8FAFC", borderBottom: `1px solid ${hasSignificant ? "#FECACA" : C.gray100}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: hasSignificant ? C.critical : C.gray700, fontFamily: "'JetBrains Mono', monospace" }}>{group.key}</span>
+                            <span style={{ fontSize: 10, color: C.gray500 }}>{group.changes.length} cambio{group.changes.length !== 1 ? "s" : ""}</span>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column" }}>
+                            {group.changes.map((change, idx) => (
+                              <div key={change.id || idx} style={{ padding: "8px 14px", borderBottom: idx < group.changes.length - 1 ? `1px solid ${C.gray100}` : "none", background: change.isSignificant ? C.criticalBg : "#fff" }}>
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                                  <SoftBadge label={getChangeTypeLabel(change.changeType)} small bg={C.white} color={C.navy} border={C.gray300} />
+                                  <SoftBadge label={toSentence(change.fieldName || "campo")} small bg={C.white} color={C.gray700} border={C.gray300} />
+                                  {change.isSignificant && <SoftBadge label="Significativo" small bg={C.criticalBg} color={C.critical} border="#FCA5A5" />}
+                                </div>
+                                <div style={{ fontSize: 11, color: C.gray700, fontWeight: 600, marginTop: 3 }}>
+                                  {change.summary || "Cambio detectado sin resumen adicional."}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div style={{ fontSize: 11, color: C.gray700, fontWeight: 600, marginTop: 4 }}>
-                          {change.summary || "Cambio detectado sin resumen adicional."}
-                        </div>
-                      </div>
-                      <span style={{ fontSize: 10, color: C.gray500, fontFamily: "'JetBrains Mono', monospace", whiteSpace: "nowrap" }}>{fmtDate(change.detectedAt)}</span>
-                    </div>
-                  ))}
-                </div>
-              </DetailBlock>
-            )}
+                      );
+                    })}
+                  </div>
+                </DetailBlock>
+              );
+            })()}
           </div>
 
           {/* ═══ SIDEBAR ═══ */}
@@ -3741,7 +3782,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         .occ-popover-content { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #fff; border: 1px solid ${C.gray200}; border-radius: 10px; padding: 12px 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 200; min-width: 300px; max-width: 380px; }
         .occ-popover-wrap.occ-open .occ-popover-content { display: block; }
         .occ-vendor-group { margin-bottom: 6px; }
-        .occ-vendor-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #EEF2FF; border-radius: 8px 8px 0 0; border: 1px solid #C7D2FE; font-size: 12px; font-weight: 700; color: #0f172a; cursor: pointer; user-select: none; }
+        .occ-vendor-header { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #EEF2FF; border-radius: 8px 8px 0 0; border: 1px solid #C7D2FE; border-left: 3px solid #818CF8; font-size: 13px; font-weight: 800; color: #1e293b; cursor: pointer; user-select: none; letter-spacing: -0.01em; }
         .occ-vendor-header .occ-vendor-arrow { font-size: 10px; color: #64748B; transition: transform 0.15s; }
         .occ-vendor-header.occ-collapsed .occ-vendor-arrow { transform: rotate(-90deg); }
         .occ-vendor-products { border: 1px solid ${C.gray200}; border-top: none; border-radius: 0 0 8px 8px; overflow: hidden; }
@@ -3751,6 +3792,11 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         .occ-scroll-list { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
         .occ-exploit-row { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 8px; border: 1px solid #F1F5F9; font-size: 11px; cursor: pointer; transition: background 0.1s; }
         .occ-exploit-row:hover { background: #EFF6FF; }
+        .occ-ref-card { transition: border-color 0.12s, box-shadow 0.12s; }
+        .occ-ref-card:hover { border-color: #93C5FD !important; box-shadow: 0 2px 8px rgba(37,99,235,0.08); }
+        .occ-ref-tooltip { visibility: hidden; opacity: 0; position: absolute; bottom: calc(100% + 6px); left: 0; background: #0f172a; color: #E2E8F0; padding: 10px 12px; border-radius: 8px; z-index: 150; pointer-events: none; transition: opacity 0.15s, visibility 0.15s; box-shadow: 0 4px 16px rgba(0,0,0,0.3); min-width: 260px; max-width: 380px; white-space: normal; }
+        .occ-ref-tooltip::after { content: ""; position: absolute; top: 100%; left: 16px; border: 5px solid transparent; border-top-color: #0f172a; }
+        .occ-ref-card:hover .occ-ref-tooltip { visibility: visible; opacity: 1; }
         @media (max-width: 1280px) {
           .occ-vuln-metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
