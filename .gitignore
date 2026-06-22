@@ -39,3 +39,5 @@ redis_data/
 docker/ssl/*.key
 docker/ssl/*.pem
 docker/ssl/*.pfx
+docker/ssl/*.crt
+!docker/ssl/README.md
