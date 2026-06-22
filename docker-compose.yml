@@ -3,41 +3,42 @@ services:
   mysql:
     image: mysql:8.0
     container_name: occ-mysql
-    restart: always
+    restart: unless-stopped
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-occ_vulns}
       MYSQL_USER: ${MYSQL_USER:-occ_admin}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-OCC_S3cur3_P4ss!}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-OCC_R00t_P4ss!}
-    env_file:
-      - .env.prod
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
     volumes:
       - mysql_info:/var/lib/mysql
     healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
       interval: 10s
       timeout: 5s
       retries: 5
-    ports:
-      - "${MYSQL_PORT:-3306}:3306"
     networks:
-      - occ_net
+      - db_net
 
   # ── Redis ───────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: occ-redis
-    restart: always
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-OCC_R3d1s_P4ss!}
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-OCC_R3d1s_P4ss!}", "ping" ]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - occ_net
+      - cache_net
 
   # ── API NestJS ──────────────────────────────────────────────
   api:
@@ -45,7 +46,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     container_name: occ-api
-    restart: always
+    restart: unless-stopped
     env_file:
       - .env.prod
     environment:
@@ -68,7 +69,9 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - occ_net
+      - api_net
+      - db_net
+      - cache_net
 
   # ── Frontend React (servido por Nginx interno en puerto 80) ─
   frontend:
@@ -76,20 +79,20 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.prod
     container_name: occ-frontend
-    restart: always
+    restart: unless-stopped
     healthcheck:
-      test: [ "CMD-SHELL", "wget --spider -q http://127.0.0.1:80/ || exit 1" ]
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:80/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
     networks:
-      - occ_net
+      - edge_net
 
-  # ── Nginx Reverse Proxy + SSL ──────────────────────────────
+  # ── Nginx Reverse Proxy + SSL ───────────────────────────────
   nginx:
     image: nginx:alpine
     container_name: occ-nginx
-    restart: always
+    restart: unless-stopped
     ports:
       - "${OCC_HTTP_PORT:-80}:80"
       - "${OCC_HTTPS_PORT:-443}:443"
@@ -103,7 +106,8 @@ services:
       frontend:
         condition: service_healthy
     networks:
-      - occ_net
+      - edge_net
+      - api_net
 
 volumes:
   mysql_info:
@@ -114,5 +118,13 @@ volumes:
     driver: local
 
 networks:
-  occ_net:
+  edge_net:
     driver: bridge
+  api_net:
+    driver: bridge
+  db_net:
+    driver: bridge
+    internal: true
+  cache_net:
+    driver: bridge
+    internal: true
