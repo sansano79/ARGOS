@@ -56,6 +56,7 @@ model User {
   pendingDigestNotifications     PendingDigestNotification[]
   patchedCves                    SubscriberPatchedCve[]
   apiKeys                        ApiKey[]
+  teamMemberships                TeamMember[]
 
   @@map("users")
 }
@@ -958,4 +959,110 @@ model PendingDigestNotification {
   @@unique([userId, vulnerabilityId])
   @@index([userId])
   @@map("pending_digest_notifications")
+}
+
+// ══════════════════════════════════════════════════════════════
+// EQUIPOS SUSCRIPTORES (Fase 1A — aditivo, sin modificar legacy)
+// ══════════════════════════════════════════════════════════════
+
+model SubscriberTeam {
+  id          Int      @id @default(autoincrement())
+  name        String
+  code        String   @unique
+  description String?  @db.Text
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  members       TeamMember[]
+  recipients    NotificationRecipient[]
+  subscriptions TeamSubscription[]
+  systems       TeamSystem[]
+
+  @@index([name])
+  @@index([isActive])
+  @@map("subscriber_teams")
+}
+
+model TeamMember {
+  id        Int      @id @default(autoincrement())
+  teamId    Int      @map("team_id")
+  userId    Int      @map("user_id")
+  role      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  team SubscriberTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId])
+  @@index([teamId, role])
+  @@map("team_members")
+}
+
+model NotificationRecipient {
+  id         Int       @id @default(autoincrement())
+  teamId     Int       @map("team_id")
+  name       String?
+  email      String
+  type       String    @default("MAILBOX")
+  isActive   Boolean   @default(true) @map("is_active")
+  verifiedAt DateTime? @map("verified_at")
+  language   String    @default("es")
+  timezone   String    @default("Europe/Madrid")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  team SubscriberTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, email])
+  @@index([email])
+  @@index([teamId, isActive])
+  @@map("notification_recipients")
+}
+
+model TeamSubscription {
+  id        Int      @id @default(autoincrement())
+  teamId    Int      @map("team_id")
+  vendor    String
+  product   String
+  versions  String?  @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  team SubscriberTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, vendor, product])
+  @@index([vendor, product])
+  @@map("team_subscriptions")
+}
+
+model TeamSystem {
+  id           Int      @id @default(autoincrement())
+  teamId       Int      @map("team_id")
+  externalId   String?  @map("external_id")
+  source       String   @default("manual")
+  name         String
+  description  String?  @db.Text
+  hostname     String?
+  fqdn         String?
+  platform     String?
+  osVersion    String?  @map("os_version")
+  riskLevel    String?  @map("risk_level")
+  healthStatus String?  @map("health_status")
+  isSelected   Boolean  @default(true) @map("is_selected")
+  isActive     Boolean  @default(true) @map("is_active")
+  tags         String?  @db.Text
+  rawData      String?  @map("raw_data") @db.LongText
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  team SubscriberTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, externalId])
+  @@index([teamId])
+  @@map("team_systems")
 }

@@ -81,6 +81,30 @@ docker exec "$CONTAINER" mysql -uroot -p"$DB_PASS" "$DB_NAME" \
   2>/dev/null
 
 echo ""
-echo "==================================================="
-echo "RESULTADO: migrate deploy completado correctamente."
-echo "==================================================="
+echo "── Validación tablas de equipos (Fase 1A) ─────"
+TEAM_TABLES=("subscriber_teams" "team_members" "notification_recipients" "team_subscriptions" "team_systems")
+ALL_OK=true
+for TABLE in "${TEAM_TABLES[@]}"; do
+  EXISTS=$(docker exec "$CONTAINER" mysql -uroot -p"$DB_PASS" "$DB_NAME" \
+    -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${DB_NAME}' AND table_name='${TABLE}';" \
+    --skip-column-names 2>/dev/null)
+  if [ "$EXISTS" -eq 1 ]; then
+    echo "  ✓ ${TABLE}"
+  else
+    echo "  ✗ ${TABLE} — NO ENCONTRADA" >&2
+    ALL_OK=false
+  fi
+done
+
+echo ""
+if [ "$ALL_OK" = true ]; then
+  echo "==================================================="
+  echo "RESULTADO: migrate deploy completado correctamente."
+  echo "           Tablas de equipos presentes (5/5)."
+  echo "==================================================="
+else
+  echo "==================================================="
+  echo "ERROR: faltan tablas de equipos. Ver salida arriba."
+  echo "==================================================="
+  exit 1
+fi
