@@ -111,12 +111,18 @@ docker compose -f docker-compose.prod.yml logs -f api
 
 ### 6) Migraciones / esquema (modo seguro)
 
-Con `PRISMA_DB_PUSH_ON_START=false`, aplica cambios de esquema de forma controlada:
+Con `PRISMA_DB_PUSH_ON_START=false`, aplica migraciones de forma controlada y trazable:
 
 ```bash
-docker compose -f docker-compose.prod.yml exec api npx prisma db push
+# Aplicar migraciones pendientes (produce historial auditable)
+docker compose -f docker-compose.prod.yml exec api npx prisma migrate deploy
 docker compose -f docker-compose.prod.yml exec api npx prisma generate
 ```
+
+> **Importante:** usa `prisma migrate deploy`, no `prisma db push`.
+> `db push` no registra historial, no es idempotente en producción y puede
+> silenciar pérdidas de datos. Reserva `db push` exclusivamente para
+> entornos de prototipado local.
 
 Luego reinicia API:
 

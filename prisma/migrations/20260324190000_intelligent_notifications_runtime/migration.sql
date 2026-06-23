@@ -61,7 +61,7 @@ CREATE TABLE `intelligent_notification_subscriber_matches` (
   `updated_at` DATETIME(3) NOT NULL,
 
   UNIQUE INDEX `insm_finding_subscriber_key`(`finding_id`, `subscriber_user_id`),
-  INDEX `intelligent_notification_subscriber_matches_subscriber_user_id_idx`(`subscriber_user_id`),
+  INDEX `insm_subscriber_user_id_idx`(`subscriber_user_id`),
   INDEX `intelligent_notification_subscriber_matches_should_notify_idx`(`should_notify`),
   INDEX `intelligent_notification_subscriber_matches_is_test_idx`(`is_test`),
   INDEX `intelligent_notification_subscriber_matches_sent_at_idx`(`sent_at` DESC),
@@ -106,7 +106,7 @@ ALTER TABLE `intelligent_notification_subscriber_matches`
   ADD CONSTRAINT `intelligent_notification_subscriber_matches_finding_id_fkey`
     FOREIGN KEY (`finding_id`) REFERENCES `intelligent_notification_findings`(`id`)
     ON DELETE CASCADE ON UPDATE CASCADE,
-  ADD CONSTRAINT `intelligent_notification_subscriber_matches_subscriber_user_id_fkey`
+  ADD CONSTRAINT `insm_subscriber_user_id_fkey`
     FOREIGN KEY (`subscriber_user_id`) REFERENCES `users`(`id`)
     ON DELETE CASCADE ON UPDATE CASCADE;
 

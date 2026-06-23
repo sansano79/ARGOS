@@ -8,7 +8,9 @@
       "Bash(ls C:/Users/apere/Documents/GitHub/occ-vuls/node_modules/.bin/prisma*)",
       "mcp__Claude_Preview__preview_start",
       "Bash(source ~/.nvm/nvm.sh)",
-      "Bash(source ~/.zshrc)"
+      "Bash(source ~/.zshrc)",
+      "Bash(chmod +x *)",
+      "Bash(bash *)"
     ]
   }
 }
