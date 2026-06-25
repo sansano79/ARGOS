@@ -51,6 +51,7 @@ services:
       - .env.prod
     environment:
       NODE_ENV: production
+      OCC_ENV: ${OCC_ENV:-production}
       PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
     healthcheck:
       test:

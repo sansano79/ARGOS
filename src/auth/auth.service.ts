@@ -5,6 +5,7 @@ import * as bcrypt from 'bcrypt';
 import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
 import crypto from 'crypto';
+import { getTestMfaBypassStartupStatus, shouldBypassMfaForUser } from './test-mfa-bypass.util';
 
 @Injectable()
 export class AuthService {
@@ -116,6 +117,16 @@ export class AuthService {
     if (!user || user.authProvider !== 'LOCAL') {
       throw new UnauthorizedException('Invalid credentials');
     }
+    if (shouldBypassMfaForUser(user, {
+      occEnv: process.env.OCC_ENV,
+      enabled: process.env.MFA_TEST_BYPASS_ENABLED,
+      emails: process.env.MFA_TEST_BYPASS_EMAILS,
+    })) {
+      const ipAddress = String(user?.loginContext?.ipAddress || '0.0.0.0');
+      this.logger.warn(`TEST_MFA_BYPASS_USED email=${String(user.email || '').toLowerCase()} ip=${ipAddress} timestamp=${new Date().toISOString()}`);
+      return this.issueAccessToken(user);
+    }
+
     if (!user.mfaEnabled) {
       return {
         mfaEnrollRequired: true,
@@ -218,6 +229,14 @@ export class AuthService {
   private async recordAttempt(email: string, success: boolean) {
     await this.prisma.loginAttempt.create({
       data: { email, ipAddress: '0.0.0.0', success },
+    });
+  }
+
+  getTestMfaBypassStatus() {
+    return getTestMfaBypassStartupStatus({
+      occEnv: process.env.OCC_ENV,
+      enabled: process.env.MFA_TEST_BYPASS_ENABLED,
+      emails: process.env.MFA_TEST_BYPASS_EMAILS,
     });
   }
 }

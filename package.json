@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "prisma generate && nest build",
+    "build": "prisma generate && nest build && tsc scripts/seed-test-data.ts scripts/cleanup-test-data.ts --target ES2020 --module commonjs --lib es2020 --skipLibCheck --esModuleInterop --resolveJsonModule --outDir dist --rootDir . --declaration false",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -23,6 +23,8 @@
     "prisma:migrate:prod": "prisma migrate deploy",
     "prisma:seed": "ts-node prisma/seed.ts",
     "prisma:seed:test-subscriber": "[ -f prisma/seed-test-subscriber.js ] && node prisma/seed-test-subscriber.js || ts-node prisma/seed-test-subscriber.ts",
+    "seed:test-data": "node dist/scripts/seed-test-data.js",
+    "cleanup:test-data": "node dist/scripts/cleanup-test-data.js",
     "prisma:studio": "prisma studio",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
