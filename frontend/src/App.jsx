@@ -4,9 +4,11 @@ import {
   ACCOUNT_PATH,
   DETAIL_VIEW,
   PORTAL_PATH,
+  SUBSCRIBER_TEAMS_PATH,
   VULN_LIST_PATH,
   KEV_LIST_PATH,
   getDetailPathForView,
+  getSubscriberTeamDetailPath,
   getListPathForView,
   isViewAllowedForRole,
   normalizeDetailSourceView,
@@ -27,6 +29,8 @@ import {
   createDefaultNotificationCenterState,
   normalizeNotificationCenterSettings,
 } from "./utils/notificationCenter.js";
+import SubscriberTeamsPage from "./features/subscriber-teams/pages/SubscriberTeamsPage.jsx";
+import SubscriberTeamDetailPage from "./features/subscriber-teams/pages/SubscriberTeamDetailPage.jsx";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const API_BASE = "/api";
@@ -1035,6 +1039,7 @@ export default function VulnDashboard() {
   // Navigation
   const [view, setView] = useState("overview");
   const [collapsed, setCollapsed] = useState(false);
+  const [subscriberTeamsRoute, setSubscriberTeamsRoute] = useState({ teamId: null });
 
   useEffect(() => {
     if (isLoggedIn) return;
@@ -1909,6 +1914,11 @@ export default function VulnDashboard() {
     routeInitRef.current = true;
     const route = parseAppRoute(window.location.pathname);
     if (!route) return;
+    if (route.view === "subscriber-teams") {
+      setSubscriberTeamsRoute({ teamId: route.teamId || null });
+      setView("subscriber-teams");
+      return;
+    }
     if (route.view === DETAIL_VIEW && route.cveId) {
       setDetailContext({ sourceView: normalizeDetailSourceView(route.sourceView), cveId: route.cveId });
       setView(DETAIL_VIEW);
@@ -1926,6 +1936,13 @@ export default function VulnDashboard() {
         setVulnDetail(null);
         setSelectedVuln(null);
         setView("overview");
+        return;
+      }
+      if (route.view === "subscriber-teams") {
+        setSubscriberTeamsRoute({ teamId: route.teamId || null });
+        setVulnDetail(null);
+        setSelectedVuln(null);
+        setView("subscriber-teams");
         return;
       }
       if (route.view === DETAIL_VIEW && route.cveId) {
@@ -1954,18 +1971,21 @@ export default function VulnDashboard() {
             ? ACCOUNT_PATH
             : view === "portal"
               ? PORTAL_PATH
+              : view === "subscriber-teams"
+                ? (subscriberTeamsRoute.teamId ? getSubscriberTeamDetailPath(subscriberTeamsRoute.teamId) : SUBSCRIBER_TEAMS_PATH)
           : (
             window.location.pathname.startsWith(VULN_LIST_PATH)
             || window.location.pathname.startsWith(KEV_LIST_PATH)
             || window.location.pathname === ACCOUNT_PATH
             || window.location.pathname === PORTAL_PATH
+            || window.location.pathname.startsWith(SUBSCRIBER_TEAMS_PATH)
           )
             ? "/"
             : "";
     if (nextPath && window.location.pathname !== nextPath) {
       window.history.replaceState({}, "", nextPath);
     }
-  }, [authMode, detailContext.cveId, detailContext.sourceView, isLoggedIn, view]);
+  }, [authMode, detailContext.cveId, detailContext.sourceView, isLoggedIn, subscriberTeamsRoute.teamId, view]);
 
   useEffect(() => {
     if (!isLoggedIn || view !== DETAIL_VIEW || !detailContext.sourceView || vulns.length > 0) return;
@@ -3589,6 +3609,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     { id: "reports", label: "Informes", icon: "file" },
     { id: "ai", label: "Asistente IA", icon: "brain" },
     { id: "collector", label: "Collector", icon: "server" },
+    { id: "subscriber-teams", label: "Equipos suscriptores", icon: "users" },
     { id: "user-mgmt", label: "Gestión usuarios", icon: "users" },
     { id: "settings", label: "Configuración", icon: "settings" },
   ];
@@ -3613,11 +3634,13 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     : (
       isSubscriber
         ? allNav.filter((n) => subscriberAllowedViews.includes(n.id))
-        : (isViewer ? allNav.filter((n) => viewerAllowedViews.includes(n.id)) : allNav.filter((n) => n.id !== "user-mgmt"))
+        : (isViewer ? allNav.filter((n) => viewerAllowedViews.includes(n.id)) : allNav.filter((n) => !["user-mgmt", "subscriber-teams"].includes(n.id)))
     );
   const navActiveView = view === DETAIL_VIEW ? normalizeDetailSourceView(detailContext.sourceView) : view;
   const currentSection = view === DETAIL_VIEW
     ? `${nav.find((n) => n.id === navActiveView)?.label || "Vulnerabilidades"} · ${detailContext.cveId || "Detalle CVE"}`
+    : view === "subscriber-teams" && subscriberTeamsRoute.teamId
+      ? "Equipos suscriptores · Detalle"
     : nav.find((n) => n.id === view)?.label || "Panel";
   const backfillMetrics = parseMaybeJsonObject(backfillStatus?.metrics || backfillStatus?.job?.metrics);
   const backfillCheckpointSummary = parseMaybeJsonObject(backfillStatus?.checkpointSummary);
@@ -3881,7 +3904,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                     </>
                   )}
                   {isFirstAdmin && collapsed && <div style={{ height: 1, background: "rgba(255,255,255,0.06)", margin: "6px 12px" }} />}
-                  <div className="occ-sidebar-nav-item" onClick={() => { setVulnDetail(null); setSelectedVuln(null); setView(n.id); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: collapsed ? "9px 16px" : isChild ? "8px 14px 8px 30px" : "9px 14px", cursor: "pointer", color: isActive ? "#fff" : "rgba(255,255,255,0.5)", background: isActive ? "rgba(37,99,235,0.12)" : "transparent", borderLeft: "none", transition: "all 0.12s", margin: collapsed ? "1px 6px" : "1px 10px", borderRadius: 8 }} onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
+                  <div className="occ-sidebar-nav-item" onClick={() => { setVulnDetail(null); setSelectedVuln(null); if (n.id === "subscriber-teams") setSubscriberTeamsRoute({ teamId: null }); setView(n.id); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: collapsed ? "9px 16px" : isChild ? "8px 14px 8px 30px" : "9px 14px", cursor: "pointer", color: isActive ? "#fff" : "rgba(255,255,255,0.5)", background: isActive ? "rgba(37,99,235,0.12)" : "transparent", borderLeft: "none", transition: "all 0.12s", margin: collapsed ? "1px 6px" : "1px 10px", borderRadius: 8 }} onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
                     <I name={n.icon} size={16} color={isActive ? C.blueLight : "rgba(255,255,255,0.4)"} />
                     {!collapsed && <span style={{ fontSize: 12.5, fontWeight: isActive ? 600 : 400, letterSpacing: "-0.005em" }}>{n.label}</span>}
                   </div>
@@ -5872,6 +5895,24 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 </div>
               )}
             </>}
+
+            {view === "subscriber-teams" && (
+              subscriberTeamsRoute.teamId
+                ? (
+                  <SubscriberTeamDetailPage
+                    apiFetch={apiFetch}
+                    currentUser={currentUser}
+                    teamId={subscriberTeamsRoute.teamId}
+                    onBack={() => setSubscriberTeamsRoute({ teamId: null })}
+                  />
+                )
+                : (
+                  <SubscriberTeamsPage
+                    apiFetch={apiFetch}
+                    onOpenTeam={(teamId) => setSubscriberTeamsRoute({ teamId })}
+                  />
+                )
+            )}
 
             {/* ═══ SETTINGS ═══ */}
             {view === "settings" && <>
