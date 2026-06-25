@@ -29,7 +29,7 @@ export default function SystemForm({
   return (
     <DialogFrame
       title={value.id ? "Editar sistema / unidad" : "Añadir sistema / unidad"}
-      subtitle="El backend actual no expone edición de rawData y todavía no acepta healthStatus o tags en create/update."
+      subtitle="`rawData` no se expone en la UI. `source` solo se edita durante el alta."
       onClose={loading ? () => {} : onClose}
       wide
       footer={(
@@ -47,7 +47,7 @@ export default function SystemForm({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
             <TextInput label="Nombre" value={value.name} onChange={(next) => onChange({ ...value, name: next })} error={errors.name} autoFocus />
             <TextInput label="External ID" value={value.externalId} onChange={(next) => onChange({ ...value, externalId: next })} error={errors.externalId} />
-            <TextInput label="Origen" value={value.source} onChange={(next) => onChange({ ...value, source: next })} error={errors.source} />
+            {!value.id && <TextInput label="Origen" value={value.source} onChange={(next) => onChange({ ...value, source: next })} error={errors.source} />}
           </div>
           <TextArea label="Descripción" value={value.description} onChange={(next) => onChange({ ...value, description: next })} rows={3} />
         </section>
@@ -59,6 +59,7 @@ export default function SystemForm({
             <TextInput label="FQDN" value={value.fqdn} onChange={(next) => onChange({ ...value, fqdn: next })} error={errors.fqdn} />
             <TextInput label="Plataforma" value={value.platform} onChange={(next) => onChange({ ...value, platform: next })} error={errors.platform} />
             <TextInput label="Versión del SO" value={value.osVersion} onChange={(next) => onChange({ ...value, osVersion: next })} error={errors.osVersion} />
+            <TextInput label="Salud" value={value.healthStatus} onChange={(next) => onChange({ ...value, healthStatus: next })} error={errors.healthStatus} />
             <SelectField
               label="Riesgo"
               value={value.riskLevel}
@@ -67,6 +68,7 @@ export default function SystemForm({
               error={errors.riskLevel}
             />
           </div>
+          <TextInput label="Tags" value={value.tags} onChange={(next) => onChange({ ...value, tags: next })} help="Texto libre o lista separada por comas." />
         </section>
 
         <section style={{ display: "grid", gap: 12 }}>

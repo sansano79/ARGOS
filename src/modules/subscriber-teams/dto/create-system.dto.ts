@@ -45,6 +45,11 @@ export class CreateSystemDto {
   @MaxLength(191)
   riskLevel?: string;
 
+  @IsString()
+  @IsOptional()
+  @MaxLength(191)
+  healthStatus?: string;
+
   @IsBoolean()
   @IsOptional()
   isSelected?: boolean;
@@ -52,4 +57,8 @@ export class CreateSystemDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @IsString()
+  @IsOptional()
+  tags?: string;
 }

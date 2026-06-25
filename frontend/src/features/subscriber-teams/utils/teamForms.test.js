@@ -53,12 +53,14 @@ test("recipient payload excludes verifiedAt and normalizes email", () => {
   assert.equal("verifiedAt" in payload, false);
 });
 
-test("system payload never emits rawData and update payload omits source", () => {
+test("system payload emits healthStatus and tags, never rawData, and update payload omits source", () => {
   const createPayload = buildSystemPayload({
     name: " Servidor ERP España ",
     source: " manual ",
     hostname: " ERP01 ",
     fqdn: " ERP01.CORP.LOCAL ",
+    healthStatus: " healthy ",
+    tags: " erp, production ",
     rawData: "{\"debug\":true}",
   });
 
@@ -67,6 +69,8 @@ test("system payload never emits rawData and update payload omits source", () =>
     source: "manual",
     hostname: "erp01",
     fqdn: "erp01.corp.local",
+    healthStatus: "healthy",
+    tags: "erp, production",
     isSelected: true,
     isActive: true,
   });
@@ -111,4 +115,3 @@ test("recipient and system validation catch invalid values", () => {
     name: "El nombre es obligatorio.",
   });
 });
-

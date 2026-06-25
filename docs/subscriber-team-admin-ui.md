@@ -233,8 +233,10 @@ Campos usados en esta fase:
 - osVersion;
 - description;
 - riskLevel;
+- healthStatus;
 - isSelected;
 - isActive.
+- tags.
 
 `rawData` no aparece ni se envía.
 
@@ -359,9 +361,8 @@ No se ha ejecutado aún contra el LXC.
 
 1. `GET /subscriber-teams` solo devuelve conteo nativo de miembros activos. Para los demás contadores del listado se hace enriquecimiento frontend con llamadas adicionales.
 2. No hay paginación backend para equipos; la tabla muestra la colección completa.
-3. El backend de Fase 1B no acepta `healthStatus` ni `tags` en `CreateSystemDto` / `UpdateSystemDto`, aunque esos campos existen en lectura.
-4. `UpdateSystemDto` tampoco acepta `source`; la UI lo mantiene en alta y lo omite en edición para evitar `400`.
-5. No se ha añadido framework de test de componentes o navegador en esta fase.
+3. `UpdateSystemDto` no acepta `source`; la UI lo mantiene en alta y lo omite en edición para evitar `400`.
+4. No se ha añadido framework de test de componentes o navegador en esta fase.
 
 ---
 
@@ -372,4 +373,3 @@ Trabajo posterior recomendado:
 - ampliar contrato backend de sistemas para `healthStatus` y `tags` si se confirma como requisito de edición;
 - validar el flujo completo con navegador en entorno local/LXC;
 - preparar integración del modelo team-based con el portal y el motor de notificaciones sin sustituir todavía el legacy.
-

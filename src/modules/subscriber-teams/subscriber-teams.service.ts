@@ -332,8 +332,10 @@ export class SubscriberTeamsService {
           platform: trim(dto.platform) ?? null,
           osVersion: trim(dto.osVersion) ?? null,
           riskLevel: trim(dto.riskLevel) ?? null,
+          healthStatus: trim(dto.healthStatus) ?? null,
           isSelected: dto.isSelected ?? true,
           isActive: dto.isActive ?? true,
+          tags: trim(dto.tags) ?? null,
         },
       });
     } catch (err) {
@@ -359,8 +361,10 @@ export class SubscriberTeamsService {
           ...(dto.platform !== undefined && { platform: trim(dto.platform) }),
           ...(dto.osVersion !== undefined && { osVersion: trim(dto.osVersion) }),
           ...(dto.riskLevel !== undefined && { riskLevel: trim(dto.riskLevel) }),
+          ...(dto.healthStatus !== undefined && { healthStatus: trim(dto.healthStatus) }),
           ...(dto.isSelected !== undefined && { isSelected: dto.isSelected }),
           ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+          ...(dto.tags !== undefined && { tags: trim(dto.tags) }),
         },
       });
     } catch (err) {

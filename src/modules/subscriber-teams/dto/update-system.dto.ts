@@ -40,6 +40,11 @@ export class UpdateSystemDto {
   @MaxLength(191)
   riskLevel?: string;
 
+  @IsString()
+  @IsOptional()
+  @MaxLength(191)
+  healthStatus?: string;
+
   @IsBoolean()
   @IsOptional()
   isSelected?: boolean;
@@ -47,4 +52,8 @@ export class UpdateSystemDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @IsString()
+  @IsOptional()
+  tags?: string;
 }

@@ -232,6 +232,14 @@ describe('CreateSystemDto', () => {
     expect(await hasErrors(CreateSystemDto, { name: 'X', hostname: 'h'.repeat(192) })).toBe(true);
   });
 
+  it('accepts optional healthStatus and tags', async () => {
+    expect(await isValid(CreateSystemDto, {
+      name: 'X',
+      healthStatus: 'healthy',
+      tags: 'erp, production',
+    })).toBe(true);
+  });
+
   it('rejects rawData (unknown field → forbidNonWhitelisted rejects with 400)', async () => {
     expect(await hasErrors(CreateSystemDto, { name: 'X', rawData: 'big json blob' })).toBe(true);
   });

@@ -405,6 +405,23 @@ describe('SubscriberTeamsService', () => {
         expect.objectContaining({ data: expect.objectContaining({ name: 'Srv' }) }),
       );
     });
+
+    it('persists healthStatus and tags when provided', async () => {
+      prisma.teamSystem.create.mockResolvedValue({ id: 1, name: 'Srv' });
+      await service.createSystem(1, {
+        name: 'Srv',
+        healthStatus: ' healthy ',
+        tags: ' erp, production ',
+      });
+      expect(prisma.teamSystem.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            healthStatus: 'healthy',
+            tags: 'erp, production',
+          }),
+        }),
+      );
+    });
   });
 
   // ── updateSystem ──────────────────────────────────────────────
@@ -428,6 +445,23 @@ describe('SubscriberTeamsService', () => {
       await service.updateSystem(1, 5, { hostname: '  HOST.LOCAL  ' });
       expect(prisma.teamSystem.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ hostname: 'host.local' }) }),
+      );
+    });
+
+    it('updates healthStatus and tags when provided', async () => {
+      prisma.teamSystem.findFirst.mockResolvedValue({ id: 5 });
+      prisma.teamSystem.update.mockResolvedValue({ id: 5 });
+      await service.updateSystem(1, 5, {
+        healthStatus: ' degraded ',
+        tags: ' critical, erp ',
+      });
+      expect(prisma.teamSystem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            healthStatus: 'degraded',
+            tags: 'critical, erp',
+          }),
+        }),
       );
     });
 

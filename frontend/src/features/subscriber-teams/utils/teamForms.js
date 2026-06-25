@@ -88,6 +88,8 @@ export const createDefaultSystemForm = () => ({
   osVersion: "",
   description: "",
   riskLevel: "",
+  healthStatus: "",
+  tags: "",
   isSelected: true,
   isActive: true,
 });
@@ -164,7 +166,7 @@ export const validateSubscriptionForm = (form) => {
 
 export const validateSystemForm = (form) => {
   const errors = {};
-  const fields191 = ["name", "externalId", "source", "hostname", "fqdn", "platform", "osVersion", "riskLevel"];
+  const fields191 = ["name", "externalId", "source", "hostname", "fqdn", "platform", "osVersion", "riskLevel", "healthStatus"];
   const name = trim(form?.name);
 
   if (!name) errors.name = "El nombre es obligatorio.";
@@ -217,6 +219,8 @@ export const buildSystemPayload = (form) => ({
   ...(optionalTrim(form?.osVersion) !== undefined && { osVersion: optionalTrim(form?.osVersion) }),
   ...(optionalTrim(form?.description) !== undefined && { description: optionalTrim(form?.description) }),
   ...(optionalTrim(form?.riskLevel) !== undefined && { riskLevel: optionalTrim(form?.riskLevel) }),
+  ...(optionalTrim(form?.healthStatus) !== undefined && { healthStatus: optionalTrim(form?.healthStatus) }),
+  ...(optionalTrim(form?.tags) !== undefined && { tags: optionalTrim(form?.tags) }),
   isSelected: parseBoolean(form?.isSelected, true),
   isActive: parseBoolean(form?.isActive, true),
 });

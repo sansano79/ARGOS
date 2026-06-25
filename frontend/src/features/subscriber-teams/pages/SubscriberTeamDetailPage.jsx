@@ -93,6 +93,8 @@ const buildEditableSystem = (system) => ({
   osVersion: system.osVersion || "",
   description: system.description || "",
   riskLevel: system.riskLevel || "",
+  healthStatus: system.healthStatus || "",
+  tags: joinCsvList(parseJsonStringArray(system.tags)),
   isSelected: system.isSelected !== false,
   isActive: system.isActive !== false,
 });

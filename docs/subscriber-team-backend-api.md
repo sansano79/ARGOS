@@ -206,8 +206,8 @@ Base path: `/api` · Requiere: `JwtAuthGuard` · Autorización: `TeamAccessServi
 | `UpdateRecipientDto` | — | mismos que create | `verifiedAt` no aceptado |
 | `CreateSubscriptionDto` | `vendor`, `product` | `versions` (string[]), `isActive` | Normalizados a minúsculas |
 | `UpdateSubscriptionDto` | — | `vendor`, `product`, `versions`, `isActive` | `teamId` no aceptado |
-| `CreateSystemDto` | `name` | `externalId`, `source`, `description`, `hostname`, `fqdn`, `platform`, `osVersion`, `riskLevel`, `isSelected`, `isActive` | `rawData` no aceptado |
-| `UpdateSystemDto` | — | mismos que create | |
+| `CreateSystemDto` | `name` | `externalId`, `source`, `description`, `hostname`, `fqdn`, `platform`, `osVersion`, `riskLevel`, `healthStatus`, `tags`, `isSelected`, `isActive` | `rawData` no aceptado |
+| `UpdateSystemDto` | — | `name`, `externalId`, `description`, `hostname`, `fqdn`, `platform`, `osVersion`, `riskLevel`, `healthStatus`, `tags`, `isSelected`, `isActive` | `source` no aceptado en update |
 
 **Nota:** `teamId`, `userId` e IDs internos no son aceptados desde el cuerpo de la petición. `verifiedAt` y `rawData` no son aceptados desde el cliente. `ValidationPipe(whitelist:true, forbidNonWhitelisted:true)` rechaza campos desconocidos con 400.
 

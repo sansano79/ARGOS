@@ -23,6 +23,7 @@ export default function TeamSystemsPanel({ systems, loading, error, canManage, o
             { key: "osVersion", label: "SO" },
             { key: "riskLevel", label: "Riesgo" },
             { key: "healthStatus", label: "Salud" },
+            { key: "tags", label: "Tags" },
             { key: "status", label: "Estado" },
             { key: "selected", label: "Seleccionado" },
             { key: "actions", label: "Acciones" },
@@ -42,6 +43,7 @@ export default function TeamSystemsPanel({ systems, loading, error, canManage, o
               <td style={{ padding: "12px", fontSize: 11 }}>{system.osVersion || "—"}</td>
               <td style={{ padding: "12px", fontSize: 11 }}>{system.riskLevel || "—"}</td>
               <td style={{ padding: "12px", fontSize: 11 }}>{system.healthStatus || "—"}</td>
+              <td style={{ padding: "12px", fontSize: 11 }}>{system.tags || "—"}</td>
               <td style={{ padding: "12px" }}><TeamStatusBadge isActive={system.isActive} /></td>
               <td style={{ padding: "12px", fontSize: 11 }}>{system.isSelected ? "Sí" : "No"}</td>
               <td style={{ padding: "12px" }}>
@@ -57,4 +59,3 @@ export default function TeamSystemsPanel({ systems, loading, error, canManage, o
     </Panel>
   );
 }
-
