@@ -18,6 +18,7 @@ import { ProductAssetsModule } from './modules/product-assets/product-assets.mod
 import { DependencyEvidenceImportsModule } from './modules/dependency-evidence-imports/dependency-evidence-imports.module';
 import { VulnerabilityProductImpactsModule } from './modules/vulnerability-product-impacts/vulnerability-product-impacts.module';
 import { ExternalApiModule } from './modules/external-api/external-api.module';
+import { SubscriberTeamsModule } from './modules/subscriber-teams/subscriber-teams.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { ExternalApiModule } from './modules/external-api/external-api.module';
     DependencyEvidenceImportsModule,
     VulnerabilityProductImpactsModule,
     ExternalApiModule,
+    SubscriberTeamsModule,
   ],
 })
 export class AppModule { }
