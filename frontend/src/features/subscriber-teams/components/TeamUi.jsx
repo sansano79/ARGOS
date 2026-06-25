@@ -23,6 +23,57 @@ export const teamColors = {
   lowBg: "#f0fdf4",
 };
 
+export const DIALOG_AUTOFOCUS_SELECTOR = "[autofocus]";
+export const DIALOG_FOCUS_PRIORITY_SELECTORS = [
+  "input:not([disabled]):not([type='hidden'])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[contenteditable='true']",
+  "[href]",
+  "[tabindex]:not([tabindex='-1'])",
+  "button:not([disabled])",
+];
+
+export const findPreferredDialogFocusTarget = (panel) => {
+  if (!panel?.querySelector) return null;
+
+  const autoFocusTarget = panel.querySelector(DIALOG_AUTOFOCUS_SELECTOR);
+  if (autoFocusTarget) return autoFocusTarget;
+
+  for (const selector of DIALOG_FOCUS_PRIORITY_SELECTORS) {
+    const candidate = panel.querySelector(selector);
+    if (candidate) return candidate;
+  }
+
+  return null;
+};
+
+export const setupDialogFrameFocusLifecycle = ({
+  panel,
+  restoreFocusRef,
+  onCloseRef,
+  documentTarget = document,
+  windowTarget = window,
+}) => {
+  restoreFocusRef.current = documentTarget?.activeElement || null;
+
+  const preferredFocus = findPreferredDialogFocusTarget(panel);
+  preferredFocus?.focus?.();
+
+  const handleKeyDown = (event) => {
+    if (event.key === "Escape") {
+      onCloseRef.current?.();
+    }
+  };
+
+  windowTarget?.addEventListener?.("keydown", handleKeyDown);
+
+  return () => {
+    windowTarget?.removeEventListener?.("keydown", handleKeyDown);
+    restoreFocusRef.current?.focus?.();
+  };
+};
+
 export const PageHeader = ({ title, subtitle, actions }) => (
   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 20 }}>
     <div>
@@ -273,22 +324,16 @@ export const DataTable = ({ columns, rows, empty, loading = false, rowKey, rende
 export const DialogFrame = ({ title, subtitle, children, onClose, footer, wide = false }) => {
   const panelRef = useRef(null);
   const restoreFocusRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
-    restoreFocusRef.current = document.activeElement;
-    const firstFocusable = panelRef.current?.querySelector("button, input, select, textarea, [href], [tabindex]:not([tabindex='-1'])");
-    firstFocusable?.focus();
-
-    const handleKeyDown = (event) => {
-      if (event.key === "Escape") onClose();
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      restoreFocusRef.current?.focus?.();
-    };
-  }, [onClose]);
+    return setupDialogFrameFocusLifecycle({
+      panel: panelRef.current,
+      restoreFocusRef,
+      onCloseRef,
+    });
+  }, []);
 
   return (
     <div
@@ -315,4 +360,3 @@ export const DialogFrame = ({ title, subtitle, children, onClose, footer, wide =
     </div>
   );
 };
-
