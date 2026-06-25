@@ -12,8 +12,12 @@ import {
   buildUserPayload,
   canAssignTeamRoleForGlobalRole,
   getAllowedTeamRolesForGlobalRole,
+  getEffectiveGlobalRoleForTeamAssignments,
   getGlobalUserRoleLabel,
   getTeamRoleCompatibilityMessage,
+  getUserGlobalRoleOptions,
+  getUserTeamRoleOptions,
+  shouldValidateTeamAssignments,
   validateTeamAssignments,
 } from "./userManagement.js";
 
@@ -38,7 +42,7 @@ test("visible global role selector keeps ADMIN, TEAM_MANAGER and USER only", () 
   );
 });
 
-test("buildUserFormState preserves legacy role internally and maps active team memberships", () => {
+test("buildUserFormState preserves hidden legacy role and maps active team memberships", () => {
   const state = buildUserFormState({
     id: 9,
     name: "Legacy Subscriber",
@@ -57,7 +61,7 @@ test("buildUserFormState preserves legacy role internally and maps active team m
     name: "Legacy Subscriber",
     email: "legacy@example.local",
     password: "",
-    role: "USER",
+    role: "SUBSCRIBER",
     originalRole: "SUBSCRIBER",
     roleTouched: false,
     canLogin: false,
@@ -67,11 +71,16 @@ test("buildUserFormState preserves legacy role internally and maps active team m
   });
 });
 
-test("team role compatibility follows provisional global authorization model", () => {
+test("team role compatibility follows the fail-closed authorization model", () => {
   assert.equal(canAssignTeamRoleForGlobalRole("ADMIN", "TEAM_MANAGER"), true);
+  assert.equal(canAssignTeamRoleForGlobalRole("ADMIN", "TEAM_VIEWER"), true);
   assert.equal(canAssignTeamRoleForGlobalRole("TEAM_MANAGER", "TEAM_MANAGER"), true);
   assert.equal(canAssignTeamRoleForGlobalRole("USER", "TEAM_MANAGER"), false);
+  assert.equal(canAssignTeamRoleForGlobalRole("USER", "TEAM_VIEWER"), true);
+  assert.equal(canAssignTeamRoleForGlobalRole("VIEWER", "TEAM_VIEWER"), false);
+  assert.equal(canAssignTeamRoleForGlobalRole("SUBSCRIBER", "TEAM_VIEWER"), false);
   assert.deepEqual(getAllowedTeamRolesForGlobalRole("USER"), ["TEAM_VIEWER"]);
+  assert.deepEqual(getAllowedTeamRolesForGlobalRole("VIEWER"), []);
   assert.equal(
     getTeamRoleCompatibilityMessage("USER", "TEAM_MANAGER"),
     "Solo un Administrador de plataforma o un Gestor de equipo pueden recibir el rol interno Gestor del equipo.",
@@ -100,6 +109,26 @@ test("team assignment helpers prevent duplicate teams and manual invalid ids", (
     1: "Solo un Administrador de plataforma o un Gestor de equipo pueden recibir el rol interno Gestor del equipo.",
     2: "Este equipo ya está asignado.",
   });
+});
+
+test("hidden global roles stay controlled until the admin chooses a visible role", () => {
+  const user = {
+    id: 33,
+    role: "SUBSCRIBER",
+    originalRole: "SUBSCRIBER",
+    roleTouched: false,
+    teamAssignmentsTouched: false,
+  };
+
+  assert.equal(getEffectiveGlobalRoleForTeamAssignments(user), "SUBSCRIBER");
+  assert.equal(shouldValidateTeamAssignments(user), false);
+  assert.deepEqual(getUserTeamRoleOptions(user, "TEAM_MANAGER"), ["TEAM_MANAGER"]);
+  assert.deepEqual(getUserGlobalRoleOptions(user), [
+    { value: "SUBSCRIBER", label: "Rol legacy actual: Suscriptor (reservado)", hidden: true },
+    { value: "ADMIN", label: "Administrador de plataforma" },
+    { value: "TEAM_MANAGER", label: "Gestor de equipo" },
+    { value: "USER", label: "Usuario" },
+  ]);
 });
 
 test("buildUserPayload for create sends only visible user fields plus explicit team assignments", () => {
@@ -132,13 +161,13 @@ test("buildUserPayload for create sends only visible user fields plus explicit t
   }
 });
 
-test("buildUserPayload for hidden legacy roles preserves legacy backend data by omitting untouched role and memberships", () => {
+test("buildUserPayload for hidden legacy roles preserves backend data by omitting untouched role and memberships", () => {
   const payload = buildUserPayload({
     id: 15,
     name: "Ana",
     email: "ana@example.local",
     canLogin: true,
-    role: "USER",
+    role: "SUBSCRIBER",
     originalRole: "SUBSCRIBER",
     roleTouched: false,
     isActive: false,
@@ -154,7 +183,7 @@ test("buildUserPayload for hidden legacy roles preserves legacy backend data by 
   });
 });
 
-test("buildUserPayload for visible roles syncs full team assignment state during edit", () => {
+test("buildUserPayload for visible role edits does not sync team assignments unless the section changed", () => {
   const payload = buildUserPayload({
     id: 21,
     name: "Luis",
@@ -174,14 +203,37 @@ test("buildUserPayload for visible roles syncs full team assignment state during
     canLogin: true,
     isActive: true,
     role: "TEAM_MANAGER",
-    teamAssignments: [{ teamId: 2, role: "TEAM_VIEWER" }],
   });
 });
 
-test("user management copy and role labels explain responsibility split", () => {
+test("buildUserPayload sends explicit empty team assignments only when the section was edited", () => {
+  const payload = buildUserPayload({
+    id: 22,
+    name: "Luis",
+    email: "luis@example.local",
+    canLogin: true,
+    role: "TEAM_MANAGER",
+    originalRole: "TEAM_MANAGER",
+    roleTouched: false,
+    isActive: true,
+    teamAssignments: [],
+    teamAssignmentsTouched: true,
+  });
+
+  assert.deepEqual(payload, {
+    name: "Luis",
+    email: "luis@example.local",
+    canLogin: true,
+    isActive: true,
+    role: "TEAM_MANAGER",
+    teamAssignments: [],
+  });
+});
+
+test("user management copy and role labels explain the responsibility split", () => {
   assert.equal(USER_MANAGEMENT_NOTE, "Los accesos se gestionan desde Usuarios. Los destinatarios, suscripciones y sistemas se gestionan desde Equipos suscriptores.");
-  assert.equal(USER_MANAGEMENT_TEAM_NOTE, "Las notificaciones y suscripciones se configuran en Equipos suscriptores.");
-  assert.equal(USER_TEAM_ASSIGNMENTS_NOTE, "La asignación inicial a equipos se gestiona aquí. La operación usa reemplazo completo: las asignaciones no incluidas se desactivan.");
+  assert.equal(USER_MANAGEMENT_TEAM_NOTE, USER_MANAGEMENT_NOTE);
+  assert.equal(USER_TEAM_ASSIGNMENTS_NOTE, "La asignación inicial a equipos se gestiona aquí. Si envías esta sección, la operación usa reemplazo completo: las asignaciones no incluidas se desactivan.");
   assert.equal(getGlobalUserRoleLabel("ADMIN"), "Administrador de plataforma");
   assert.equal(getGlobalUserRoleLabel("TEAM_MANAGER"), "Gestor de equipo");
   assert.equal(getGlobalUserRoleLabel("USER"), "Usuario");

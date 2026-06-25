@@ -1,6 +1,12 @@
 const trim = (value) => String(value || "").trim();
 const normalizeRole = (value) => trim(value).toUpperCase();
 
+const TEAM_ROLE_COMPATIBILITY_MATRIX = Object.freeze({
+  ADMIN: ["TEAM_MANAGER", "TEAM_VIEWER"],
+  TEAM_MANAGER: ["TEAM_MANAGER", "TEAM_VIEWER"],
+  USER: ["TEAM_VIEWER"],
+});
+
 export const VISIBLE_USER_GLOBAL_ROLES = ["ADMIN", "TEAM_MANAGER", "USER"];
 export const USER_GLOBAL_ROLES = VISIBLE_USER_GLOBAL_ROLES;
 export const USER_GLOBAL_ROLE_LABELS = {
@@ -35,20 +41,21 @@ export const LEGACY_USER_FIELDS = [
 export const USER_MANAGEMENT_NOTE =
   "Los accesos se gestionan desde Usuarios. Los destinatarios, suscripciones y sistemas se gestionan desde Equipos suscriptores.";
 
-export const USER_MANAGEMENT_TEAM_NOTE =
-  "Las notificaciones y suscripciones se configuran en Equipos suscriptores.";
+export const USER_MANAGEMENT_TEAM_NOTE = USER_MANAGEMENT_NOTE;
 
 export const USER_TEAM_ASSIGNMENTS_NOTE =
-  "La asignación inicial a equipos se gestiona aquí. La operación usa reemplazo completo: las asignaciones no incluidas se desactivan.";
+  "La asignación inicial a equipos se gestiona aquí. Si envías esta sección, la operación usa reemplazo completo: las asignaciones no incluidas se desactivan.";
 
 export const createDefaultTeamAssignment = () => ({
   teamId: "",
   role: "TEAM_VIEWER",
 });
 
+export const isVisibleUserGlobalRole = (value) => VISIBLE_USER_GLOBAL_ROLES.includes(normalizeRole(value));
+
 export const normalizeGlobalUserRole = (value) => {
   const normalized = normalizeRole(value);
-  return VISIBLE_USER_GLOBAL_ROLES.includes(normalized) ? normalized : "USER";
+  return isVisibleUserGlobalRole(normalized) ? normalized : "USER";
 };
 
 export const getGlobalUserRoleLabel = (value) => {
@@ -58,10 +65,7 @@ export const getGlobalUserRoleLabel = (value) => {
 
 export const getAllowedTeamRolesForGlobalRole = (globalRole) => {
   const normalized = normalizeRole(globalRole);
-  if (normalized === "ADMIN" || normalized === "TEAM_MANAGER") {
-    return ["TEAM_MANAGER", "TEAM_VIEWER"];
-  }
-  return ["TEAM_VIEWER"];
+  return TEAM_ROLE_COMPATIBILITY_MATRIX[normalized] || [];
 };
 
 export const canAssignTeamRoleForGlobalRole = (globalRole, teamRole) =>
@@ -133,8 +137,52 @@ export const validateTeamAssignments = (assignments = [], globalRole = "USER") =
   return errors;
 };
 
+export const getEffectiveGlobalRoleForTeamAssignments = (user = {}) => {
+  if (user?.id && !user?.roleTouched) {
+    return normalizeRole(user?.originalRole);
+  }
+  return normalizeRole(user?.role);
+};
+
+export const shouldValidateTeamAssignments = (user = {}) => {
+  if (!user?.id) return true;
+  return !!user?.teamAssignmentsTouched
+    || !!user?.roleTouched
+    || isVisibleUserGlobalRole(user?.originalRole);
+};
+
+export const getUserGlobalRoleOptions = (user = {}) => {
+  const currentRole = normalizeRole(user?.role);
+  const visibleOptions = [...USER_GLOBAL_ROLE_OPTIONS];
+
+  if (!currentRole || isVisibleUserGlobalRole(currentRole)) {
+    return visibleOptions;
+  }
+
+  return [
+    {
+      value: currentRole,
+      label: `Rol legacy actual: ${getGlobalUserRoleLabel(currentRole)} (reservado)`,
+      hidden: true,
+    },
+    ...visibleOptions,
+  ];
+};
+
+export const getUserTeamRoleOptions = (user = {}, currentRole = "") => {
+  const allowedRoles = getAllowedTeamRolesForGlobalRole(getEffectiveGlobalRoleForTeamAssignments(user));
+  const normalizedCurrentRole = normalizeRole(currentRole);
+
+  if (!normalizedCurrentRole || allowedRoles.includes(normalizedCurrentRole)) {
+    return allowedRoles;
+  }
+
+  return [normalizedCurrentRole, ...allowedRoles];
+};
+
 export const buildUserFormState = (user = {}) => {
   const originalRole = normalizeRole(user.role);
+  const role = originalRole || "USER";
   const memberships = Array.isArray(user.teamMemberships) ? user.teamMemberships : [];
 
   return {
@@ -142,7 +190,7 @@ export const buildUserFormState = (user = {}) => {
     name: user.name || "",
     email: user.email || "",
     password: "",
-    role: normalizeGlobalUserRole(originalRole),
+    role,
     originalRole,
     roleTouched: false,
     canLogin: user.canLogin !== false,
@@ -169,8 +217,9 @@ export const buildUserPayload = (user) => {
   }
 
   const originalRole = normalizeRole(user?.originalRole);
-  const normalizedRole = normalizeGlobalUserRole(user?.role);
-  const shouldIncludeRole = !user?.id || user?.roleTouched || VISIBLE_USER_GLOBAL_ROLES.includes(originalRole);
+  const currentRole = normalizeRole(user?.role);
+  const normalizedRole = normalizeGlobalUserRole(currentRole);
+  const shouldIncludeRole = !user?.id || !!user?.roleTouched || isVisibleUserGlobalRole(originalRole);
   if (shouldIncludeRole) {
     payload.role = normalizedRole;
   }
@@ -180,16 +229,13 @@ export const buildUserPayload = (user) => {
     payload.password = password;
   }
 
+  const normalizedAssignments = normalizeTeamAssignments(user?.teamAssignments || []);
   const shouldSyncTeamAssignments = !user?.id
-    ? Array.isArray(user?.teamAssignments) && user.teamAssignments.length > 0
-    : (
-      !!user?.teamAssignmentsTouched
-      || VISIBLE_USER_GLOBAL_ROLES.includes(originalRole)
-      || (!!user?.roleTouched && VISIBLE_USER_GLOBAL_ROLES.includes(normalizedRole))
-    );
+    ? normalizedAssignments.length > 0
+    : !!user?.teamAssignmentsTouched;
 
   if (shouldSyncTeamAssignments) {
-    payload.teamAssignments = normalizeTeamAssignments(user?.teamAssignments || []);
+    payload.teamAssignments = normalizedAssignments;
   }
 
   return payload;

@@ -30,20 +30,19 @@ import {
   normalizeNotificationCenterSettings,
 } from "./utils/notificationCenter.js";
 import {
-  USER_TEAM_ASSIGNMENTS_NOTE,
-  USER_GLOBAL_ROLE_OPTIONS,
   USER_MANAGEMENT_NOTE,
-  USER_MANAGEMENT_TEAM_NOTE,
   buildAssignableTeams,
+  getEffectiveGlobalRoleForTeamAssignments,
   buildUserFormState,
   buildUserPayload,
   createDefaultTeamAssignment,
-  getAllowedTeamRolesForGlobalRole,
   getGlobalUserRoleLabel,
+  shouldValidateTeamAssignments,
   validateTeamAssignments,
 } from "./utils/userManagement.js";
 import SubscriberTeamsPage from "./features/subscriber-teams/pages/SubscriberTeamsPage.jsx";
 import SubscriberTeamDetailPage from "./features/subscriber-teams/pages/SubscriberTeamDetailPage.jsx";
+import UserFormModal from "./features/users/components/UserFormModal.jsx";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const API_BASE = "/api";
@@ -3059,6 +3058,14 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     setShowUserForm(true);
   };
 
+  const updateUserField = (field, value, extra = {}) => {
+    setEditUser((prev) => ({
+      ...prev,
+      [field]: value,
+      ...extra,
+    }));
+  };
+
   const addUserTeamAssignment = () => {
     setEditUser((prev) => ({
       ...prev,
@@ -3564,7 +3571,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         : (isViewer ? allNav.filter((n) => viewerAllowedViews.includes(n.id)) : allNav.filter((n) => !["user-mgmt", "subscriber-teams"].includes(n.id)))
         )
     );
-  const userTeamAssignmentErrors = editUser ? validateTeamAssignments(editUser.teamAssignments || [], editUser.role) : {};
+  const userTeamAssignmentErrors = editUser && shouldValidateTeamAssignments(editUser)
+    ? validateTeamAssignments(
+      editUser.teamAssignments || [],
+      getEffectiveGlobalRoleForTeamAssignments(editUser),
+    )
+    : {};
   const navActiveView = view === DETAIL_VIEW ? normalizeDetailSourceView(detailContext.sourceView) : view;
   const currentSection = view === DETAIL_VIEW
     ? `${nav.find((n) => n.id === navActiveView)?.label || "Vulnerabilidades"} · ${detailContext.cveId || "Detalle CVE"}`
@@ -5659,120 +5671,21 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 </table>
               </Card>
               {showUserForm && editUser && (
-                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowUserForm(false)}>
-                  <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 680, maxHeight: "92vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
-                    <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 16px" }}>{editUser?.id ? "Editar Usuario" : "Nuevo Usuario"}</h3>
-                    <div style={{ marginBottom: 16, fontSize: 12, color: C.gray600 }}>
-                      {USER_MANAGEMENT_TEAM_NOTE}
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                      {[{ k: "name", l: "Nombre" }, { k: "email", l: "Email" }].map(f => (
-                        <div key={f.k} style={{ marginBottom: 12 }}>
-                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>{f.l}</label>
-                          <Input value={editUser[f.k] || ""} onChange={v => setEditUser({ ...editUser, [f.k]: v })} placeholder={f.l} />
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <input type="checkbox" checked={!!editUser.canLogin} onChange={e => setEditUser({
-                          ...editUser,
-                          canLogin: e.target.checked,
-                        })} />
-                        <span style={{ fontSize: 12, color: C.text }}>Permitir inicio de sesión</span>
-                      </div>
-                      <div>
-                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Rol global</label>
-                        <select
-                          value={editUser.role || "USER"}
-                          onChange={e => setEditUser({ ...editUser, role: e.target.value, roleTouched: true })}
-                          style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}
-                        >
-                          {USER_GLOBAL_ROLE_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>
-                        {editUser.id ? "Nueva contraseña (opcional)" : "Contraseña (obligatoria si permites acceso)"}
-                      </label>
-                      <input
-                        type="password"
-                        value={editUser.password || ""}
-                        onChange={e => setEditUser({ ...editUser, password: e.target.value })}
-                        placeholder="Mínimo 8 caracteres"
-                        style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }}
-                      />
-                    </div>
-                    <div style={{ display: "grid", gap: 10, marginBottom: 12, padding: 14, border: `1px solid ${C.gray200}`, borderRadius: 10, background: C.gray50 }}>
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>Equipos asignados</div>
-                        <div style={{ fontSize: 11, color: C.gray600, marginTop: 4 }}>{USER_TEAM_ASSIGNMENTS_NOTE}</div>
-                      </div>
-                      {(editUser.teamAssignments || []).map((assignment, index) => {
-                        const allowedTeamRoles = getAllowedTeamRolesForGlobalRole(editUser.role);
-                        const teamOptions = buildAssignableTeams(userMgmtTeams, editUser.teamAssignments || [], index);
-                        const assignmentError = userTeamAssignmentErrors[index] || "";
-                        return (
-                          <div key={`team-assignment-${index}`} style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) 220px auto", gap: 10, alignItems: "end" }}>
-                            <div>
-                              <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Equipo</label>
-                              <select
-                                value={assignment.teamId || ""}
-                                onChange={(e) => updateUserTeamAssignment(index, { teamId: e.target.value })}
-                                style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${assignmentError ? C.critical : C.gray200}`, borderRadius: 6, background: "#fff" }}
-                              >
-                                <option value="">Selecciona un equipo...</option>
-                                {teamOptions.map((option) => (
-                                  <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Rol en el equipo</label>
-                              <select
-                                value={assignment.role || "TEAM_VIEWER"}
-                                onChange={(e) => updateUserTeamAssignment(index, { role: e.target.value })}
-                                style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${assignmentError ? C.critical : C.gray200}`, borderRadius: 6, background: "#fff" }}
-                              >
-                                {allowedTeamRoles.map((teamRole) => (
-                                  <option key={teamRole} value={teamRole}>
-                                    {teamRole === "TEAM_MANAGER" ? "Gestor del equipo" : "Solo consulta"}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <Btn small onClick={() => removeUserTeamAssignment(index)}>Retirar</Btn>
-                            {assignmentError && (
-                              <div style={{ gridColumn: "1 / -1", fontSize: 11, color: C.critical, fontWeight: 600 }}>
-                                {assignmentError}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                      <div>
-                        <Btn onClick={addUserTeamAssignment}>Añadir equipo</Btn>
-                      </div>
-                    </div>
-                    {editUser.id && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                        <input
-                          type="checkbox"
-                          checked={!!editUser.isActive}
-                          onChange={e => setEditUser({ ...editUser, isActive: e.target.checked })}
-                        />
-                        <span style={{ fontSize: 12, color: C.text }}>Usuario activo</span>
-                      </div>
-                    )}
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
-                      <Btn onClick={() => setShowUserForm(false)}>Cancelar</Btn>
-                      <Btn primary onClick={() => saveUser(editUser)} disabled={Object.keys(userTeamAssignmentErrors).length > 0}>{editUser?.id ? "Guardar cambios" : "Crear usuario"}</Btn>
-                    </div>
-                  </div>
-                </div>
+                <UserFormModal
+                  user={editUser}
+                  getTeamOptions={(index) => buildAssignableTeams(userMgmtTeams, editUser.teamAssignments || [], index)}
+                  assignmentErrors={userTeamAssignmentErrors}
+                  onClose={() => setShowUserForm(false)}
+                  onSave={saveUser}
+                  onFieldChange={updateUserField}
+                  onAddAssignment={addUserTeamAssignment}
+                  onUpdateAssignment={updateUserTeamAssignment}
+                  onRemoveAssignment={removeUserTeamAssignment}
+                  saveDisabled={Object.keys(userTeamAssignmentErrors).length > 0}
+                  colors={C}
+                  ButtonComponent={Btn}
+                  InputComponent={Input}
+                />
               )}
             </>}
 
