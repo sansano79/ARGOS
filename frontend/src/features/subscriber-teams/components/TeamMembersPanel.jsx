@@ -1,4 +1,5 @@
 import { getTeamRoleLabel } from "../utils/teamViewModel.js";
+import { getGlobalUserRoleLabel } from "../../../utils/userManagement.js";
 import EmptyState from "./EmptyState.jsx";
 import TeamStatusBadge from "./TeamStatusBadge.jsx";
 import { Button, DataTable, InlineMessage, Panel, teamColors } from "./TeamUi.jsx";
@@ -30,7 +31,7 @@ export default function TeamMembersPanel({ members, loading, error, canManage, o
             <tr key={member.id} style={{ borderTop: `1px solid ${teamColors.gray100}` }}>
               <td style={{ padding: "12px", fontSize: 12, fontWeight: 700 }}>{member.user?.name || "Sin nombre"}</td>
               <td style={{ padding: "12px", fontSize: 11, color: teamColors.gray500 }}>{member.user?.email || "-"}</td>
-              <td style={{ padding: "12px", fontSize: 11 }}>{member.user?.role || "—"}</td>
+              <td style={{ padding: "12px", fontSize: 11 }}>{getGlobalUserRoleLabel(member.user?.role)}</td>
               <td style={{ padding: "12px", fontSize: 11 }}>{getTeamRoleLabel(member.role)}</td>
               <td style={{ padding: "12px" }}><TeamStatusBadge isActive={member.isActive} /></td>
               <td style={{ padding: "12px", fontSize: 11, color: teamColors.gray500 }}>{new Date(member.createdAt).toLocaleDateString("es-ES")}</td>
@@ -47,4 +48,3 @@ export default function TeamMembersPanel({ members, loading, error, canManage, o
     </Panel>
   );
 }
-

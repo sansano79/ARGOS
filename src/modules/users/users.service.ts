@@ -1,6 +1,21 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import { assertTeamRoleCompatibility } from '../subscriber-teams/team-role-compatibility';
+
+const TEAM_ASSIGNMENT_SELECT = {
+    id: true,
+    role: true,
+    isActive: true,
+    team: {
+        select: {
+            id: true,
+            name: true,
+            code: true,
+            isActive: true,
+        },
+    },
+} as const;
 
 @Injectable()
 export class UsersService {
@@ -30,6 +45,10 @@ export class UsersService {
                 lastLoginAt: true,
                 createdAt: true,
                 updatedAt: true,
+                teamMemberships: {
+                    orderBy: [{ isActive: 'desc' }, { createdAt: 'asc' }],
+                    select: TEAM_ASSIGNMENT_SELECT,
+                },
                 subscriptions: {
                     where: { isActive: true },
                     select: {
@@ -69,6 +88,10 @@ export class UsersService {
                 lastLoginAt: true,
                 createdAt: true,
                 updatedAt: true,
+                teamMemberships: {
+                    orderBy: [{ isActive: 'desc' }, { createdAt: 'asc' }],
+                    select: TEAM_ASSIGNMENT_SELECT,
+                },
                 subscriptions: {
                     where: { isActive: true },
                     select: {
@@ -133,6 +156,7 @@ export class UsersService {
         phone?: string;
         notes?: string;
         subscriptions?: Array<{ vendor: string; product: string; versions?: string[] }>;
+        teamAssignments?: Array<{ teamId: number; role: string }>;
     }) {
         const existing = await this.prisma.user.findUnique({
             where: { email: data.email },
@@ -141,9 +165,9 @@ export class UsersService {
 
         const canLogin = data.canLogin !== false;
         const isSubscriber = data.isSubscriber === true;
-        const role = isSubscriber ? 'SUBSCRIBER' : (canLogin ? (data.role || 'USER') : 'SUBSCRIBER');
+        const role = isSubscriber ? 'SUBSCRIBER' : (data.role || 'USER');
         const subscriptionItems = this.normalizeSubscriptions(data.subscriptions || []);
-        const canReceiveNotifications = data.canReceiveNotifications !== false;
+        const canReceiveNotifications = data.canReceiveNotifications === true;
         const notificationEmail = canReceiveNotifications ? (data.notificationEmail || data.email) : null;
         const notificationsPaused = data.notificationsPaused === true;
         const notificationsPausedUntil = data.notificationsPausedUntil ? new Date(data.notificationsPausedUntil) : null;
@@ -157,42 +181,46 @@ export class UsersService {
             passwordHash = await bcrypt.hash(data.password, 12);
         }
 
-        const created = await this.prisma.user.create({
-            data: {
-                email: data.email,
-                passwordHash,
-                name: data.name,
-                role,
-                canLogin,
-                isSubscriber,
-                notificationEmail,
-                canReceiveNotifications,
-                notificationsPaused,
-                notificationsPausedUntil,
-                communicationLanguage,
-                contactPerson: data.contactPerson || null,
-                department: data.department || null,
-                phone: data.phone || null,
-                notes: data.notes || null,
-                subscriptions: isSubscriber ? {
-                    create: subscriptionItems.map((s) => ({
-                        vendor: s.vendor,
-                        product: s.product,
-                        versions: JSON.stringify(s.versions || []),
-                        isActive: true,
-                    })),
-                } : undefined,
-            },
-            include: {
-                subscriptions: {
-                    where: { isActive: true },
-                    select: { id: true, vendor: true, product: true, versions: true },
-                    orderBy: [{ vendor: 'asc' }, { product: 'asc' }],
+        const assignments = this.normalizeTeamAssignments(data.teamAssignments || []);
+
+        const created = await this.prisma.$transaction(async (tx) => {
+            const nextUser = await tx.user.create({
+                data: {
+                    email: data.email,
+                    passwordHash,
+                    name: data.name,
+                    role,
+                    canLogin,
+                    isSubscriber,
+                    notificationEmail,
+                    canReceiveNotifications,
+                    notificationsPaused,
+                    notificationsPausedUntil,
+                    communicationLanguage,
+                    contactPerson: data.contactPerson || null,
+                    department: data.department || null,
+                    phone: data.phone || null,
+                    notes: data.notes || null,
+                    subscriptions: isSubscriber ? {
+                        create: subscriptionItems.map((s) => ({
+                            vendor: s.vendor,
+                            product: s.product,
+                            versions: JSON.stringify(s.versions || []),
+                            isActive: true,
+                        })),
+                    } : undefined,
                 },
-            },
+                select: { id: true },
+            });
+
+            if (assignments.length > 0) {
+                await this.syncUserTeamAssignments(tx, nextUser.id, role, assignments);
+            }
+
+            return nextUser;
         });
 
-        return this.mapUserResponse(created);
+        return this.findOne(created.id);
     }
 
     async update(id: number, data: {
@@ -213,6 +241,7 @@ export class UsersService {
         phone?: string;
         notes?: string;
         subscriptions?: Array<{ vendor: string; product: string; versions?: string[] }>;
+        teamAssignments?: Array<{ teamId: number; role: string }>;
     }) {
         const existing = await this.prisma.user.findUnique({
             where: { id },
@@ -229,12 +258,17 @@ export class UsersService {
 
         const canLogin = data.canLogin ?? existing.canLogin;
         const isSubscriber = data.isSubscriber ?? existing.isSubscriber;
-        const role = isSubscriber ? 'SUBSCRIBER' : (data.role ?? (canLogin ? existing.role : 'SUBSCRIBER'));
-        const userEmail = data.email ?? existing.email;
+        const role = data.isSubscriber === true
+            ? 'SUBSCRIBER'
+            : (data.role ?? existing.role);
         const canReceiveNotifications = data.canReceiveNotifications ?? existing.canReceiveNotifications;
-        const notificationEmail = canReceiveNotifications
-            ? (data.notificationEmail || existing.notificationEmail || userEmail)
-            : null;
+        const notificationEmail = data.notificationEmail !== undefined
+            ? (canReceiveNotifications ? (data.notificationEmail || data.email || existing.email) : null)
+            : data.canReceiveNotifications === false
+                ? null
+                : data.canReceiveNotifications === true
+                    ? (existing.notificationEmail || data.email || existing.email)
+                    : existing.notificationEmail;
         const notificationsPaused = data.notificationsPaused ?? existing.notificationsPaused;
         const notificationsPausedUntil = data.notificationsPausedUntil !== undefined
             ? (data.notificationsPausedUntil ? new Date(data.notificationsPausedUntil) : null)
@@ -245,6 +279,9 @@ export class UsersService {
                 ? 'es'
                 : existing.communicationLanguage;
         const subscriptionItems = this.normalizeSubscriptions(data.subscriptions || []);
+        const assignments = data.teamAssignments !== undefined
+            ? this.normalizeTeamAssignments(data.teamAssignments || [])
+            : undefined;
 
         const updateData: any = {};
         if (data.email) updateData.email = data.email;
@@ -294,6 +331,10 @@ export class UsersService {
                     });
                 }
             }
+
+            if (assignments !== undefined) {
+                await this.syncUserTeamAssignments(tx, id, role, assignments);
+            }
         });
 
         return this.findOne(id);
@@ -332,6 +373,98 @@ export class UsersService {
         return out;
     }
 
+    private normalizeTeamAssignments(
+        items: Array<{ teamId: number; role: string }>,
+    ): Array<{ teamId: number; role: string }> {
+        const seen = new Set<number>();
+        const out: Array<{ teamId: number; role: string }> = [];
+
+        for (const item of items || []) {
+            const teamId = Number(item?.teamId);
+            const role = String(item?.role || '').trim().toUpperCase();
+            if (!Number.isInteger(teamId) || teamId <= 0) {
+                throw new BadRequestException('Invalid team assignment');
+            }
+            if (!role) {
+                throw new BadRequestException('Team role is required');
+            }
+            if (seen.has(teamId)) {
+                throw new BadRequestException('Duplicate team assignment');
+            }
+            seen.add(teamId);
+            out.push({ teamId, role });
+        }
+
+        return out;
+    }
+
+    private async syncUserTeamAssignments(
+        tx: any,
+        userId: number,
+        globalRole: string,
+        assignments: Array<{ teamId: number; role: string }>,
+    ) {
+        const teamIds = assignments.map((assignment) => assignment.teamId);
+        if (teamIds.length > 0) {
+            const teams = await tx.subscriberTeam.findMany({
+                where: { id: { in: teamIds } },
+                select: { id: true },
+            });
+            if (teams.length !== teamIds.length) {
+                throw new BadRequestException('One or more assigned teams do not exist');
+            }
+        }
+
+        assignments.forEach((assignment) => {
+            assertTeamRoleCompatibility(globalRole, assignment.role);
+        });
+
+        const existingMemberships = await tx.teamMember.findMany({
+            where: { userId },
+            select: { id: true, teamId: true },
+        });
+        const existingByTeamId = new Map<number, { id: number; teamId: number }>(
+            existingMemberships.map((membership: { id: number; teamId: number }) => [Number(membership.teamId), membership]),
+        );
+
+        for (const assignment of assignments) {
+            const existing = existingByTeamId.get(assignment.teamId);
+            if (existing) {
+                await tx.teamMember.update({
+                    where: { id: existing.id },
+                    data: {
+                        role: assignment.role,
+                        isActive: true,
+                    },
+                });
+            } else {
+                await tx.teamMember.create({
+                    data: {
+                        userId,
+                        teamId: assignment.teamId,
+                        role: assignment.role,
+                        isActive: true,
+                    },
+                });
+            }
+        }
+
+        const incomingTeamIds = new Set(assignments.map((assignment) => assignment.teamId));
+        const removedTeamIds = existingMemberships
+            .map((membership: { teamId: number }) => Number(membership.teamId))
+            .filter((teamId: number) => !incomingTeamIds.has(teamId));
+
+        if (removedTeamIds.length > 0) {
+            await tx.teamMember.updateMany({
+                where: {
+                    userId,
+                    teamId: { in: removedTeamIds },
+                },
+                data: { isActive: false },
+            });
+        }
+    }
+
     private parseJsonArray(value: any): string[] {
         try {
             if (Array.isArray(value)) return value.map((v) => String(v));
@@ -346,6 +479,10 @@ export class UsersService {
         const { passwordHash: _, ...rest } = user;
         return {
             ...rest,
+            teamMemberships: (user.teamMemberships || []).map((membership: any) => ({
+                ...membership,
+                team: membership.team || null,
+            })),
             subscriptions: (user.subscriptions || []).map((s: any) => ({
                 ...s,
                 versions: this.parseJsonArray(s.versions),

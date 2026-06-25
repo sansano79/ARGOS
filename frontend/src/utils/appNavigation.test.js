@@ -30,6 +30,11 @@ test("admin can access subscriber teams admin view", () => {
   assert.equal(isViewAllowedForRole("ADMIN", "subscriber-teams"), true);
 });
 
+test("global team manager can access subscriber teams but not platform settings", () => {
+  assert.equal(isViewAllowedForRole("TEAM_MANAGER", "subscriber-teams"), true);
+  assert.equal(isViewAllowedForRole("TEAM_MANAGER", "settings"), false);
+});
+
 test("parseAppRoute resolves top-level account and portal routes", () => {
   assert.deepEqual(parseAppRoute(ACCOUNT_PATH), { view: "account" });
   assert.deepEqual(parseAppRoute(PORTAL_PATH), { view: "portal" });

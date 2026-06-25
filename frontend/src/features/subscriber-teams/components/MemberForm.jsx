@@ -4,6 +4,11 @@ import {
   createDefaultMemberForm,
   validateMemberForm,
 } from "../utils/teamForms.js";
+import {
+  getAllowedTeamRolesForGlobalRole,
+  getGlobalUserRoleLabel,
+  getTeamRoleCompatibilityMessage,
+} from "../../../utils/userManagement.js";
 import { Button, CheckboxField, DialogFrame, SelectField } from "./TeamUi.jsx";
 
 export default function MemberForm({
@@ -17,6 +22,10 @@ export default function MemberForm({
 }) {
   const value = initialValue || createDefaultMemberForm();
   const errors = validateMemberForm(value);
+  const selectedUser = userOptions.find((user) => String(user.id) === String(value.userId || ""));
+  const compatibilityError = selectedUser
+    ? getTeamRoleCompatibilityMessage(selectedUser.globalRole, value.role)
+    : "";
 
   if (!open) return null;
 
@@ -24,14 +33,17 @@ export default function MemberForm({
     { value: "", label: "Selecciona un usuario..." },
     ...userOptions.map((user) => ({
       value: String(user.id),
-      label: `${user.name} · ${user.email}${user.disabled ? " · Ya es miembro" : ""}`,
+      label: `${user.name} · ${user.email} · ${getGlobalUserRoleLabel(user.globalRole)}${user.disabled ? " · Ya es miembro" : ""}`,
       disabled: user.disabled,
     })),
   ];
+  const teamRoleOptions = TEAM_ROLE_OPTIONS
+    .filter((option) => !selectedUser || getAllowedTeamRolesForGlobalRole(selectedUser.globalRole).includes(option.value))
+    .map((option) => ({ value: option.value, label: option.label }));
 
   const handleSubmit = (event) => {
     event.preventDefault();
-    if (Object.keys(errors).length > 0) return;
+    if (Object.keys(errors).length > 0 || compatibilityError) return;
     onSubmit(buildMemberPayload(value));
   };
 
@@ -43,7 +55,7 @@ export default function MemberForm({
       footer={(
         <>
           <Button onClick={onClose} disabled={loading}>Cancelar</Button>
-          <Button primary onClick={handleSubmit} disabled={loading || Object.keys(errors).length > 0}>
+          <Button primary onClick={handleSubmit} disabled={loading || Object.keys(errors).length > 0 || !!compatibilityError}>
             {loading ? "Guardando..." : value.id ? "Guardar cambios" : "Añadir miembro"}
           </Button>
         </>
@@ -51,7 +63,17 @@ export default function MemberForm({
     >
       <form onSubmit={handleSubmit} style={{ display: "grid", gap: 14 }}>
         <SelectField label="Usuario" value={String(value.userId || "")} onChange={(next) => onChange({ ...value, userId: next })} options={selectOptions} error={errors.userId} />
-        <SelectField label="Rol de equipo" value={value.role} onChange={(next) => onChange({ ...value, role: next })} options={TEAM_ROLE_OPTIONS.map((option) => ({ value: option.value, label: option.label }))} error={errors.role} />
+        {selectedUser && (
+          <div style={{ fontSize: 11, color: "#4b5563", marginTop: -6 }}>
+            Rol global: <strong>{getGlobalUserRoleLabel(selectedUser.globalRole)}</strong>
+          </div>
+        )}
+        <SelectField label="Rol de equipo" value={value.role} onChange={(next) => onChange({ ...value, role: next })} options={teamRoleOptions} error={errors.role || compatibilityError} />
+        {compatibilityError && (
+          <div style={{ fontSize: 11, color: "#b91c1c", fontWeight: 600 }}>
+            {compatibilityError}
+          </div>
+        )}
         {value.id && (
           <CheckboxField
             checked={value.isActive !== false}
@@ -64,4 +86,3 @@ export default function MemberForm({
     </DialogFrame>
   );
 }
-

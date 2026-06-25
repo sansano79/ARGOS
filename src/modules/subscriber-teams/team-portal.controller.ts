@@ -11,6 +11,8 @@ import { CreateSystemDto } from './dto/create-system.dto';
 import { UpdateSystemDto } from './dto/update-system.dto';
 import { CreateRecipientDto } from './dto/create-recipient.dto';
 import { UpdateRecipientDto } from './dto/update-recipient.dto';
+import { AddMemberDto } from './dto/add-member.dto';
+import { UpdateMemberDto } from './dto/update-member.dto';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -24,7 +26,7 @@ export class TeamPortalController {
 
   @Get('me/teams')
   async getMyTeams(@Request() req: any) {
-    return this.access.getAccessibleTeams(req.user.id);
+    return this.access.getAccessibleTeams(req.user);
   }
 
   // ── Team detail ───────────────────────────────────────────────
@@ -34,7 +36,62 @@ export class TeamPortalController {
     @Request() req: any,
     @Param('teamId', ParseIntPipe) teamId: number,
   ) {
-    return this.access.getTeamForMember(req.user.id, teamId);
+    if (String(req?.user?.role || '').toUpperCase() === 'ADMIN') {
+      return this.service.findTeamById(teamId);
+    }
+    return this.access.getTeamForMember(req.user, teamId);
+  }
+
+  // ── Members ───────────────────────────────────────────────────
+
+  @Get('teams/:teamId/members')
+  async getMembers(
+    @Request() req: any,
+    @Param('teamId', ParseIntPipe) teamId: number,
+  ) {
+    await this.access.assertTeamReadable(req.user, teamId);
+    return this.service.findTeamMembers(teamId);
+  }
+
+  @Get('teams/:teamId/users')
+  async getAssignableUsers(
+    @Request() req: any,
+    @Param('teamId', ParseIntPipe) teamId: number,
+  ) {
+    await this.access.assertTeamWritable(req.user, teamId);
+    await this.service.findTeamById(teamId);
+    return this.service.findAssignableUsers();
+  }
+
+  @Post('teams/:teamId/members')
+  async addMember(
+    @Request() req: any,
+    @Param('teamId', ParseIntPipe) teamId: number,
+    @Body() dto: AddMemberDto,
+  ) {
+    await this.access.assertTeamWritable(req.user, teamId);
+    return this.service.addMember(teamId, dto);
+  }
+
+  @Patch('teams/:teamId/members/:memberId')
+  async updateMember(
+    @Request() req: any,
+    @Param('teamId', ParseIntPipe) teamId: number,
+    @Param('memberId', ParseIntPipe) memberId: number,
+    @Body() dto: UpdateMemberDto,
+  ) {
+    await this.access.assertTeamWritable(req.user, teamId);
+    return this.service.updateMember(teamId, memberId, dto);
+  }
+
+  @Delete('teams/:teamId/members/:memberId')
+  async removeMember(
+    @Request() req: any,
+    @Param('teamId', ParseIntPipe) teamId: number,
+    @Param('memberId', ParseIntPipe) memberId: number,
+  ) {
+    await this.access.assertTeamWritable(req.user, teamId);
+    return this.service.removeMember(teamId, memberId);
   }
 
   // ── Subscriptions ─────────────────────────────────────────────
@@ -44,7 +101,7 @@ export class TeamPortalController {
     @Request() req: any,
     @Param('teamId', ParseIntPipe) teamId: number,
   ) {
-    await this.access.assertTeamReadable(req.user.id, teamId);
+    await this.access.assertTeamReadable(req.user, teamId);
     return this.service.findSubscriptions(teamId);
   }
 
@@ -54,7 +111,7 @@ export class TeamPortalController {
     @Param('teamId', ParseIntPipe) teamId: number,
     @Body() dto: CreateSubscriptionDto,
   ) {
-    await this.access.assertTeamWritable(req.user.id, teamId);
+    await this.access.assertTeamWritable(req.user, teamId);
     return this.service.createSubscription(teamId, dto);
   }
 
@@ -65,7 +122,7 @@ export class TeamPortalController {
     @Param('subscriptionId', ParseIntPipe) subscriptionId: number,
     @Body() dto: UpdateSubscriptionDto,
   ) {
-    await this.access.assertTeamWritable(req.user.id, teamId);
+    await this.access.assertTeamWritable(req.user, teamId);
     return this.service.updateSubscription(teamId, subscriptionId, dto);
   }
 
@@ -75,7 +132,7 @@ export class TeamPortalController {
     @Param('teamId', ParseIntPipe) teamId: number,
     @Param('subscriptionId', ParseIntPipe) subscriptionId: number,
   ) {
-    await this.access.assertTeamWritable(req.user.id, teamId);
+    await this.access.assertTeamWritable(req.user, teamId);
     return this.service.removeSubscription(teamId, subscriptionId);
   }
 
@@ -86,7 +143,7 @@ export class TeamPortalController {
     @Request() req: any,
     @Param('teamId', ParseIntPipe) teamId: number,
   ) {
-    await this.access.assertTeamReadable(req.user.id, teamId);
+    await this.access.assertTeamReadable(req.user, teamId);
     return this.service.findSystems(teamId);
   }
 
@@ -96,7 +153,7 @@ export class TeamPortalController {
     @Param('teamId', ParseIntPipe) teamId: number,
     @Body() dto: CreateSystemDto,
   ) {
-    await this.access.assertTeamWritable(req.user.id, teamId);
+    await this.access.assertTeamWritable(req.user, teamId);
     return this.service.createSystem(teamId, dto);
   }
 
@@ -107,7 +164,7 @@ export class TeamPortalController {
     @Param('systemId', ParseIntPipe) systemId: number,
     @Body() dto: UpdateSystemDto,
   ) {
-    await this.access.assertTeamWritable(req.user.id, teamId);
+    await this.access.assertTeamWritable(req.user, teamId);
     return this.service.updateSystem(teamId, systemId, dto);
   }
 
@@ -117,7 +174,7 @@ export class TeamPortalController {
     @Param('teamId', ParseIntPipe) teamId: number,
     @Param('systemId', ParseIntPipe) systemId: number,
   ) {
-    await this.access.assertTeamWritable(req.user.id, teamId);
+    await this.access.assertTeamWritable(req.user, teamId);
     return this.service.removeSystem(teamId, systemId);
   }
 
@@ -128,7 +185,7 @@ export class TeamPortalController {
     @Request() req: any,
     @Param('teamId', ParseIntPipe) teamId: number,
   ) {
-    await this.access.assertTeamReadable(req.user.id, teamId);
+    await this.access.assertTeamReadable(req.user, teamId);
     return this.service.findRecipients(teamId);
   }
 
@@ -138,7 +195,7 @@ export class TeamPortalController {
     @Param('teamId', ParseIntPipe) teamId: number,
     @Body() dto: CreateRecipientDto,
   ) {
-    await this.access.assertTeamWritable(req.user.id, teamId);
+    await this.access.assertTeamWritable(req.user, teamId);
     return this.service.createRecipient(teamId, dto);
   }
 
@@ -149,7 +206,7 @@ export class TeamPortalController {
     @Param('recipientId', ParseIntPipe) recipientId: number,
     @Body() dto: UpdateRecipientDto,
   ) {
-    await this.access.assertTeamWritable(req.user.id, teamId);
+    await this.access.assertTeamWritable(req.user, teamId);
     return this.service.updateRecipient(teamId, recipientId, dto);
   }
 
@@ -159,7 +216,7 @@ export class TeamPortalController {
     @Param('teamId', ParseIntPipe) teamId: number,
     @Param('recipientId', ParseIntPipe) recipientId: number,
   ) {
-    await this.access.assertTeamWritable(req.user.id, teamId);
+    await this.access.assertTeamWritable(req.user, teamId);
     return this.service.removeRecipient(teamId, recipientId);
   }
 }

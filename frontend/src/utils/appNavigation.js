@@ -70,6 +70,9 @@ export const isViewAllowedForRole = (role, view) => {
   const normalizedView = String(view || "");
 
   if (normalizedRole === "ADMIN") return true;
+  if (normalizedRole === "TEAM_MANAGER") {
+    return ["vulns", "exploited", "account", "subscriber-teams", DETAIL_VIEW].includes(normalizedView);
+  }
   if (normalizedView === "subscriber-teams") return false;
   if (normalizedRole === "SUBSCRIBER") {
     return ["vulns", "exploited", "portal", "account", DETAIL_VIEW].includes(normalizedView);

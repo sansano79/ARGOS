@@ -93,9 +93,24 @@ describe('TeamAccessService', () => {
   // ── assertTeamWritable ────────────────────────────────────────
 
   describe('assertTeamWritable', () => {
+    it('passes for global TEAM_MANAGER with active membership in active team', async () => {
+      prisma.teamMember.findFirst.mockResolvedValue({ role: TEAM_ROLES.MANAGER });
+      await expect(service.assertTeamWritable({ id: 5, role: 'TEAM_MANAGER' }, 1)).resolves.toBeUndefined();
+    });
+
     it('passes for TEAM_MANAGER with active membership in active team', async () => {
       prisma.teamMember.findFirst.mockResolvedValue({ role: TEAM_ROLES.MANAGER });
       await expect(service.assertTeamWritable(5, 1)).resolves.toBeUndefined();
+    });
+
+    it('blocks USER even with historical manager membership', async () => {
+      prisma.teamMember.findFirst.mockResolvedValue({ role: TEAM_ROLES.MANAGER });
+      await expect(service.assertTeamWritable({ id: 5, role: 'USER' }, 1)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('allows ADMIN without membership lookup', async () => {
+      await expect(service.assertTeamWritable({ id: 1, role: 'ADMIN' }, 99)).resolves.toBeUndefined();
+      expect(prisma.teamMember.findFirst).not.toHaveBeenCalled();
     });
 
     it('throws ForbiddenException for TEAM_VIEWER (member but read-only)', async () => {
@@ -148,6 +163,20 @@ describe('TeamAccessService', () => {
       prisma.teamMember.findMany.mockResolvedValue([]);
       const result = await service.getAccessibleTeams(99);
       expect(result).toHaveLength(0);
+    });
+
+    it('removes manage flags for USER even if historical team role is TEAM_MANAGER', async () => {
+      prisma.teamMember.findMany.mockResolvedValue([
+        { role: TEAM_ROLES.MANAGER, team: { id: 1, name: 'Alpha', code: 'alpha', description: null, isActive: true, createdAt: new Date(), updatedAt: new Date() } },
+      ]);
+      const result = await service.getAccessibleTeams({ id: 5, role: 'USER' });
+      expect(result[0]).toMatchObject({
+        canRead: true,
+        canManageMembers: false,
+        canManageSubscriptions: false,
+        canManageSystems: false,
+        canManageRecipients: false,
+      });
     });
 
     it('filters by userId and isActive:true on member AND team.isActive:true', async () => {

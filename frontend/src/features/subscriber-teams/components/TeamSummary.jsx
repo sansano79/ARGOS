@@ -2,20 +2,20 @@ import { formatDateTime } from "../utils/teamViewModel.js";
 import TeamStatusBadge from "./TeamStatusBadge.jsx";
 import { Button, InlineMessage, Panel, StatGrid } from "./TeamUi.jsx";
 
-export default function TeamSummary({ team, counts, onEdit, onToggleActive }) {
+export default function TeamSummary({ team, counts, canManage = true, onEdit, onToggleActive }) {
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <Panel
         title={team.name}
         subtitle={`Código: ${team.code}`}
-        action={(
+        action={canManage ? (
           <div style={{ display: "flex", gap: 8 }}>
             <Button onClick={onEdit}>Editar equipo</Button>
             <Button danger={team.isActive === false} primary={team.isActive !== false} onClick={onToggleActive}>
               {team.isActive !== false ? "Desactivar" : "Activar"}
             </Button>
           </div>
-        )}
+        ) : null}
       >
         <div style={{ display: "grid", gap: 14 }}>
           <div><TeamStatusBadge isActive={team.isActive} /></div>
@@ -39,4 +39,3 @@ export default function TeamSummary({ team, counts, onEdit, onToggleActive }) {
     </div>
   );
 }
-

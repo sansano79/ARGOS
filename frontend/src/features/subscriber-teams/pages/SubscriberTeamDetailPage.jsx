@@ -28,6 +28,11 @@ import {
 } from "../utils/teamForms.js";
 import {
   canAccessSubscriberTeamsAdmin,
+  canManageMembers,
+  canManageRecipients,
+  canManageSubscriptions,
+  canManageSystems,
+  canManageTeam,
 } from "../utils/teamPermissions.js";
 import {
   buildUserSelectOptions,
@@ -137,14 +142,17 @@ export default function SubscriberTeamDetailPage({
     setLoading(true);
     setError("");
     try {
-      const [team, members, recipients, subscriptions, systems, users] = await Promise.all([
-        api.getTeam(teamId),
-        api.listMembers(teamId),
-        api.listRecipients(teamId),
-        api.listSubscriptions(teamId),
-        api.listSystems(teamId),
-        api.listUsers(),
+      const [team, members, recipients, subscriptions, systems] = await Promise.all([
+        isAdmin ? api.getTeam(teamId) : api.getPortalTeam(teamId),
+        isAdmin ? api.listMembers(teamId) : api.listPortalMembers(teamId),
+        isAdmin ? api.listRecipients(teamId) : api.listPortalRecipients(teamId),
+        isAdmin ? api.listSubscriptions(teamId) : api.listPortalSubscriptions(teamId),
+        isAdmin ? api.listSystems(teamId) : api.listPortalSystems(teamId),
       ]);
+      let users = [];
+      if (isAdmin || canManageMembers({ globalRole: currentUser?.role, team })) {
+        users = isAdmin ? await api.listUsers() : await api.listAssignableUsers(teamId);
+      }
 
       setWorkspace({
         team,
@@ -163,7 +171,7 @@ export default function SubscriberTeamDetailPage({
 
   useEffect(() => {
     loadWorkspace();
-  }, [teamId]);
+  }, [teamId, isAdmin]);
 
   const counts = useMemo(
     () => summarizeTeamWorkspace(workspace),
@@ -174,6 +182,12 @@ export default function SubscriberTeamDetailPage({
     () => buildUserSelectOptions(workspace.users, workspace.members),
     [workspace.members, workspace.users],
   );
+
+  const memberManagementAllowed = canManageMembers({ globalRole: currentUser?.role, team: workspace.team });
+  const recipientManagementAllowed = canManageRecipients({ globalRole: currentUser?.role, team: workspace.team });
+  const subscriptionManagementAllowed = canManageSubscriptions({ globalRole: currentUser?.role, team: workspace.team });
+  const systemManagementAllowed = canManageSystems({ globalRole: currentUser?.role, team: workspace.team });
+  const teamManagementAllowed = canManageTeam({ globalRole: currentUser?.role, team: workspace.team });
 
   const setSuccess = (next) => {
     setMessage(next);
@@ -198,12 +212,15 @@ export default function SubscriberTeamDetailPage({
     setSaving(true);
     try {
       if (memberFormValue.id) {
-        await api.updateMember(teamId, memberFormValue.id, {
+        await (isAdmin ? api.updateMember(teamId, memberFormValue.id, {
           role: payload.role,
           isActive: memberFormValue.isActive !== false,
-        });
+        }) : api.updatePortalMember(teamId, memberFormValue.id, {
+          role: payload.role,
+          isActive: memberFormValue.isActive !== false,
+        }));
       } else {
-        await api.addMember(teamId, payload);
+        await (isAdmin ? api.addMember(teamId, payload) : api.addPortalMember(teamId, payload));
       }
       setMemberFormOpen(false);
       setSuccess("Miembro guardado.");
@@ -219,9 +236,9 @@ export default function SubscriberTeamDetailPage({
     setSaving(true);
     try {
       if (recipientFormValue.id) {
-        await api.updateRecipient(teamId, recipientFormValue.id, payload);
+        await (isAdmin ? api.updateRecipient(teamId, recipientFormValue.id, payload) : api.updatePortalRecipient(teamId, recipientFormValue.id, payload));
       } else {
-        await api.createRecipient(teamId, payload);
+        await (isAdmin ? api.createRecipient(teamId, payload) : api.createPortalRecipient(teamId, payload));
       }
       setRecipientFormOpen(false);
       setSuccess("Destinatario guardado.");
@@ -237,9 +254,9 @@ export default function SubscriberTeamDetailPage({
     setSaving(true);
     try {
       if (subscriptionFormValue.id) {
-        await api.updateSubscription(teamId, subscriptionFormValue.id, payload);
+        await (isAdmin ? api.updateSubscription(teamId, subscriptionFormValue.id, payload) : api.updatePortalSubscription(teamId, subscriptionFormValue.id, payload));
       } else {
-        await api.createSubscription(teamId, payload);
+        await (isAdmin ? api.createSubscription(teamId, payload) : api.createPortalSubscription(teamId, payload));
       }
       setSubscriptionFormOpen(false);
       setSuccess("Suscripción guardada.");
@@ -255,9 +272,9 @@ export default function SubscriberTeamDetailPage({
     setSaving(true);
     try {
       if (systemFormValue.id) {
-        await api.updateSystem(teamId, systemFormValue.id, payload);
+        await (isAdmin ? api.updateSystem(teamId, systemFormValue.id, payload) : api.updatePortalSystem(teamId, systemFormValue.id, payload));
       } else {
-        await api.createSystem(teamId, payload);
+        await (isAdmin ? api.createSystem(teamId, payload) : api.createPortalSystem(teamId, payload));
       }
       setSystemFormOpen(false);
       setSuccess("Sistema guardado.");
@@ -277,16 +294,16 @@ export default function SubscriberTeamDetailPage({
         await api.updateTeam(teamId, { isActive: workspace.team?.isActive === false });
         setSuccess("Estado del equipo actualizado.");
       } else if (confirmState.type === "member") {
-        await api.removeMember(teamId, confirmState.item.id);
+        await (isAdmin ? api.removeMember(teamId, confirmState.item.id) : api.removePortalMember(teamId, confirmState.item.id));
         setSuccess("Miembro retirado.");
       } else if (confirmState.type === "recipient") {
-        await api.removeRecipient(teamId, confirmState.item.id);
+        await (isAdmin ? api.removeRecipient(teamId, confirmState.item.id) : api.removePortalRecipient(teamId, confirmState.item.id));
         setSuccess("Destinatario eliminado.");
       } else if (confirmState.type === "subscription") {
-        await api.removeSubscription(teamId, confirmState.item.id);
+        await (isAdmin ? api.removeSubscription(teamId, confirmState.item.id) : api.removePortalSubscription(teamId, confirmState.item.id));
         setSuccess("Suscripción eliminada.");
       } else if (confirmState.type === "system") {
-        await api.removeSystem(teamId, confirmState.item.id);
+        await (isAdmin ? api.removeSystem(teamId, confirmState.item.id) : api.removePortalSystem(teamId, confirmState.item.id));
         setSuccess("Sistema eliminado.");
       }
       setConfirmState({ open: false, type: "", item: null });
@@ -321,14 +338,13 @@ export default function SubscriberTeamDetailPage({
 
       {message && <InlineMessage type="success">{message}</InlineMessage>}
       {error && <InlineMessage type="error">{error}</InlineMessage>}
-      {!isAdmin && <InlineMessage type="error">No existe acceso a miembros ni administración de equipos para usuarios no ADMIN.</InlineMessage>}
-
       <Tabs items={TABS} activeId={activeTab} onChange={setActiveTab} />
 
       {activeTab === "summary" && workspace.team && (
         <TeamSummary
           team={workspace.team}
           counts={counts}
+          canManage={teamManagementAllowed}
           onEdit={() => {
             setTeamFormValue(buildEditableTeam(workspace.team));
             setTeamFormOpen(true);
@@ -342,7 +358,7 @@ export default function SubscriberTeamDetailPage({
           members={workspace.members}
           loading={loading}
           error=""
-          canManage={isAdmin}
+          canManage={memberManagementAllowed}
           onAdd={() => {
             setMemberFormValue(createDefaultMemberForm());
             setMemberFormOpen(true);
@@ -360,7 +376,7 @@ export default function SubscriberTeamDetailPage({
           recipients={workspace.recipients}
           loading={loading}
           error=""
-          canManage={isAdmin}
+          canManage={recipientManagementAllowed}
           onAdd={() => {
             setRecipientFormValue(createDefaultRecipientForm());
             setRecipientFormOpen(true);
@@ -378,7 +394,7 @@ export default function SubscriberTeamDetailPage({
           subscriptions={workspace.subscriptions}
           loading={loading}
           error=""
-          canManage={isAdmin}
+          canManage={subscriptionManagementAllowed}
           onAdd={() => {
             setSubscriptionFormValue(createDefaultSubscriptionForm());
             setSubscriptionFormOpen(true);
@@ -396,7 +412,7 @@ export default function SubscriberTeamDetailPage({
           systems={workspace.systems}
           loading={loading}
           error=""
-          canManage={isAdmin}
+          canManage={systemManagementAllowed}
           onAdd={() => {
             setSystemFormValue(createDefaultSystemForm());
             setSystemFormOpen(true);

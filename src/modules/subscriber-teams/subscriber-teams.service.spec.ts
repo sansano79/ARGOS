@@ -158,8 +158,8 @@ describe('SubscriberTeamsService', () => {
   describe('addMember', () => {
     it('adds member with TEAM_MANAGER role', async () => {
       prisma.subscriberTeam.findUnique.mockResolvedValue(makeTeam());
-      prisma.user.findUnique.mockResolvedValue({ id: 5 });
-      const member = { id: 10, role: 'TEAM_MANAGER', isActive: true, createdAt: new Date(), updatedAt: new Date(), user: { id: 5, email: 'a@b.com', name: 'A' } };
+      prisma.user.findUnique.mockResolvedValue({ id: 5, role: 'TEAM_MANAGER' });
+      const member = { id: 10, role: 'TEAM_MANAGER', isActive: true, createdAt: new Date(), updatedAt: new Date(), user: { id: 5, email: 'a@b.com', name: 'A', role: 'TEAM_MANAGER' } };
       prisma.teamMember.create.mockResolvedValue(member);
       const result = await service.addMember(1, { userId: 5, role: 'TEAM_MANAGER' });
       expect(result).toMatchObject({ role: 'TEAM_MANAGER' });
@@ -176,9 +176,16 @@ describe('SubscriberTeamsService', () => {
       await expect(service.addMember(1, { userId: 999, role: 'TEAM_VIEWER' })).rejects.toThrow(NotFoundException);
     });
 
+    it('rejects assigning TEAM_MANAGER internal role to a USER global role', async () => {
+      prisma.subscriberTeam.findUnique.mockResolvedValue(makeTeam());
+      prisma.user.findUnique.mockResolvedValue({ id: 5, role: 'USER' });
+      await expect(service.addMember(1, { userId: 5, role: 'TEAM_MANAGER' })).rejects.toThrow(BadRequestException);
+      expect(prisma.teamMember.create).not.toHaveBeenCalled();
+    });
+
     it('maps P2002 to ConflictException when user already member', async () => {
       prisma.subscriberTeam.findUnique.mockResolvedValue(makeTeam());
-      prisma.user.findUnique.mockResolvedValue({ id: 5 });
+      prisma.user.findUnique.mockResolvedValue({ id: 5, role: 'USER' });
       prisma.teamMember.create.mockRejectedValue(Object.assign(new Error(), { code: 'P2002' }));
       await expect(service.addMember(1, { userId: 5, role: 'TEAM_VIEWER' })).rejects.toThrow(ConflictException);
     });
@@ -188,16 +195,16 @@ describe('SubscriberTeamsService', () => {
 
   describe('updateMember', () => {
     it('updates member role', async () => {
-      prisma.teamMember.findFirst.mockResolvedValue({ id: 10 });
-      const updated = { id: 10, role: 'TEAM_VIEWER', isActive: true, updatedAt: new Date(), createdAt: new Date(), user: { id: 5, email: 'a@b.com', name: 'A' } };
+      prisma.teamMember.findFirst.mockResolvedValue({ id: 10, user: { role: 'TEAM_MANAGER' } });
+      const updated = { id: 10, role: 'TEAM_VIEWER', isActive: true, updatedAt: new Date(), createdAt: new Date(), user: { id: 5, email: 'a@b.com', name: 'A', role: 'TEAM_MANAGER' } };
       prisma.teamMember.update.mockResolvedValue(updated);
       const result = await service.updateMember(1, 10, { role: 'TEAM_VIEWER' });
       expect(result.role).toBe('TEAM_VIEWER');
     });
 
     it('activates/deactivates member', async () => {
-      prisma.teamMember.findFirst.mockResolvedValue({ id: 10 });
-      prisma.teamMember.update.mockResolvedValue({ id: 10, isActive: false, role: 'TEAM_VIEWER', updatedAt: new Date(), createdAt: new Date(), user: { id: 5, email: 'a@b.com', name: 'A' } });
+      prisma.teamMember.findFirst.mockResolvedValue({ id: 10, user: { role: 'TEAM_MANAGER' } });
+      prisma.teamMember.update.mockResolvedValue({ id: 10, isActive: false, role: 'TEAM_VIEWER', updatedAt: new Date(), createdAt: new Date(), user: { id: 5, email: 'a@b.com', name: 'A', role: 'TEAM_MANAGER' } });
       const result = await service.updateMember(1, 10, { isActive: false });
       expect(result.isActive).toBe(false);
     });

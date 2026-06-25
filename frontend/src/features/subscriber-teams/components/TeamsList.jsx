@@ -10,6 +10,9 @@ export default function TeamsList({
   teams,
   loading,
   error,
+  canCreate = true,
+  canEdit = true,
+  canToggleActive = true,
   query,
   statusFilter,
   onQueryChange,
@@ -24,7 +27,7 @@ export default function TeamsList({
       <PageHeader
         title="Equipos suscriptores"
         subtitle="Gestión administrativa de equipos, miembros, destinatarios, suscripciones y sistemas."
-        actions={<Button primary onClick={onCreate}>Crear equipo</Button>}
+        actions={canCreate ? <Button primary onClick={onCreate}>Crear equipo</Button> : null}
       />
 
       <Panel title="Listado" subtitle="Sin paginación artificial: el backend actual devuelve la colección completa.">
@@ -57,7 +60,7 @@ export default function TeamsList({
                   ? "No hay resultados para los filtros actuales."
                   : "Crea el primer equipo suscriptor para empezar a gestionar miembros y destinatarios."
                 }
-                action={!query && statusFilter === "all" ? <Button primary onClick={onCreate}>Crear equipo</Button> : null}
+                action={canCreate && !query && statusFilter === "all" ? <Button primary onClick={onCreate}>Crear equipo</Button> : null}
               />
             )}
             renderRow={(team) => (
@@ -75,10 +78,12 @@ export default function TeamsList({
                 <td style={{ padding: "12px" }}>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     <Button small primary onClick={() => onOpen(team)}>Abrir</Button>
-                    <Button small onClick={() => onEdit(team)}>Editar</Button>
-                    <Button small danger={!team.isActive} onClick={() => onToggleActive(team)}>
-                      {team.isActive !== false ? "Desactivar" : "Activar"}
-                    </Button>
+                    {canEdit && <Button small onClick={() => onEdit(team)}>Editar</Button>}
+                    {canToggleActive && (
+                      <Button small danger={!team.isActive} onClick={() => onToggleActive(team)}>
+                        {team.isActive !== false ? "Desactivar" : "Activar"}
+                      </Button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -89,4 +94,3 @@ export default function TeamsList({
     </div>
   );
 }
-

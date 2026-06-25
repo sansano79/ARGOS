@@ -15,6 +15,7 @@ import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { CreateSystemDto } from './dto/create-system.dto';
 import { UpdateSystemDto } from './dto/update-system.dto';
+import { assertTeamRoleCompatibility } from './team-role-compatibility';
 
 const PRISMA_UNIQUE_VIOLATION = 'P2002';
 const PRISMA_FK_VIOLATION = 'P2003';
@@ -38,7 +39,7 @@ const MEMBER_SELECT = {
   isActive: true,
   createdAt: true,
   updatedAt: true,
-  user: { select: { id: true, email: true, name: true } },
+  user: { select: { id: true, email: true, name: true, role: true, isActive: true } },
 } as const;
 
 const SYSTEM_LIST_SELECT = {
@@ -150,8 +151,12 @@ export class SubscriberTeamsService {
 
   async addMember(teamId: number, dto: AddMemberDto) {
     await this.findTeamById(teamId);
-    const user = await this.prisma.user.findUnique({ where: { id: dto.userId }, select: { id: true } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: dto.userId },
+      select: { id: true, role: true },
+    });
     if (!user) throw new NotFoundException(`User ${dto.userId} not found`);
+    assertTeamRoleCompatibility(user.role, dto.role);
     try {
       return await this.prisma.teamMember.create({
         data: { teamId, userId: dto.userId, role: dto.role, isActive: true },
@@ -165,9 +170,12 @@ export class SubscriberTeamsService {
   async updateMember(teamId: number, memberId: number, dto: UpdateMemberDto) {
     const member = await this.prisma.teamMember.findFirst({
       where: { id: memberId, teamId },
-      select: { id: true },
+      select: { id: true, user: { select: { role: true } } },
     });
     if (!member) throw new NotFoundException(`Member ${memberId} not found in team ${teamId}`);
+    if (dto.role !== undefined) {
+      assertTeamRoleCompatibility(member.user?.role, dto.role);
+    }
     return this.prisma.teamMember.update({
       where: { id: memberId },
       data: {
@@ -186,6 +194,20 @@ export class SubscriberTeamsService {
     if (!member) throw new NotFoundException(`Member ${memberId} not found in team ${teamId}`);
     await this.prisma.teamMember.delete({ where: { id: memberId } });
     return { deleted: true };
+  }
+
+  async findAssignableUsers() {
+    return this.prisma.user.findMany({
+      where: { isActive: true },
+      orderBy: [{ name: 'asc' }, { email: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+      },
+    });
   }
 
   // ── Admin: recipients ─────────────────────────────────────────

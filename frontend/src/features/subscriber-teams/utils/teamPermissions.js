@@ -13,8 +13,10 @@ const readFlag = (team, key) => {
 };
 
 export const isAdminRole = (globalRole) => normalizeRole(globalRole) === ADMIN_ROLE;
+export const isGlobalTeamManagerRole = (globalRole) => normalizeRole(globalRole) === TEAM_MANAGER;
 
 export const canAccessSubscriberTeamsAdmin = (globalRole) => isAdminRole(globalRole);
+export const canAccessSubscriberTeams = (globalRole) => isAdminRole(globalRole) || isGlobalTeamManagerRole(globalRole);
 
 export const canViewTeam = ({ globalRole, team, teamRole, canRead } = {}) => (
   isAdminRole(globalRole)
@@ -25,7 +27,11 @@ export const canViewTeam = ({ globalRole, team, teamRole, canRead } = {}) => (
 
 export const canManageTeam = ({ globalRole } = {}) => isAdminRole(globalRole);
 
-export const canManageMembers = ({ globalRole } = {}) => isAdminRole(globalRole);
+export const canManageMembers = ({ globalRole, team, teamRole } = {}) => (
+  isAdminRole(globalRole)
+  || readFlag(team, "canManageMembers")
+  || (isGlobalTeamManagerRole(globalRole) && readTeamRole(team, teamRole) === TEAM_MANAGER)
+);
 
 export const canManageRecipients = ({ globalRole, team, teamRole } = {}) => (
   isAdminRole(globalRole)
@@ -44,4 +50,3 @@ export const canManageSystems = ({ globalRole, team, teamRole } = {}) => (
   || readFlag(team, "canManageSystems")
   || readTeamRole(team, teamRole) === TEAM_MANAGER
 );
-

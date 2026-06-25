@@ -29,6 +29,19 @@ import {
   createDefaultNotificationCenterState,
   normalizeNotificationCenterSettings,
 } from "./utils/notificationCenter.js";
+import {
+  USER_TEAM_ASSIGNMENTS_NOTE,
+  USER_GLOBAL_ROLE_OPTIONS,
+  USER_MANAGEMENT_NOTE,
+  USER_MANAGEMENT_TEAM_NOTE,
+  buildAssignableTeams,
+  buildUserFormState,
+  buildUserPayload,
+  createDefaultTeamAssignment,
+  getAllowedTeamRolesForGlobalRole,
+  getGlobalUserRoleLabel,
+  validateTeamAssignments,
+} from "./utils/userManagement.js";
 import SubscriberTeamsPage from "./features/subscriber-teams/pages/SubscriberTeamsPage.jsx";
 import SubscriberTeamDetailPage from "./features/subscriber-teams/pages/SubscriberTeamDetailPage.jsx";
 
@@ -1083,9 +1096,8 @@ export default function VulnDashboard() {
   const [contacts, setContacts] = useState([]);
   const [reports, setReports] = useState([]);
   const [users, setUsers] = useState([]);
+  const [userMgmtTeams, setUserMgmtTeams] = useState([]);
   const [subscriptionCatalog, setSubscriptionCatalog] = useState([]);
-  const [subscriberVendors, setSubscriberVendors] = useState([]);
-  const [activeVendor, setActiveVendor] = useState("");
   const [portalProfile, setPortalProfile] = useState(null);
   const [portalSubscriptions, setPortalSubscriptions] = useState([]);
   const [portalVendors, setPortalVendors] = useState([]);
@@ -1732,17 +1744,17 @@ export default function VulnDashboard() {
       } else if (v === "portal") {
         await loadSubscriberPortal();
       } else if (v === "user-mgmt") {
-        const [usersRes, catalogRes] = await Promise.allSettled([
+        const [usersRes, teamsRes] = await Promise.allSettled([
           apiFetch("/users"),
-          apiFetch("/users/subscription-catalog"),
+          apiFetch("/subscriber-teams"),
         ]);
         if (usersRes.status === "fulfilled") {
           const json = await usersRes.value.json();
           setUsers(Array.isArray(json) ? json : []);
         }
-        if (catalogRes.status === "fulfilled") {
-          const json = await catalogRes.value.json();
-          setSubscriptionCatalog(Array.isArray(json) ? json : []);
+        if (teamsRes.status === "fulfilled") {
+          const json = await teamsRes.value.json();
+          setUserMgmtTeams(Array.isArray(json) ? json : []);
         }
       } else if (v === "collector") {
         const [runsR, dashR] = await Promise.all([
@@ -3041,137 +3053,47 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
   const deleteContact = async (id) => { try { await apiFetch(`/users/${id}`, { method: "DELETE" }); await loadData("contacts"); } catch (e) { console.error(e); } };
 
   // Users CRUD
-  const buildUserFormState = (u = {}) => ({
-    id: u.id || null,
-    name: u.name || "",
-    email: u.email || "",
-    password: "",
-    role: u.role || "USER",
-    canLogin: u.canLogin !== false,
-    isSubscriber: u.isSubscriber === true,
-    notificationEmail: u.notificationEmail || u.email || "",
-    canReceiveNotifications: u.canReceiveNotifications !== false,
-    notificationsPaused: u.notificationsPaused === true,
-    notificationsPausedUntil: u.notificationsPausedUntil ? String(u.notificationsPausedUntil).slice(0, 16) : "",
-    communicationLanguage: u.communicationLanguage || "es",
-    subscriptions: Array.isArray(u.subscriptions) ? u.subscriptions.map(s => ({
-      vendor: String(s.vendor || "").toLowerCase(),
-      product: String(s.product || "").toLowerCase(),
-      versions: Array.isArray(s.versions) ? s.versions : [],
-    })) : [],
-    isActive: u.isActive !== false,
-  });
-
   const openUserForm = (u = null) => {
     const state = buildUserFormState(u || {});
     setEditUser(state);
-    const vendors = [...new Set((state.subscriptions || []).map(s => s.vendor))];
-    setSubscriberVendors(vendors);
-    const firstVendor = vendors[0] || (subscriptionCatalog[0]?.vendor || "");
-    setActiveVendor(firstVendor);
     setShowUserForm(true);
   };
 
-  const setSubscriberEnabled = (enabled) => {
-    const next = { ...editUser, isSubscriber: enabled };
-    if (!enabled) {
-      next.subscriptions = [];
-      next.notificationEmail = "";
-      setSubscriberVendors([]);
-      setActiveVendor("");
-    } else {
-      next.notificationEmail = next.notificationEmail || next.email || "";
-      next.role = "SUBSCRIBER";
-    }
-    setEditUser(next);
-  };
-
-  const toggleVendorSelection = (vendor, checked) => {
-    const normalizedVendor = String(vendor || "").toLowerCase();
-    if (checked) {
-      setSubscriberVendors(prev => prev.includes(normalizedVendor) ? prev : [...prev, normalizedVendor]);
-      setActiveVendor(normalizedVendor);
-      return;
-    }
-
-    setSubscriberVendors(prev => {
-      const next = prev.filter(v => v !== normalizedVendor);
-      if (activeVendor === normalizedVendor) setActiveVendor(next[0] || "");
-      return next;
-    });
-    setEditUser(prev => ({
+  const addUserTeamAssignment = () => {
+    setEditUser((prev) => ({
       ...prev,
-      subscriptions: (prev.subscriptions || []).filter(s => s.vendor !== normalizedVendor),
+      teamAssignmentsTouched: true,
+      teamAssignments: [...(prev?.teamAssignments || []), createDefaultTeamAssignment()],
     }));
   };
 
-  const toggleProductSubscription = (vendor, product, checked) => {
-    const normalizedVendor = String(vendor || "").toLowerCase();
-    const normalizedProduct = String(product || "").toLowerCase();
-    setEditUser(prev => {
-      const current = Array.isArray(prev.subscriptions) ? prev.subscriptions : [];
-      const exists = current.find(s => s.vendor === normalizedVendor && s.product === normalizedProduct);
-      let nextSubs = current;
-
-      if (checked && !exists) {
-        nextSubs = [...current, { vendor: normalizedVendor, product: normalizedProduct, versions: [] }];
-      } else if (!checked && exists) {
-        nextSubs = current.filter(s => !(s.vendor === normalizedVendor && s.product === normalizedProduct));
-      }
-
-      return { ...prev, subscriptions: nextSubs };
-    });
-    if (checked) {
-      setSubscriberVendors(prev => prev.includes(normalizedVendor) ? prev : [...prev, normalizedVendor]);
-      setActiveVendor(normalizedVendor);
-    }
+  const updateUserTeamAssignment = (index, patch) => {
+    setEditUser((prev) => ({
+      ...prev,
+      teamAssignmentsTouched: true,
+      teamAssignments: (prev?.teamAssignments || []).map((assignment, currentIndex) => (
+        currentIndex === index ? { ...assignment, ...patch } : assignment
+      )),
+    }));
   };
 
-  const toggleSubscriptionVersion = (vendor, product, version, checked) => {
-    const normalizedVendor = String(vendor || "").toLowerCase();
-    const normalizedProduct = String(product || "").toLowerCase();
-    const ver = String(version || "").trim();
-    if (!ver) return;
-
-    setEditUser(prev => ({
+  const removeUserTeamAssignment = (index) => {
+    setEditUser((prev) => ({
       ...prev,
-      subscriptions: (prev.subscriptions || []).map(s => {
-        if (s.vendor !== normalizedVendor || s.product !== normalizedProduct) return s;
-        const currentVersions = Array.isArray(s.versions) ? s.versions : [];
-        const nextVersions = checked
-          ? [...new Set([...currentVersions, ver])]
-          : currentVersions.filter(v => v !== ver);
-        return { ...s, versions: nextVersions };
-      }),
+      teamAssignmentsTouched: true,
+      teamAssignments: (prev?.teamAssignments || []).filter((_, currentIndex) => currentIndex !== index),
     }));
   };
 
   const saveUser = async (u) => {
     try {
-      const payload = {
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        role: u.isSubscriber ? "SUBSCRIBER" : (u.canLogin ? (u.role || "USER") : "USER"),
-        canLogin: !!u.canLogin,
-        isSubscriber: !!u.isSubscriber,
-        notificationEmail: u.canReceiveNotifications ? (u.notificationEmail || u.email) : null,
-        canReceiveNotifications: !!u.canReceiveNotifications,
-        notificationsPaused: !!u.notificationsPaused,
-        notificationsPausedUntil: u.notificationsPausedUntil || null,
-        communicationLanguage: u.communicationLanguage || "es",
-        subscriptions: u.isSubscriber ? (u.subscriptions || []) : [],
-        isActive: u.isActive !== false,
-      };
-      if (u.password && u.password.trim().length > 0) payload.password = u.password;
+      const payload = buildUserPayload(u);
 
-      if (payload.id) { await apiFetch(`/users/${payload.id}`, { method: "PUT", body: JSON.stringify(payload) }); }
+      if (u.id) { await apiFetch(`/users/${u.id}`, { method: "PUT", body: JSON.stringify(payload) }); }
       else { await apiFetch("/users", { method: "POST", body: JSON.stringify(payload) }); }
       await loadData("user-mgmt");
     } catch (e) { console.error(e); }
     setEditUser(null); setShowUserForm(false);
-    setSubscriberVendors([]);
-    setActiveVendor("");
   };
   const deleteUser = async (id) => { try { await apiFetch(`/users/${id}`, { method: "DELETE" }); await loadData("user-mgmt"); } catch (e) { console.error(e); } };
 
@@ -3625,17 +3547,24 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
   }
   const role = (currentUser?.role || "USER").toUpperCase();
   const isAdmin = role === "ADMIN";
+  const isGlobalTeamManager = role === "TEAM_MANAGER";
   const isSubscriber = role === "SUBSCRIBER";
   const isViewer = role === "VIEWER";
   const subscriberAllowedViews = ["vulns", "exploited", "portal", "account"];
   const viewerAllowedViews = ["vulns", "exploited", "account"];
+  const teamManagerAllowedViews = ["overview", "vulns", "exploited", "account", "subscriber-teams"];
   const nav = isAdmin
     ? allNav
     : (
+      isGlobalTeamManager
+        ? allNav.filter((n) => teamManagerAllowedViews.includes(n.id))
+        : (
       isSubscriber
         ? allNav.filter((n) => subscriberAllowedViews.includes(n.id))
         : (isViewer ? allNav.filter((n) => viewerAllowedViews.includes(n.id)) : allNav.filter((n) => !["user-mgmt", "subscriber-teams"].includes(n.id)))
+        )
     );
+  const userTeamAssignmentErrors = editUser ? validateTeamAssignments(editUser.teamAssignments || [], editUser.role) : {};
   const navActiveView = view === DETAIL_VIEW ? normalizeDetailSourceView(detailContext.sourceView) : view;
   const currentSection = view === DETAIL_VIEW
     ? `${nav.find((n) => n.id === navActiveView)?.label || "Vulnerabilidades"} · ${detailContext.cveId || "Detalle CVE"}`
@@ -5688,31 +5617,36 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
             {/* ═══ USER MANAGEMENT ═══ */}
             {view === "user-mgmt" && <>
               <PageHeader title="Gestión de usuarios" />
-              <Card title="Gestión de Usuarios" icon="users" action={<Btn small primary onClick={() => openUserForm()}><I name="plus" size={14} /> Nuevo</Btn>}>
+              <Card
+                title="Gestión de Usuarios"
+                icon="users"
+                action={(
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <Btn small onClick={() => { setSubscriberTeamsRoute({ teamId: null }); setView("subscriber-teams"); }}>
+                      Gestionar equipos
+                    </Btn>
+                    <Btn small primary onClick={() => openUserForm()}><I name="plus" size={14} /> Nuevo</Btn>
+                  </div>
+                )}
+              >
+                <div style={{ marginBottom: 14, fontSize: 12, color: C.gray600 }}>
+                  {USER_MANAGEMENT_NOTE}
+                </div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ background: C.gray50 }}>
-                    {["Nombre", "Email", "Rol", "Notif.", "Estado", "Último acceso", "Acciones"].map(h => (
+                    {["Nombre", "Email", "Rol global", "Acceso", "Estado", "Último acceso", "Acciones"].map(h => (
                       <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: `1px solid ${C.gray200}` }}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>{users.map(u => (
                     <tr key={u.id} className="rh">
-                      <td style={{ padding: "8px 12px", fontWeight: 600, fontSize: 12 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span>{u.name}</span>
-                          {u.isSubscriber && <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: C.infoBg, color: C.info }}>SUSCRIPTOR</span>}
-                        </div>
-                      </td>
+                      <td style={{ padding: "8px 12px", fontWeight: 600, fontSize: 12 }}>{u.name}</td>
                       <td style={{ padding: "8px 12px", fontSize: 11, fontFamily: "monospace" }}>{u.email}</td>
-                      <td style={{ padding: "8px 12px" }}><span style={{ padding: "2px 8px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: u.role === "ADMIN" ? C.bluePale : C.gray100, color: u.role === "ADMIN" ? C.blue : C.gray600 }}>{u.role}</span></td>
+                      <td style={{ padding: "8px 12px" }}><span style={{ padding: "2px 8px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: u.role === "ADMIN" ? C.bluePale : C.gray100, color: u.role === "ADMIN" ? C.blue : C.gray600 }}>{getGlobalUserRoleLabel(u.role)}</span></td>
                       <td style={{ padding: "8px 12px", fontSize: 10 }}>
-                        {!u.canReceiveNotifications ? (
-                          <span style={{ color: C.gray500, fontWeight: 600 }}>Desactivadas</span>
-                        ) : u.notificationsPaused ? (
-                          <span style={{ color: C.high, fontWeight: 700 }}>Pausadas</span>
-                        ) : (
-                          <span style={{ color: C.low, fontWeight: 700 }}>Activas</span>
-                        )}
+                        <span style={{ color: u.canLogin ? C.low : C.gray500, fontWeight: 700 }}>
+                          {u.canLogin ? "Permitido" : "Sin acceso"}
+                        </span>
                       </td>
                       <td style={{ padding: "8px 12px" }}><span style={{ color: u.isActive ? C.low : C.critical, fontWeight: 600, fontSize: 10 }}>{u.isActive ? "● Activo" : "○ Inactivo"}</span></td>
                       <td style={{ padding: "8px 12px", fontSize: 10, color: C.gray400 }}>{fmtDate(u.lastLoginAt)}</td>
@@ -5726,8 +5660,11 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
               </Card>
               {showUserForm && editUser && (
                 <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowUserForm(false)}>
-                  <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 980, maxHeight: "92vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+                  <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 680, maxHeight: "92vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
                     <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 16px" }}>{editUser?.id ? "Editar Usuario" : "Nuevo Usuario"}</h3>
+                    <div style={{ marginBottom: 16, fontSize: 12, color: C.gray600 }}>
+                      {USER_MANAGEMENT_TEAM_NOTE}
+                    </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                       {[{ k: "name", l: "Nombre" }, { k: "email", l: "Email" }].map(f => (
                         <div key={f.k} style={{ marginBottom: 12 }}>
@@ -5741,155 +5678,98 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         <input type="checkbox" checked={!!editUser.canLogin} onChange={e => setEditUser({
                           ...editUser,
                           canLogin: e.target.checked,
-                          role: e.target.checked
-                            ? (editUser.isSubscriber ? "SUBSCRIBER" : (editUser.role === "SUBSCRIBER" ? "USER" : editUser.role || "USER"))
-                            : (editUser.isSubscriber ? "SUBSCRIBER" : "USER"),
                         })} />
                         <span style={{ fontSize: 12, color: C.text }}>Permitir inicio de sesión</span>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <input type="checkbox" checked={!!editUser.isSubscriber} onChange={e => setSubscriberEnabled(e.target.checked)} />
-                        <span style={{ fontSize: 12, color: C.text }}>Usuario suscriptor de alertas</span>
-                      </div>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <input
-                          type="checkbox"
-                          checked={!!editUser.canReceiveNotifications}
-                          onChange={e => setEditUser({ ...editUser, canReceiveNotifications: e.target.checked, notificationEmail: e.target.checked ? (editUser.notificationEmail || editUser.email || "") : "" })}
-                        />
-                        <span style={{ fontSize: 12, color: C.text }}>Puede recibir notificaciones</span>
-                      </label>
-                      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <input
-                          type="checkbox"
-                          checked={!!editUser.notificationsPaused}
-                          onChange={e => setEditUser({ ...editUser, notificationsPaused: e.target.checked })}
-                        />
-                        <span style={{ fontSize: 12, color: C.text }}>Notificaciones en pausa</span>
-                      </label>
                       <div>
-                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Pausa hasta</label>
-                        <input
-                          type="datetime-local"
-                          value={editUser.notificationsPausedUntil || ""}
-                          onChange={e => setEditUser({ ...editUser, notificationsPausedUntil: e.target.value })}
-                          style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }}
-                        />
+                        <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Rol global</label>
+                        <select
+                          value={editUser.role || "USER"}
+                          onChange={e => setEditUser({ ...editUser, role: e.target.value, roleTouched: true })}
+                          style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}
+                        >
+                          {USER_GLOBAL_ROLE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
                       </div>
                     </div>
-                    {editUser.canLogin && (
-                      <>
-                        <div style={{ marginBottom: 12 }}>
-                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Rol de acceso</label>
-                          <select value={editUser.role || ""} onChange={e => setEditUser({ ...editUser, role: e.target.value })} disabled={!!editUser.isSubscriber} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
-                            <option value="" disabled>Seleccionar rol...</option>
-                            {editUser.isSubscriber ? (
-                              <>
-                                <option value="SUBSCRIBER">Suscriptor</option>
-                              </>
-                            ) : (
-                              <>
-                                <option value="USER">Usuario</option>
-                                <option value="VIEWER">Viewer</option>
-                                <option value="ADMIN">Administrador</option>
-                              </>
-                            )}
-                          </select>
-                        </div>
-                        <div style={{ marginBottom: 12 }}>
-                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contraseña {editUser.id ? "(opcional)" : "(obligatoria)"}</label>
-                          <input
-                            type="password"
-                            value={editUser.password || ""}
-                            onChange={e => setEditUser({ ...editUser, password: e.target.value })}
-                            placeholder="Mínimo 8 caracteres"
-                            style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }}
-                          />
-                        </div>
-                      </>
-                    )}
-                    {editUser.canReceiveNotifications && (
-                      <div style={{ marginTop: 6, marginBottom: 10, display: "grid", gridTemplateColumns: "1fr 220px", gap: 12 }}>
-                        <div>
-                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email de notificación</label>
-                          <Input value={editUser.notificationEmail || ""} onChange={v => setEditUser({ ...editUser, notificationEmail: v })} placeholder="destinatario@empresa.com" icon="mail" />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Idioma de comunicación</label>
-                          <select value={editUser.communicationLanguage || "es"} onChange={e => setEditUser({ ...editUser, communicationLanguage: e.target.value })} style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff" }}>
-                            <option value="es">Español</option>
-                            <option value="en">English</option>
-                          </select>
-                        </div>
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>
+                        {editUser.id ? "Nueva contraseña (opcional)" : "Contraseña (obligatoria si permites acceso)"}
+                      </label>
+                      <input
+                        type="password"
+                        value={editUser.password || ""}
+                        onChange={e => setEditUser({ ...editUser, password: e.target.value })}
+                        placeholder="Mínimo 8 caracteres"
+                        style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 6, boxSizing: "border-box" }}
+                      />
+                    </div>
+                    <div style={{ display: "grid", gap: 10, marginBottom: 12, padding: 14, border: `1px solid ${C.gray200}`, borderRadius: 10, background: C.gray50 }}>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>Equipos asignados</div>
+                        <div style={{ fontSize: 11, color: C.gray600, marginTop: 4 }}>{USER_TEAM_ASSIGNMENTS_NOTE}</div>
                       </div>
-                    )}
-                    {editUser.isSubscriber && (
-                      <div style={{ marginTop: 6, border: `1px solid ${C.gray200}`, borderRadius: 8, padding: 14, background: C.gray50 }}>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 14 }}>
-                          <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", maxHeight: 300, overflow: "auto" }}>
-                            <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray100}`, fontSize: 11, fontWeight: 700, color: C.gray600 }}>Fabricantes</div>
-                            {subscriptionCatalog.length === 0 && <div style={{ padding: 10, fontSize: 11, color: C.gray500 }}>Sin catálogo disponible aún.</div>}
-                            {subscriptionCatalog.map(item => {
-                              const checked = subscriberVendors.includes(item.vendor);
-                              return (
-                                <label key={item.vendor} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderBottom: `1px solid ${C.gray100}`, cursor: "pointer", fontSize: 12 }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={e => toggleVendorSelection(item.vendor, e.target.checked)}
-                                  />
-                                  <span onClick={() => setActiveVendor(item.vendor)} style={{ color: activeVendor === item.vendor ? C.navy : C.text, fontWeight: activeVendor === item.vendor ? 700 : 500 }}>
-                                    {item.vendor}
-                                  </span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                          <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 6, background: "#fff", maxHeight: 300, overflow: "auto" }}>
-                            <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray100}`, fontSize: 11, fontWeight: 700, color: C.gray600 }}>
-                              Software {activeVendor ? `de ${activeVendor}` : ""}
+                      {(editUser.teamAssignments || []).map((assignment, index) => {
+                        const allowedTeamRoles = getAllowedTeamRolesForGlobalRole(editUser.role);
+                        const teamOptions = buildAssignableTeams(userMgmtTeams, editUser.teamAssignments || [], index);
+                        const assignmentError = userTeamAssignmentErrors[index] || "";
+                        return (
+                          <div key={`team-assignment-${index}`} style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) 220px auto", gap: 10, alignItems: "end" }}>
+                            <div>
+                              <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Equipo</label>
+                              <select
+                                value={assignment.teamId || ""}
+                                onChange={(e) => updateUserTeamAssignment(index, { teamId: e.target.value })}
+                                style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${assignmentError ? C.critical : C.gray200}`, borderRadius: 6, background: "#fff" }}
+                              >
+                                <option value="">Selecciona un equipo...</option>
+                                {teamOptions.map((option) => (
+                                  <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>
+                                ))}
+                              </select>
                             </div>
-                            {!activeVendor && <div style={{ padding: 10, fontSize: 11, color: C.gray500 }}>Selecciona un fabricante.</div>}
-                            {activeVendor && ((subscriptionCatalog.find(v => v.vendor === activeVendor)?.products) || []).map(p => {
-                              const sub = (editUser.subscriptions || []).find(s => s.vendor === activeVendor && s.product === p.product);
-                              const checked = !!sub;
-                              const selectedVersions = sub?.versions || [];
-                              return (
-                                <div key={`${activeVendor}-${p.product}`} style={{ padding: "8px 10px", borderBottom: `1px solid ${C.gray100}` }}>
-                                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600 }}>
-                                    <input type="checkbox" checked={checked} onChange={e => toggleProductSubscription(activeVendor, p.product, e.target.checked)} />
-                                    {p.product}
-                                  </label>
-                                  {checked && (
-                                    <div style={{ marginTop: 6, marginLeft: 22 }}>
-                                      <div style={{ fontSize: 10, color: C.gray500, marginBottom: 4 }}>Versiones (si no marcas ninguna, se notifican todas)</div>
-                                      {(!p.versions || p.versions.length === 0) && <div style={{ fontSize: 10, color: C.gray400 }}>No hay versiones catalogadas.</div>}
-                                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                                        {(p.versions || []).map(ver => (
-                                          <label key={ver} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, padding: "2px 6px", background: C.gray50, border: `1px solid ${C.gray200}`, borderRadius: 12 }}>
-                                            <input
-                                              type="checkbox"
-                                              checked={selectedVersions.includes(ver)}
-                                              onChange={e => toggleSubscriptionVersion(activeVendor, p.product, ver, e.target.checked)}
-                                            />
-                                            <span>{ver}</span>
-                                          </label>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
+                            <div>
+                              <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Rol en el equipo</label>
+                              <select
+                                value={assignment.role || "TEAM_VIEWER"}
+                                onChange={(e) => updateUserTeamAssignment(index, { role: e.target.value })}
+                                style={{ width: "100%", padding: "10px 12px", fontSize: 13, border: `1px solid ${assignmentError ? C.critical : C.gray200}`, borderRadius: 6, background: "#fff" }}
+                              >
+                                {allowedTeamRoles.map((teamRole) => (
+                                  <option key={teamRole} value={teamRole}>
+                                    {teamRole === "TEAM_MANAGER" ? "Gestor del equipo" : "Solo consulta"}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <Btn small onClick={() => removeUserTeamAssignment(index)}>Retirar</Btn>
+                            {assignmentError && (
+                              <div style={{ gridColumn: "1 / -1", fontSize: 11, color: C.critical, fontWeight: 600 }}>
+                                {assignmentError}
+                              </div>
+                            )}
                           </div>
-                        </div>
+                        );
+                      })}
+                      <div>
+                        <Btn onClick={addUserTeamAssignment}>Añadir equipo</Btn>
+                      </div>
+                    </div>
+                    {editUser.id && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <input
+                          type="checkbox"
+                          checked={!!editUser.isActive}
+                          onChange={e => setEditUser({ ...editUser, isActive: e.target.checked })}
+                        />
+                        <span style={{ fontSize: 12, color: C.text }}>Usuario activo</span>
                       </div>
                     )}
                     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
                       <Btn onClick={() => setShowUserForm(false)}>Cancelar</Btn>
-                      <Btn primary onClick={() => saveUser(editUser)}>{editUser?.id ? "Guardar cambios" : "Crear usuario"}</Btn>
+                      <Btn primary onClick={() => saveUser(editUser)} disabled={Object.keys(userTeamAssignmentErrors).length > 0}>{editUser?.id ? "Guardar cambios" : "Crear usuario"}</Btn>
                     </div>
                   </div>
                 </div>
@@ -5909,6 +5789,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 : (
                   <SubscriberTeamsPage
                     apiFetch={apiFetch}
+                    currentUser={currentUser}
                     onOpenTeam={(teamId) => setSubscriberTeamsRoute({ teamId })}
                   />
                 )

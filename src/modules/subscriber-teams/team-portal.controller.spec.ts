@@ -8,6 +8,12 @@ function getGuards(target: any): any[] {
 }
 
 const makeService = () => ({
+  findTeamById: jest.fn(),
+  findTeamMembers: jest.fn(),
+  findAssignableUsers: jest.fn(),
+  addMember: jest.fn(),
+  updateMember: jest.fn(),
+  removeMember: jest.fn(),
   findSubscriptions: jest.fn(),
   createSubscription: jest.fn(),
   updateSubscription: jest.fn(),
@@ -29,7 +35,7 @@ const makeAccess = () => ({
   assertTeamWritable: jest.fn(),
 });
 
-const req = (userId: number) => ({ user: { id: userId } });
+const req = (userId: number, role = 'TEAM_MANAGER') => ({ user: { id: userId, role } });
 
 describe('TeamPortalController', () => {
   let service: ReturnType<typeof makeService>;
@@ -68,7 +74,7 @@ describe('TeamPortalController', () => {
       access.getAccessibleTeams.mockResolvedValue(teams);
       const result = await controller.getMyTeams(req(5));
       expect(result).toHaveLength(1);
-      expect(access.getAccessibleTeams).toHaveBeenCalledWith(5);
+      expect(access.getAccessibleTeams).toHaveBeenCalledWith({ id: 5, role: 'TEAM_MANAGER' });
     });
 
     it('returns empty array for user with no memberships', async () => {
@@ -80,8 +86,7 @@ describe('TeamPortalController', () => {
     it('does not leak other users teams (uses req.user.id)', async () => {
       access.getAccessibleTeams.mockResolvedValue([]);
       await controller.getMyTeams(req(42));
-      expect(access.getAccessibleTeams).toHaveBeenCalledWith(42);
-      expect(access.getAccessibleTeams).not.toHaveBeenCalledWith(1);
+      expect(access.getAccessibleTeams).toHaveBeenCalledWith({ id: 42, role: 'TEAM_MANAGER' });
     });
   });
 
@@ -95,16 +100,43 @@ describe('TeamPortalController', () => {
       expect(result).toMatchObject({ id: 1, role: TEAM_ROLES.MANAGER, canManageSubscriptions: true });
     });
 
+    it('ADMIN uses the full admin team detail service', async () => {
+      service.findTeamById.mockResolvedValue({ id: 1, name: 'Alpha' });
+      const result = await controller.getTeam(req(1, 'ADMIN'), 1);
+      expect(result).toEqual({ id: 1, name: 'Alpha' });
+      expect(service.findTeamById).toHaveBeenCalledWith(1);
+      expect(access.getTeamForMember).not.toHaveBeenCalled();
+    });
+
     it('returns team info with restricted flags for VIEWER', async () => {
       const teamDetail = { id: 1, name: 'Alpha', code: 'alpha', role: TEAM_ROLES.VIEWER, canRead: true, canManageSubscriptions: false, canManageSystems: false, canManageRecipients: false };
       access.getTeamForMember.mockResolvedValue(teamDetail);
       const result = await controller.getTeam(req(5), 1);
-      expect(result.canManageSubscriptions).toBe(false);
+      expect(result).toMatchObject({ canManageSubscriptions: false });
     });
 
     it('throws NotFoundException for non-member (hides team existence)', async () => {
       access.getTeamForMember.mockRejectedValue(new NotFoundException());
       await expect(controller.getTeam(req(99), 1)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('Members portal endpoints', () => {
+    it('TEAM_MANAGER can list assignable users and manage members without changing global roles', async () => {
+      access.assertTeamReadable.mockResolvedValue(undefined);
+      access.assertTeamWritable.mockResolvedValue(undefined);
+      service.findTeamMembers.mockResolvedValue([{ id: 10 }]);
+      service.findAssignableUsers.mockResolvedValue([{ id: 5, role: 'TEAM_MANAGER' }]);
+      service.addMember.mockResolvedValue({ id: 10, role: 'TEAM_MANAGER' });
+      service.updateMember.mockResolvedValue({ id: 10, role: 'TEAM_VIEWER' });
+      service.removeMember.mockResolvedValue({ deleted: true });
+
+      await expect(controller.getMembers(req(5), 1)).resolves.toEqual([{ id: 10 }]);
+      await expect(controller.getAssignableUsers(req(5), 1)).resolves.toEqual([{ id: 5, role: 'TEAM_MANAGER' }]);
+      await expect(controller.addMember(req(5), 1, { userId: 5, role: 'TEAM_MANAGER' })).resolves.toEqual({ id: 10, role: 'TEAM_MANAGER' });
+      await expect(controller.updateMember(req(5), 1, 10, { role: 'TEAM_VIEWER' })).resolves.toEqual({ id: 10, role: 'TEAM_VIEWER' });
+      await expect(controller.removeMember(req(5), 1, 10)).resolves.toEqual({ deleted: true });
+      expect(access.assertTeamWritable).toHaveBeenCalledWith({ id: 5, role: 'TEAM_MANAGER' }, 1);
     });
   });
 
@@ -116,7 +148,7 @@ describe('TeamPortalController', () => {
       service.findSubscriptions.mockResolvedValue([{ id: 1, vendor: 'ms' }]);
       const result = await controller.getSubscriptions(req(5), 1);
       expect(result).toHaveLength(1);
-      expect(access.assertTeamReadable).toHaveBeenCalledWith(5, 1);
+      expect(access.assertTeamReadable).toHaveBeenCalledWith({ id: 5, role: 'TEAM_MANAGER' }, 1);
     });
 
     it('blocks non-member (returns NotFoundException not ForbiddenException)', async () => {
@@ -131,7 +163,7 @@ describe('TeamPortalController', () => {
       access.assertTeamWritable.mockResolvedValue(undefined);
       service.createSubscription.mockResolvedValue({ id: 1 });
       await controller.createSubscription(req(5), 1, { vendor: 'ms', product: 'edge' });
-      expect(access.assertTeamWritable).toHaveBeenCalledWith(5, 1);
+      expect(access.assertTeamWritable).toHaveBeenCalledWith({ id: 5, role: 'TEAM_MANAGER' }, 1);
     });
 
     it('blocks TEAM_VIEWER (write forbidden)', async () => {
@@ -151,7 +183,7 @@ describe('TeamPortalController', () => {
       access.assertTeamWritable.mockResolvedValue(undefined);
       service.updateSubscription.mockResolvedValue({ id: 5, isActive: false });
       await controller.updateSubscription(req(5), 1, 5, { isActive: false });
-      expect(access.assertTeamWritable).toHaveBeenCalledWith(5, 1);
+      expect(access.assertTeamWritable).toHaveBeenCalledWith({ id: 5, role: 'TEAM_MANAGER' }, 1);
     });
 
     it('blocks TEAM_VIEWER from updating subscription', async () => {
@@ -166,7 +198,7 @@ describe('TeamPortalController', () => {
       access.assertTeamWritable.mockResolvedValue(undefined);
       service.removeSubscription.mockResolvedValue({ deleted: true });
       await controller.removeSubscription(req(5), 1, 10);
-      expect(access.assertTeamWritable).toHaveBeenCalledWith(5, 1);
+      expect(access.assertTeamWritable).toHaveBeenCalledWith({ id: 5, role: 'TEAM_MANAGER' }, 1);
     });
   });
 
@@ -191,7 +223,7 @@ describe('TeamPortalController', () => {
       access.assertTeamWritable.mockResolvedValue(undefined);
       service.createSystem.mockResolvedValue({ id: 1, name: 'Srv' });
       await controller.createSystem(req(5), 1, { name: 'Srv' });
-      expect(access.assertTeamWritable).toHaveBeenCalledWith(5, 1);
+      expect(access.assertTeamWritable).toHaveBeenCalledWith({ id: 5, role: 'TEAM_MANAGER' }, 1);
     });
 
     it('blocks TEAM_VIEWER from creating systems', async () => {
@@ -206,7 +238,7 @@ describe('TeamPortalController', () => {
       access.assertTeamWritable.mockResolvedValue(undefined);
       service.updateSystem.mockResolvedValue({ id: 5 });
       await controller.updateSystem(req(5), 1, 5, { name: 'Updated' });
-      expect(access.assertTeamWritable).toHaveBeenCalledWith(5, 1);
+      expect(access.assertTeamWritable).toHaveBeenCalledWith({ id: 5, role: 'TEAM_MANAGER' }, 1);
     });
   });
 
@@ -233,7 +265,7 @@ describe('TeamPortalController', () => {
       access.assertTeamWritable.mockResolvedValue(undefined);
       service.createRecipient.mockResolvedValue({ id: 1, email: 'r@x.com' });
       await controller.createRecipient(req(5), 1, { email: 'r@x.com' });
-      expect(access.assertTeamWritable).toHaveBeenCalledWith(5, 1);
+      expect(access.assertTeamWritable).toHaveBeenCalledWith({ id: 5, role: 'TEAM_MANAGER' }, 1);
     });
 
     it('blocks TEAM_VIEWER from creating recipients', async () => {
@@ -248,7 +280,7 @@ describe('TeamPortalController', () => {
       access.assertTeamWritable.mockResolvedValue(undefined);
       service.updateRecipient.mockResolvedValue({ id: 1 });
       await controller.updateRecipient(req(5), 1, 1, { email: 'new@x.com' });
-      expect(access.assertTeamWritable).toHaveBeenCalledWith(5, 1);
+      expect(access.assertTeamWritable).toHaveBeenCalledWith({ id: 5, role: 'TEAM_MANAGER' }, 1);
     });
   });
 

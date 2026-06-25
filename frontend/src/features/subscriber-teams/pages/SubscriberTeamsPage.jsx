@@ -13,6 +13,9 @@ import {
   summarizeTeamWorkspace,
   toErrorMessage,
 } from "../utils/teamViewModel.js";
+import {
+  canAccessSubscriberTeamsAdmin,
+} from "../utils/teamPermissions.js";
 
 const buildEditableTeam = (team) => ({
   id: team.id,
@@ -24,9 +27,11 @@ const buildEditableTeam = (team) => ({
 
 export default function SubscriberTeamsPage({
   apiFetch,
+  currentUser,
   onOpenTeam,
 }) {
   const api = useMemo(() => createSubscriberTeamsApi(apiFetch), [apiFetch]);
+  const isAdmin = canAccessSubscriberTeamsAdmin(currentUser?.role);
   const [teams, setTeams] = useState([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -41,14 +46,14 @@ export default function SubscriberTeamsPage({
     setLoading(true);
     setError("");
     try {
-      const baseTeams = await api.listTeams();
+      const baseTeams = isAdmin ? await api.listTeams() : await api.listMyTeams();
       const statsEntries = await Promise.all(
         (baseTeams || []).map(async (team) => {
           const [members, recipients, subscriptions, systems] = await Promise.all([
-            api.listMembers(team.id),
-            api.listRecipients(team.id),
-            api.listSubscriptions(team.id),
-            api.listSystems(team.id),
+            isAdmin ? api.listMembers(team.id) : api.listPortalMembers(team.id),
+            isAdmin ? api.listRecipients(team.id) : api.listPortalRecipients(team.id),
+            isAdmin ? api.listSubscriptions(team.id) : api.listPortalSubscriptions(team.id),
+            isAdmin ? api.listSystems(team.id) : api.listPortalSystems(team.id),
           ]);
           return [team.id, summarizeTeamWorkspace({ members, recipients, subscriptions, systems })];
         }),
@@ -119,6 +124,9 @@ export default function SubscriberTeamsPage({
         teams={filteredTeams}
         loading={loading}
         error={error}
+        canCreate={isAdmin}
+        canEdit={isAdmin}
+        canToggleActive={isAdmin}
         query={query}
         statusFilter={statusFilter}
         onQueryChange={setQuery}
@@ -155,4 +163,3 @@ export default function SubscriberTeamsPage({
     </>
   );
 }
-

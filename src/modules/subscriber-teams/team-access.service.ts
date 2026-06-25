@@ -2,10 +2,26 @@ import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/commo
 import { PrismaService } from '../../prisma/prisma.service';
 import { TEAM_ROLES } from './constants/team-roles';
 
-function computePermissions(role: string) {
-  const canManage = role === TEAM_ROLES.MANAGER;
+function normalizeRole(value: string | undefined | null) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function resolveUserContext(userOrId: number | { id: number; role?: string }, role?: string) {
+  if (typeof userOrId === 'number') {
+    return { id: userOrId, role: role ? normalizeRole(role) : '' };
+  }
+  return {
+    id: Number(userOrId?.id || 0),
+    role: normalizeRole(role || userOrId?.role),
+  };
+}
+
+function computePermissions(teamRole: string, globalRole?: string) {
+  const canManage = teamRole === TEAM_ROLES.MANAGER
+    && (!globalRole || globalRole === 'ADMIN' || globalRole === 'TEAM_MANAGER');
   return {
     canRead: true,
+    canManageMembers: canManage,
     canManageSubscriptions: canManage,
     canManageSystems: canManage,
     canManageRecipients: canManage,
@@ -22,9 +38,13 @@ export class TeamAccessService {
     }
   }
 
-  async assertTeamReadable(userId: number, teamId: number): Promise<void> {
+  async assertTeamReadable(userOrId: number | { id: number; role?: string }, teamId: number): Promise<void> {
+    const user = resolveUserContext(userOrId);
+    if (user.role === 'ADMIN') {
+      return;
+    }
     const member = await this.prisma.teamMember.findFirst({
-      where: { teamId, userId, isActive: true, team: { isActive: true } },
+      where: { teamId, userId: user.id, isActive: true, team: { isActive: true } },
       select: { role: true },
     });
     if (!member) {
@@ -32,22 +52,30 @@ export class TeamAccessService {
     }
   }
 
-  async assertTeamWritable(userId: number, teamId: number): Promise<void> {
+  async assertTeamWritable(userOrId: number | { id: number; role?: string }, teamId: number): Promise<void> {
+    const user = resolveUserContext(userOrId);
+    if (user.role === 'ADMIN') {
+      return;
+    }
     const member = await this.prisma.teamMember.findFirst({
-      where: { teamId, userId, isActive: true, team: { isActive: true } },
+      where: { teamId, userId: user.id, isActive: true, team: { isActive: true } },
       select: { role: true },
     });
     if (!member) {
       throw new NotFoundException(`Team ${teamId} not found`);
+    }
+    if (user.role && user.role !== 'TEAM_MANAGER') {
+      throw new ForbiddenException('Global team manager role required');
     }
     if (member.role !== TEAM_ROLES.MANAGER) {
       throw new ForbiddenException('Team manager access required');
     }
   }
 
-  async getAccessibleTeams(userId: number) {
+  async getAccessibleTeams(userOrId: number | { id: number; role?: string }, role?: string) {
+    const user = resolveUserContext(userOrId, role);
     const memberships = await this.prisma.teamMember.findMany({
-      where: { userId, isActive: true, team: { isActive: true } },
+      where: { userId: user.id, isActive: true, team: { isActive: true } },
       select: {
         role: true,
         team: {
@@ -66,13 +94,14 @@ export class TeamAccessService {
     return memberships.map((m) => ({
       ...m.team,
       role: m.role,
-      ...computePermissions(m.role),
+      ...computePermissions(m.role, user.role),
     }));
   }
 
-  async getTeamForMember(userId: number, teamId: number) {
+  async getTeamForMember(userOrId: number | { id: number; role?: string }, teamId: number, role?: string) {
+    const user = resolveUserContext(userOrId, role);
     const member = await this.prisma.teamMember.findFirst({
-      where: { teamId, userId, isActive: true, team: { isActive: true } },
+      where: { teamId, userId: user.id, isActive: true, team: { isActive: true } },
       select: {
         role: true,
         team: {
@@ -94,7 +123,7 @@ export class TeamAccessService {
     return {
       ...member.team,
       role: member.role,
-      ...computePermissions(member.role),
+      ...computePermissions(member.role, user.role),
     };
   }
 
