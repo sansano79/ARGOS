@@ -55,6 +55,7 @@ export class ApiKeysService {
       key: rawKey,
       keyPrefix,
       scopes,
+      isActive: apiKey.isActive,
       expiresAt: apiKey.expiresAt,
       createdAt: apiKey.createdAt,
       message: 'Store this key securely — it will not be shown again.',

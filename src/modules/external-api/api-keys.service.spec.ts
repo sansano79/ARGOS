@@ -27,6 +27,7 @@ describe('ApiKeysService', () => {
       id: 10,
       name: 'Key 1',
       keyPrefix: 'occ_deadbeef00',
+      isActive: true,
       expiresAt: null,
       createdAt: new Date('2026-04-02T00:00:00.000Z'),
     });
@@ -48,6 +49,7 @@ describe('ApiKeysService', () => {
 
     expect(result.key).toMatch(/^occ_[0-9a-f]+$/);
     expect(result.keyPrefix).toBe(result.key.substring(0, 12));
+    expect(result.isActive).toBe(true);
     expect(result.message).toContain('Store this key securely');
   });
 

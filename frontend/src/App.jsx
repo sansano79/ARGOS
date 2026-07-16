@@ -6489,7 +6489,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
                           <div style={{ fontSize: 12, color: C.gray500, marginBottom: 16 }}>
                             <strong>Ejemplo de uso:</strong>
-                            <pre style={{ background: C.gray100, borderRadius: 6, padding: 12, marginTop: 6, fontSize: 11, overflow: "auto", whiteSpace: "pre-wrap" }}>{`curl -H "X-API-Key: ${createdApiKey.key}" \\\n     ${window.location.origin}/api/v1/vulnerabilities?limit=5`}</pre>
+                            <pre style={{ background: C.gray100, borderRadius: 6, padding: 12, marginTop: 6, fontSize: 11, overflow: "auto", whiteSpace: "pre-wrap" }}>{`curl -H "X-API-Key: ${createdApiKey.key}" \\\n     "${window.location.origin}/api/v1/vulnerabilities?limit=5"`}</pre>
                           </div>
 
                           <div style={{ textAlign: "right" }}>

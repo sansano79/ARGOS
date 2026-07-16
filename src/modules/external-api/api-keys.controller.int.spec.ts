@@ -21,6 +21,7 @@ describe('ApiKeysController (integration)', () => {
           id: 1,
           name: 'Key',
           keyPrefix: 'occ_12345678',
+          isActive: true,
           expiresAt: null,
           createdAt: new Date('2026-04-02T00:00:00.000Z'),
         }),
@@ -82,6 +83,7 @@ describe('ApiKeysController (integration)', () => {
     expect(res.body.id).toBe(1);
     expect(typeof res.body.key).toBe('string');
     expect(res.body.key.startsWith('occ_')).toBe(true);
+    expect(res.body.isActive).toBe(true);
     expect(prisma.apiKey.create).toHaveBeenCalledTimes(1);
   });
 
