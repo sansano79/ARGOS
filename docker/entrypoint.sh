@@ -1,13 +1,13 @@
 #!/bin/sh
 set -e
 
-echo "🚀 Servicios OCC — Starting..."
+echo "🚀 OCC-TVM — Starting..."
 
 PRISMA="./node_modules/.bin/prisma"
 
 # Apply migrations (recommended for production)
 echo "📦 Applying database migrations..."
-if [ "${PRISMA_MIGRATE_ON_START:-true}" = "true" ]; then
+if [ "${PRISMA_MIGRATE_ON_START:-false}" = "true" ]; then
   if ! $PRISMA migrate deploy; then
     echo "❌ migrate deploy failed. Aborting startup."
     exit 1

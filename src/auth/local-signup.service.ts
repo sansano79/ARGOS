@@ -91,7 +91,7 @@ export class LocalSignupService {
     try {
       await this.notification.sendEmail(
         this.getApproverEmail(),
-        'Aprobación de alta local — Servicios OCC',
+        'Aprobación de alta local — OCC-TVM',
         'local-signup-approval',
         {
           requesterEmail,
@@ -179,7 +179,7 @@ export class LocalSignupService {
     try {
       await this.notification.sendEmail(
         record.requesterEmail,
-        'Solicitud de alta local — Servicios OCC',
+        'Solicitud de alta local — OCC-TVM',
         'local-signup-denied',
         { requesterName: record.requesterName },
       );
@@ -190,4 +190,3 @@ export class LocalSignupService {
     return { message: 'Denegado.' };
   }
 }
-

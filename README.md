@@ -1,4 +1,4 @@
-# Servicios OCC — Vulnerability Collector
+# OCC-TVM — Threat & Vulnerability Management
 
 Sistema automatizado de recolección, análisis y reporte de vulnerabilidades para la Oficina de Ciberseguridad.
 
@@ -42,7 +42,7 @@ npx prisma db seed
 npm run start:dev
 ```
 
-## Despliegue en Producción
+## Despliegue en Producción de OCC-TVM
 
 ### 1) Requisitos recomendados
 
@@ -54,7 +54,7 @@ npm run start:dev
 ### 2) Preparar variables de producción
 
 ```bash
-cp .env.prod.example .env.prod
+cp .env.example .env.prod
 nano .env.prod
 ```
 
@@ -65,7 +65,7 @@ Valores clave de seguridad:
 - `CORS_ORIGIN=https://app.tu-dominio.com`
 - `ENABLE_SWAGGER=false`
 - `TRUST_PROXY=1`
-- `PRISMA_DB_PUSH_ON_START=false` (recomendado en prod)
+- `PRISMA_MIGRATE_ON_START=false` y `PRISMA_DB_PUSH_ON_START=false`: las migraciones no se ejecutan al arrancar.
 - `OLLAMA_BASE_URL` y `OLLAMA_MODEL` según tu servidor IA
 
 ### 3) Cloudflare (recomendado)
@@ -98,15 +98,15 @@ Coloca los ficheros en:
 ### 5) Primer despliegue
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+docker compose -f docker-compose.yml --env-file .env.prod up -d --build
 ```
 
 Verifica:
 
 ```bash
-docker compose -f docker-compose.prod.yml ps
-docker compose -f docker-compose.prod.yml logs -f nginx
-docker compose -f docker-compose.prod.yml logs -f api
+docker compose -f docker-compose.yml --env-file .env.prod ps
+docker compose -f docker-compose.yml --env-file .env.prod logs -f nginx
+docker compose -f docker-compose.yml --env-file .env.prod logs -f api
 ```
 
 ### 6) Migraciones / esquema (modo seguro)
@@ -115,8 +115,8 @@ Con `PRISMA_DB_PUSH_ON_START=false`, aplica migraciones de forma controlada y tr
 
 ```bash
 # Aplicar migraciones pendientes (produce historial auditable)
-docker compose -f docker-compose.prod.yml exec api npx prisma migrate deploy
-docker compose -f docker-compose.prod.yml exec api npx prisma generate
+docker compose -f docker-compose.yml --env-file .env.prod run --rm api npx prisma migrate deploy
+docker compose -f docker-compose.yml --env-file .env.prod up -d api
 ```
 
 > **Importante:** usa `prisma migrate deploy`, no `prisma db push`.
@@ -127,7 +127,7 @@ docker compose -f docker-compose.prod.yml exec api npx prisma generate
 Luego reinicia API:
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d --build api
+docker compose -f docker-compose.yml --env-file .env.prod up -d --build api
 ```
 
 ### 7) Publicación y validaciones
@@ -175,7 +175,7 @@ scp ./storage/backups/occ_vulns_YYYYMMDD_HHMMSS.sql.gz usuario@tu-servidor:/opt/
 
 ```bash
 cd /opt/occ-vuls-git
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d mysql
+docker compose -f docker-compose.yml --env-file .env.prod up -d mysql
 ./scripts/db-restore-prod.sh ./storage/backups/occ_vulns_YYYYMMDD_HHMMSS.sql.gz
 ```
 
@@ -186,8 +186,8 @@ Notas:
 ### 4) Levantar aplicación y validar
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
-docker compose -f docker-compose.prod.yml logs -f api
+docker compose -f docker-compose.yml --env-file .env.prod up -d --build
+docker compose -f docker-compose.yml --env-file .env.prod logs -f api
 ```
 
 Validaciones mínimas:

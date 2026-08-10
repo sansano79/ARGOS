@@ -7,12 +7,12 @@ set -euo pipefail
 #   ./scripts/db-restore-prod.sh /ruta/backup.sql
 #
 # Variables opcionales:
-#   COMPOSE_FILE=/ruta/docker-compose.prod.yml
+#   COMPOSE_FILE=/ruta/docker-compose.yml
 #   ENV_FILE=/ruta/.env.prod
 #   FORCE_RESTORE=true   # omite confirmación interactiva
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/docker-compose.prod.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/docker-compose.yml}"
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env.prod}"
 
 if [[ ! -f "$ENV_FILE" ]]; then

@@ -3628,7 +3628,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
             <div style={{ width: 56, height: 56, background: "linear-gradient(135deg, var(--occ-primary) 0%, #3d8bff 100%)", borderRadius: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 12, padding: 10 }}>
               <img src={occLogo} alt="OCC" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
             </div>
-            <h1 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: "0 0 4px", letterSpacing: "-0.01em" }}>Servicios OCC</h1>
+            <h1 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: "0 0 4px", letterSpacing: "-0.01em" }}>OCC-TVM</h1>
             <p style={{ fontSize: 11, color: C.gray500, margin: 0, letterSpacing: 1, textTransform: "uppercase" }}>Oficina de Ciberseguridad Corporativa</p>
           </div>
           {authMode === "login" && (
@@ -3827,7 +3827,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
             <div className="occ-brand-logo" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, padding: 7 }}>
               <img src={occLogo} alt="OCC" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
             </div>
-            {!collapsed && <div><div style={{ fontSize: 14, fontWeight: 700, color: "#fff", letterSpacing: "-0.01em" }}>Servicios OCC</div><div className="occ-brand-subtitle" style={{ fontSize: 10, color: "rgba(148,163,184,0.7)" }}>Oficina de Ciberseguridad Corporativa</div></div>}
+            {!collapsed && <div><div style={{ fontSize: 14, fontWeight: 700, color: "#fff", letterSpacing: "-0.01em" }}>OCC-TVM</div><div className="occ-brand-subtitle" style={{ fontSize: 10, color: "rgba(148,163,184,0.7)" }}>Threat &amp; Vulnerability Management</div></div>}
           </div>
           <div style={{ flex: 1, padding: "10px 0", overflowY: "auto" }}>
             {!collapsed && <div style={{ padding: "4px 20px 6px", fontSize: 9, fontWeight: 600, color: "rgba(148,163,184,0.5)", letterSpacing: "1.5px", textTransform: "uppercase" }}>Módulos</div>}
@@ -4744,7 +4744,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ SUBSCRIBER PORTAL ═══ */}
             {view === "portal" && <>
-              <PageHeader title="Mis Suscripciones" subtitle="Gestiona el software que monitoriza Servicios OCC para tus alertas." actions={
+              <PageHeader title="Mis Suscripciones" subtitle="Gestiona el software que monitoriza OCC-TVM para tus alertas." actions={
                 <div style={{ display: "flex", gap: 8 }}>
                   <Btn onClick={() => loadData("portal")} disabled={portalLoading || portalSaving}><I name="refresh" size={12} /> Actualizar</Btn>
                   <Btn primary onClick={savePortalSubscriptions} disabled={portalLoading || portalSaving}>
@@ -6393,7 +6393,9 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         </tr>
                       </thead>
                       <tbody>
-                        {apiKeys.map(k => (
+                        {apiKeys.map(k => {
+                          const keyIsActive = k.isActive !== false;
+                          return (
                           <tr key={k.id} style={{ borderBottom: `1px solid ${C.gray100}` }}>
                             <td style={{ padding: "10px 12px", fontWeight: 600, color: C.text }}>{k.name}</td>
                             <td style={{ padding: "10px 12px" }}>
@@ -6407,9 +6409,9 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                               </div>
                             </td>
                             <td style={{ padding: "10px 12px" }}>
-                              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: k.isActive ? `${C.low}18` : `${C.critical}18`, color: k.isActive ? C.low : C.critical }}>
-                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: k.isActive ? C.low : C.critical }} />
-                                {k.isActive ? "Activa" : "Revocada"}
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: keyIsActive ? `${C.low}18` : `${C.critical}18`, color: keyIsActive ? C.low : C.critical }}>
+                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: keyIsActive ? C.low : C.critical }} />
+                                {keyIsActive ? "Activa" : "Revocada"}
                               </span>
                             </td>
                             <td style={{ padding: "10px 12px", color: C.gray500, fontSize: 11 }}>
@@ -6420,7 +6422,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                             </td>
                             <td style={{ padding: "10px 12px", color: C.gray500, fontSize: 11 }}>{k.user?.name || "—"}</td>
                             <td style={{ padding: "10px 12px" }}>
-                              {k.isActive && (
+                              {keyIsActive && (
                                 <Btn small danger onClick={async () => {
                                   if (!confirm("¿Revocar esta API key? Las aplicaciones que la usen dejarán de funcionar.")) return;
                                   try { await apiFetch(`/api-keys/${k.id}`, { method: "DELETE" }); setApiKeys(apiKeys.map(ak => ak.id === k.id ? { ...ak, isActive: false } : ak)); } catch (e) { console.error(e); }
@@ -6428,7 +6430,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                               )}
                             </td>
                           </tr>
-                        ))}
+                        )})}
                       </tbody>
                     </table>
                   )}
@@ -6545,7 +6547,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                                 const d = await r.json();
                                 if (d.key) {
                                   setCreatedApiKey(d);
-                                  setApiKeys(prev => [{ ...d, user: { name: currentUser?.name } }, ...prev]);
+                                  setApiKeys(prev => [{ ...d, isActive: d.isActive !== false, user: { name: currentUser?.name } }, ...prev]);
                                 }
                               } catch (e) { console.error(e); }
                               setApiKeyCreating(false);

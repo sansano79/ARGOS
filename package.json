@@ -1,5 +1,5 @@
 {
-  "name": "servicios-occ-vulns",
+  "name": "occ-tvm",
   "version": "1.0.0",
   "description": "Servicios OCC — Vulnerability Collector & Report Generator",
   "author": "OCC Security Team",
