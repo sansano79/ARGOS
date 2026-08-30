@@ -46,6 +46,7 @@ import UserFormModal from "./features/users/components/UserFormModal.jsx";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const API_BASE = "/api";
+const DEV_AUTH_BYPASS = import.meta.env.VITE_DEV_AUTH_BYPASS === "true";
 // ─── Auth helpers ────────────────────────────────────────────────────────────
 const getToken = () => localStorage.getItem("occ_token");
 const setToken = (t) => localStorage.setItem("occ_token", t);
@@ -1301,6 +1302,21 @@ export default function VulnDashboard() {
         })
         .catch(() => { clearToken(); });
     }
+  }, []);
+
+  useEffect(() => {
+    if (!DEV_AUTH_BYPASS || getToken()) return;
+    fetch(`${API_BASE}/auth/development-login`, { method: "POST" })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Development login unavailable");
+        return res.json();
+      })
+      .then((data) => {
+        setToken(data.access_token);
+        setUser(data.user);
+        setIsLoggedIn(true);
+      })
+      .catch(() => setLoginErr("El acceso rápido de desarrollo no está disponible."));
   }, []);
 
   useEffect(() => {

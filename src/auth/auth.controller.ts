@@ -33,6 +33,11 @@ export class AuthController {
     return this.authService.loginLocal(req.user);
   }
 
+  @Post('development-login')
+  async developmentLogin() {
+    return this.authService.developmentAutoLogin();
+  }
+
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @Get('profile')

@@ -1,4 +1,4 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
@@ -111,6 +111,36 @@ export class AuthService {
         isSubscriber: !!user.isSubscriber,
       },
     };
+  }
+
+  async developmentAutoLogin() {
+    const enabled = String(process.env.DEV_AUTH_BYPASS || '').trim().toLowerCase() === 'true';
+    if (!enabled || process.env.OCC_ENV !== 'development') {
+      throw new NotFoundException();
+    }
+
+    const user = await this.prisma.user.upsert({
+      where: { email: 'test.dev-admin@occ.local' },
+      update: {
+        name: 'Development Admin',
+        role: 'ADMIN',
+        authProvider: 'LOCAL',
+        canLogin: true,
+        isActive: true,
+        isSubscriber: false,
+      },
+      create: {
+        email: 'test.dev-admin@occ.local',
+        name: 'Development Admin',
+        role: 'ADMIN',
+        authProvider: 'LOCAL',
+        canLogin: true,
+        isActive: true,
+        isSubscriber: false,
+      },
+    });
+
+    return this.issueAccessToken(user);
   }
 
   async loginLocal(user: any) {

@@ -14,7 +14,7 @@ export default defineConfig({
     ],
     proxy: {
       '/api': {
-        target: 'http://api:3000',
+        target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:3000',
         changeOrigin: true,
         secure: false,
         timeout: 120000,

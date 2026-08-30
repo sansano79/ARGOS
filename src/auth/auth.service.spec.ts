@@ -17,6 +17,7 @@ describe('AuthService', () => {
     user: {
       findUnique: jest.fn(),
       update: jest.fn(),
+      upsert: jest.fn(),
     },
   } as any;
 
@@ -52,6 +53,7 @@ describe('AuthService', () => {
       OCC_ENV: 'development',
       MFA_TEST_BYPASS_ENABLED: 'false',
       MFA_TEST_BYPASS_EMAILS: '',
+      DEV_AUTH_BYPASS: 'false',
     };
     service = new AuthService(prisma, jwtService);
     loggerWarnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
@@ -176,5 +178,29 @@ describe('AuthService', () => {
     process.env.MFA_TEST_BYPASS_EMAILS = 'test.manager.it@occ.local';
 
     expect(() => service.getTestMfaBypassStatus()).toThrow('Test capabilities are only allowed when OCC_ENV is development or test');
+  });
+
+  it('issues an administrator token through the local development bypass', async () => {
+    process.env.OCC_ENV = 'development';
+    process.env.DEV_AUTH_BYPASS = 'true';
+    prisma.user.upsert.mockResolvedValue(makeUser({
+      email: 'test.dev-admin@occ.local',
+      name: 'Development Admin',
+      role: 'ADMIN',
+    }));
+
+    await expect(service.developmentAutoLogin()).resolves.toEqual({
+      access_token: 'signed-token',
+      user: {
+        id: 1,
+        email: 'test.dev-admin@occ.local',
+        name: 'Development Admin',
+        role: 'ADMIN',
+        isSubscriber: false,
+      },
+    });
+    expect(prisma.user.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { email: 'test.dev-admin@occ.local' },
+    }));
   });
 });
