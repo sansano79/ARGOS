@@ -31,8 +31,10 @@ La API externa de OCC-Vuls permite que aplicaciones de terceros (SIEMs, dashboar
 **Base URL:**
 
 ```
-https://<tu-servidor>:3000/api/v1
+http://<tu-servidor>/api/v1
 ```
+
+En producción, si la plataforma se publica por HTTPS, TLS y certificados los gestiona el proxy/ingress externo. Este stack expone HTTP y mantiene la API bajo `/api/v1`.
 
 ---
 
@@ -63,7 +65,7 @@ Esto creará la tabla `api_keys` en MySQL con los campos necesarios para almacen
 Si Swagger está habilitado (`ENABLE_SWAGGER=true` o entorno no productivo), la documentación interactiva estará disponible en:
 
 ```
-https://<tu-servidor>:3000/api/docs
+http://<tu-servidor>/api/docs
 ```
 
 Los endpoints de la API externa aparecen bajo las secciones:
@@ -83,7 +85,7 @@ Todas las llamadas a `/api/v1/*` requieren el header `X-API-Key`:
 
 ```bash
 curl -H "X-API-Key: occ_a3f8b2c1e4d567890abcdef1234567890abcdef12" \
-     https://<tu-servidor>:3000/api/v1/vulnerabilities
+     http://<tu-servidor>/api/v1/vulnerabilities
 ```
 
 ### 3.2 Scopes disponibles
@@ -118,7 +120,7 @@ Los endpoints de gestión de API keys requieren autenticación JWT con rol `ADMI
 ### 4.1 Crear una API Key
 
 ```bash
-curl -X POST https://<tu-servidor>:3000/api/api-keys \
+curl -X POST http://<tu-servidor>/api/api-keys \
   -H "Authorization: Bearer <jwt-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -148,7 +150,7 @@ curl -X POST https://<tu-servidor>:3000/api/api-keys \
 ### 4.2 Listar API Keys
 
 ```bash
-curl https://<tu-servidor>:3000/api/api-keys \
+curl http://<tu-servidor>/api/api-keys \
   -H "Authorization: Bearer <jwt-token>"
 ```
 
@@ -173,7 +175,7 @@ curl https://<tu-servidor>:3000/api/api-keys \
 ### 4.3 Consultar scopes disponibles
 
 ```bash
-curl https://<tu-servidor>:3000/api/api-keys/scopes \
+curl http://<tu-servidor>/api/api-keys/scopes \
   -H "Authorization: Bearer <jwt-token>"
 ```
 
@@ -186,7 +188,7 @@ curl https://<tu-servidor>:3000/api/api-keys/scopes \
 ### 4.4 Actualizar una API Key
 
 ```bash
-curl -X PATCH https://<tu-servidor>:3000/api/api-keys/1 \
+curl -X PATCH http://<tu-servidor>/api/api-keys/1 \
   -H "Authorization: Bearer <jwt-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -199,7 +201,7 @@ curl -X PATCH https://<tu-servidor>:3000/api/api-keys/1 \
 ### 4.5 Revocar una API Key
 
 ```bash
-curl -X DELETE https://<tu-servidor>:3000/api/api-keys/1 \
+curl -X DELETE http://<tu-servidor>/api/api-keys/1 \
   -H "Authorization: Bearer <jwt-token>"
 ```
 
@@ -289,7 +291,7 @@ Lista vulnerabilidades con filtros y paginación.
 
 ```bash
 curl -H "X-API-Key: occ_..." \
-  "https://server:3000/api/v1/vulnerabilities?severity=CRITICAL&exploited=true&limit=10"
+  "http://server/api/v1/vulnerabilities?severity=CRITICAL&exploited=true&limit=10"
 ```
 
 ---
@@ -327,7 +329,7 @@ Detalle completo de una vulnerabilidad por CVE ID.
 
 ```bash
 curl -H "X-API-Key: occ_..." \
-  "https://server:3000/api/v1/vulnerabilities/CVE-2024-3094"
+  "http://server/api/v1/vulnerabilities/CVE-2024-3094"
 ```
 
 **Respuesta:** Objeto completo con todos los campos de la vulnerabilidad, tags, y registros de fuentes.
@@ -505,7 +507,7 @@ Los endpoints que retornan un solo recurso (ej: `/v1/vulnerabilities/:cveId`) re
 ```python
 import requests
 
-API_URL = "https://server:3000/api/v1"
+API_URL = "http://server/api/v1"
 API_KEY = "occ_a3f8b2c1e4d567890abcdef1234567890abcdef12"
 HEADERS = {"X-API-Key": API_KEY}
 
@@ -530,7 +532,7 @@ print(f"\nTotal: {data['meta']['total']} vulnerabilidades")
 ### 8.2 JavaScript / Node.js
 
 ```javascript
-const API_URL = "https://server:3000/api/v1";
+const API_URL = "http://server/api/v1";
 const API_KEY = "occ_a3f8b2c1e4d567890abcdef1234567890abcdef12";
 
 async function getVulnerabilities() {
@@ -549,7 +551,7 @@ getVulnerabilities();
 ### 8.3 PowerShell
 
 ```powershell
-$ApiUrl = "https://server:3000/api/v1"
+$ApiUrl = "http://server/api/v1"
 $Headers = @{ "X-API-Key" = "occ_a3f8b2c1e4d567890abcdef1234567890abcdef12" }
 
 # Obtener estadísticas
@@ -570,7 +572,7 @@ TOTAL_PAGES=1
 
 while [ $PAGE -le $TOTAL_PAGES ]; do
   RESPONSE=$(curl -s -H "X-API-Key: $API_KEY" \
-    "https://server:3000/api/v1/vulnerabilities?severity=CRITICAL&page=$PAGE&limit=100")
+    "http://server/api/v1/vulnerabilities?severity=CRITICAL&page=$PAGE&limit=100")
 
   TOTAL_PAGES=$(echo $RESPONSE | jq '.meta.pages')
   COUNT=$(echo $RESPONSE | jq '.data | length')
@@ -588,7 +590,7 @@ done
 ```python
 import requests
 
-OCC_API = "https://server:3000/api/v1"
+OCC_API = "http://server/api/v1"
 OCC_KEY = "occ_..."
 SPLUNK_HEC = "https://splunk:8088/services/collector/event"
 SPLUNK_TOKEN = "..."

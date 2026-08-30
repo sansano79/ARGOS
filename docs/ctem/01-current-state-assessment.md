@@ -182,7 +182,7 @@ Resumen aquí; detalle en `04-reusable-capabilities.md`. `[HECHO]` Reutilizables
 
 ## 6. Operación (resumen; detalle en 02)
 
-`[HECHO]` Healthchecks definidos para mysql y redis en compose. `[N/D]` Healthcheck HTTP de la API no confirmado. `[HECHO]` Backup/restore: `scripts/db-export-prod.sh`, `scripts/db-restore-prod.sh`. `[HECHO]` SSL: `scripts/generate-ssl.sh` + `docker/ssl/`. `[HECHO]` Migraciones en arranque con validación previa por scripts. `[N/D]` Observabilidad (métricas, tracing) y agregación de logs: no hay evidencia de Prometheus/OpenTelemetry.
+`[HECHO]` Healthchecks definidos para mysql, redis, API y frontend en compose. `[HECHO]` Backup/restore: `scripts/db-export-prod.sh`, `scripts/db-restore-prod.sh`. `[HECHO]` TLS/certificados quedan fuera del programa y se gestionan en el proxy/ingress corporativo. `[HECHO]` Migraciones en arranque con validación previa por scripts. `[N/D]` Observabilidad (métricas, tracing) y agregación de logs: no hay evidencia de Prometheus/OpenTelemetry.
 
 ---
 

@@ -104,7 +104,7 @@
 
 ### SEC-11 — TLS y cabeceras de seguridad
 - **Categoría:** Hardening HTTP · **Severidad:** Baja
-- **Evidencia `[HECHO]`:** Helmet aplicado (`main.ts:36-42`) pero **HSTS y CSP sólo si `NODE_ENV === 'production'`** (`main.ts:30-34`); Swagger sirve sin CSP/HSTS siempre (`main.ts:37-40`). CORS con `credentials: true` y origins desde `CORS_ORIGIN` (`main.ts:43-52`), permite `*` si se configura así. TLS terminado en nginx (`docker/nginx`, `scripts/generate-ssl.sh`).
+- **Evidencia `[HECHO]`:** Helmet aplicado (`main.ts:36-42`) pero **HSTS y CSP sólo si `NODE_ENV === 'production'`** (`main.ts:30-34`); Swagger sirve sin CSP/HSTS siempre (`main.ts:37-40`). CORS con `credentials: true` y origins desde `CORS_ORIGIN` (`main.ts:43-52`), permite `*` si se configura así. TLS queda fuera de OCC-TVM y se termina en el proxy/ingress corporativo.
 - **Impacto:** si `NODE_ENV` no es exactamente `production`, se pierde CSP/HSTS. `CORS_ORIGIN='*'` con credenciales es contradictorio (navegador lo rechaza, pero indica configuración laxa).
 - **Recomendación:** garantizar `NODE_ENV=production` en prod; no permitir `CORS_ORIGIN='*'` con `credentials:true`; restringir Swagger en producción (ya condicionado por `ENABLE_SWAGGER`).
 - **Esfuerzo:** S · **Decisión:** Conservar/verificar.

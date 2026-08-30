@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script de despliegue para producción
+# Script de despliegue para el stack OCC-TVM
 # Uso: ./deploy.sh
 
 set -euo pipefail
@@ -26,7 +26,6 @@ sleep 15
 # 5. Verificar estado
 echo "✅ Despliegue completado. Verificando logs..."
 $COMPOSE logs --tail=80 api
-$COMPOSE logs --tail=80 nginx
 $COMPOSE logs --tail=80 frontend
 
 echo "🌍 Estado de los contenedores:"

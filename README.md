@@ -48,8 +48,8 @@ npm run start:dev
 
 - Ubuntu/Debian LTS
 - Docker + Docker Compose plugin
-- Dominio en Cloudflare (proxy naranja activo)
-- Puertos abiertos: `80/tcp`, `443/tcp`
+- Proxy corporativo/ingress externo para publicar HTTPS en producción
+- Puerto HTTP interno publicado por este stack: `80/tcp`
 
 ### 2) Preparar variables de producción
 
@@ -64,38 +64,23 @@ Valores clave de seguridad:
 - `JWT_SECRET=<random-largo>`
 - `CORS_ORIGIN=https://app.tu-dominio.com`
 - `ENABLE_SWAGGER=false`
-- `TRUST_PROXY=1`
+- `TRUST_PROXY=1` si el stack queda detrás de un proxy/ingress externo
 - `PRISMA_MIGRATE_ON_START=false` y `PRISMA_DB_PUSH_ON_START=false`: las migraciones no se ejecutan al arrancar.
 - `OLLAMA_BASE_URL` y `OLLAMA_MODEL` según tu servidor IA
 
-### 3) Cloudflare (recomendado)
+### 3) Publicación HTTP/HTTPS
 
-En Cloudflare Dashboard:
+Este repositorio no gestiona el reverse proxy TLS ni los certificados de producción. El stack publica la aplicación por HTTP en el puerto configurado con `OCC_HTTP_PORT` (`80` por defecto), y el proxy corporativo/ingress externo debe encargarse de HTTPS, certificados, HSTS, WAF y políticas de borde.
 
-1. `DNS`:
-   - `A app.tu-dominio.com -> IP_ORIGEN` (Proxy: ON)
-2. `SSL/TLS`:
-   - Mode: **Full (strict)**
-3. `Edge Certificates`:
-   - Always Use HTTPS: **ON**
-   - TLS 1.3: **ON**
-4. `Firewall`:
-   - WAF Managed Rules: **ON**
-   - Bot Fight Mode/Super Bot Fight: **ON** (si aplica)
+Para desarrollo o entornos internos sin TLS local:
 
-### 4) Certificado en origen
+```bash
+http://<host>/health
+http://<host>/api/health
+http://<host>/api/v1/vulnerabilities?limit=5
+```
 
-Opciones:
-
-- Certificado de Cloudflare Origin (recomendado para Full strict)
-- O certificado válido de Let’s Encrypt
-
-Coloca los ficheros en:
-
-- `docker/ssl/server.crt`
-- `docker/ssl/server.key`
-
-### 5) Primer despliegue
+### 4) Primer despliegue
 
 ```bash
 docker compose -f docker-compose.yml --env-file .env.prod up -d --build
@@ -105,11 +90,11 @@ Verifica:
 
 ```bash
 docker compose -f docker-compose.yml --env-file .env.prod ps
-docker compose -f docker-compose.yml --env-file .env.prod logs -f nginx
 docker compose -f docker-compose.yml --env-file .env.prod logs -f api
+docker compose -f docker-compose.yml --env-file .env.prod logs -f frontend
 ```
 
-### 6) Migraciones / esquema (modo seguro)
+### 5) Migraciones / esquema (modo seguro)
 
 Con `PRISMA_DB_PUSH_ON_START=false`, aplica migraciones de forma controlada y trazable:
 
@@ -130,23 +115,24 @@ Luego reinicia API:
 docker compose -f docker-compose.yml --env-file .env.prod up -d --build api
 ```
 
-### 7) Publicación y validaciones
+### 6) Publicación y validaciones
 
 1. Health:
-   - `https://app.tu-dominio.com/health`
+   - Interno/desarrollo: `http://<host>/health`
+   - Producción: `https://app.tu-dominio.com/health` a través del proxy/ingress externo
 2. Login y navegación UI
 3. Envío SMTP de prueba
 4. Asistente IA (si Ollama está configurado)
 
-### 8) Endurecimiento adicional recomendado
+### 7) Endurecimiento adicional recomendado
 
-- Restringir en firewall del servidor el acceso directo al origen (permitir solo IPs de Cloudflare).
+- Restringir en firewall del servidor el acceso directo al origen si sólo debe recibir tráfico del proxy corporativo.
 - Rotar periódicamente:
   - `JWT_SECRET`
   - contraseñas DB/Redis
   - API keys (NVD/GitHub/SMTP)
 - Backups automáticos de MySQL y pruebas de restore.
-- Monitorizar logs de `nginx` y `api` con alertas.
+- Monitorizar logs de `frontend`, `api` y del proxy externo con alertas.
 
 ## Migrar Estado Actual de la Base de Datos (recolecciones)
 
@@ -206,7 +192,7 @@ Variables clave en `.env` (dev) o `.env.prod` (prod):
 - `OLLAMA_BASE_URL`: URL de IA local (opcional)
 - `CORS_ORIGIN`: Origen permitido del frontend en producción
 - `ENABLE_SWAGGER`: `false` recomendado en producción
-- `TRUST_PROXY`: `1` detrás de proxy (Cloudflare/Nginx)
+- `TRUST_PROXY`: `1` detrás de proxy/ingress externo
 
 ## Nuevas Funcionalidades
 
