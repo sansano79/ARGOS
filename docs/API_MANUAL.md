@@ -1,4 +1,4 @@
-# 📚 Manual API - Plataforma OCC
+# 📚 Manual API - Plataforma ARGOS
 
 **Versión 1.0 - Marzo 2026**
 
@@ -20,7 +20,7 @@
 
 ## Introducción
 
-La API externa de OCC permite a aplicaciones terceras acceder a toda la información de la plataforma de forma segura y controlada. A través de API Keys, puedes integrar nuestros datos de vulnerabilidades, productos, fabricantes y catálogos en tus propias aplicaciones.
+La API externa de ARGOS permite a aplicaciones terceras acceder a toda la información de la plataforma de forma segura y controlada. A través de API Keys, puedes integrar nuestros datos de vulnerabilidades, productos, fabricantes y catálogos en tus propias aplicaciones.
 
 ### ✨ Características principales
 
@@ -611,6 +611,6 @@ Para preguntas, problemas o solicitudes de características:
 
 ---
 
-**© 2026 OCC Platform. Todos los derechos reservados.**
+**© 2026 ARGOS Platform. Todos los derechos reservados.**
 
 *Última actualización: 2026-03-28*

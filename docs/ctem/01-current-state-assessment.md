@@ -1,7 +1,7 @@
 # 01 — Evaluación del estado actual (Current State Assessment)
 
-> **Consulta 1 — Auditoría técnica integral de OCC-TVM**
-> Repositorio: `occ-vuls` (producto OCC-TVM). Rama: `feature/mejoras-v1.1-sin-keycloak`. HEAD de referencia: `64bb678`.
+> **Consulta 1 — Auditoría técnica integral de ARGOS**
+> Repositorio: `argos` (producto ARGOS). Rama: `feature/mejoras-v1.1-sin-keycloak`. HEAD de referencia: `64bb678`.
 > Alcance: arquitectura, modelo de datos, backend, frontend, operación. **No** se ha modificado código de aplicación. **No** se diseña aquí la arquitectura CTEM objetivo ni el roadmap.
 >
 > **Convención de evidencia** en todos los documentos de esta consulta:
@@ -18,7 +18,7 @@
 
 `[HECHO]` **No hay uso de Redis en el código de aplicación.** No existe ningún cliente Redis en `package.json` (dependencias: no aparecen `ioredis`, `redis`, `@nestjs/cache-manager`, `bull`/`bullmq`). Una búsqueda de `redis|Redis|REDIS` sobre `src/`, `config/`, `deploy.sh` y `docker/entrypoint.sh` no devuelve coincidencias en código.
 
-`[HECHO]` Redis **sí está declarado en infraestructura**: `docker-compose.yml:24-42` define el servicio `occ-redis` (`redis:7-alpine`, `appendonly yes`, `requirepass`, healthcheck, volumen `redis_data`, red `cache_net`) y exige `REDIS_PASSWORD` (`:?REDIS_PASSWORD is required`).
+`[HECHO]` Redis **sí está declarado en infraestructura**: `docker-compose.yml:24-42` define el servicio `argos-redis` (`redis:7-alpine`, `appendonly yes`, `requirepass`, healthcheck, volumen `redis_data`, red `cache_net`) y exige `REDIS_PASSWORD` (`:?REDIS_PASSWORD is required`).
 
 `[INFERENCIA]` Redis es **infraestructura aprovisionada pero no consumida por la aplicación**. Es un punto único de fallo declarado en el arranque de compose (la variable es obligatoria) sin aportar función. Los jobs programados usan `@nestjs/schedule` en memoria del proceso, no una cola Redis (ver §1.8).
 

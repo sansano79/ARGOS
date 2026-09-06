@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ###############################################################################
-#  SERVICIOS OCC — Vulnerability Collector Stack Bootstrap
+#  SERVICIOS ARGOS — Vulnerability Collector Stack Bootstrap
 #  =========================================================
 #  Genera el proyecto completo: NestJS + PostgreSQL + Prisma + Docker
 #  Módulo de recolección automática de vulnerabilidades cada 30 min.
@@ -30,11 +30,11 @@ warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 info() { echo -e "${CYAN}[→]${NC} $1"; }
 err()  { echo -e "${RED}[✖]${NC} $1" >&2; }
 
-PROJECT_ROOT="$(pwd)/servicios-occ-vulns"
+PROJECT_ROOT="$(pwd)/servicios-argos"
 
 echo ""
 echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║  Servicios OCC — Vulnerability Collector Stack          ║${NC}"
+echo -e "${CYAN}║  Servicios ARGOS — Vulnerability Collector Stack          ║${NC}"
 echo -e "${CYAN}║  NestJS + PostgreSQL + Prisma + Docker                  ║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
@@ -64,10 +64,10 @@ info "Generando package.json..."
 
 cat > package.json << 'PACKAGEJSON'
 {
-  "name": "servicios-occ-vulns",
+  "name": "servicios-argos",
   "version": "1.0.0",
-  "description": "Servicios OCC — Vulnerability Collector & Report Generator",
-  "author": "OCC Security Team",
+  "description": "Servicios ARGOS — Vulnerability Collector & Report Generator",
+  "author": "ARGOS Security Team",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
@@ -219,11 +219,11 @@ services:
   # ── PostgreSQL ──────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
-    container_name: occ-postgres
+    container_name: argos-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-occ_vulns}
-      POSTGRES_USER: ${POSTGRES_USER:-occ_admin}
+      POSTGRES_DB: ${POSTGRES_DB:-argos}
+      POSTGRES_USER: ${POSTGRES_USER:-argos_admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-OCC_S3cur3_P4ss!}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -231,7 +231,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-occ_admin} -d ${POSTGRES_DB:-occ_vulns}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-argos_admin} -d ${POSTGRES_DB:-argos}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -239,7 +239,7 @@ services:
   # ── Redis (cache y colas) ───────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: occ-redis
+    container_name: argos-redis
     restart: unless-stopped
     ports:
       - "${REDIS_PORT:-6379}:6379"
@@ -257,11 +257,11 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    container_name: occ-api
+    container_name: argos-api
     restart: unless-stopped
     environment:
       NODE_ENV: development
-      DATABASE_URL: postgresql://${POSTGRES_USER:-occ_admin}:${POSTGRES_PASSWORD:-OCC_S3cur3_P4ss!}@postgres:5432/${POSTGRES_DB:-occ_vulns}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-argos_admin}:${POSTGRES_PASSWORD:-OCC_S3cur3_P4ss!}@postgres:5432/${POSTGRES_DB:-argos}?schema=public
       REDIS_URL: redis://:${REDIS_PASSWORD:-OCC_R3d1s_P4ss!}@redis:6379
       JWT_SECRET: ${JWT_SECRET:-OCC_Jwt_S3cr3t_K3y_Ch4ng3_1n_Pr0d!}
       NVD_API_KEY: ${NVD_API_KEY:-}
@@ -282,10 +282,10 @@ services:
   # ── pgAdmin (opcional, para gestión BD) ─────────────────────
   pgadmin:
     image: dpage/pgadmin4:latest
-    container_name: occ-pgadmin
+    container_name: argos-pgadmin
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@occ.local}
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@argos.local}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
     ports:
       - "${PGADMIN_PORT:-5050}:80"
@@ -350,21 +350,21 @@ info "Generando .env..."
 
 cat > .env << 'DOTENV'
 # ══════════════════════════════════════════════════════════════
-# Servicios OCC — Vulnerability Collector
+# Servicios ARGOS — Vulnerability Collector
 # ══════════════════════════════════════════════════════════════
 
 # ── Aplicación ────────────────────────────────────────────────
 NODE_ENV=development
 APP_PORT=3000
-APP_NAME="Servicios OCC - Vulnerability Collector"
+APP_NAME="Servicios ARGOS - Vulnerability Collector"
 
 # ── PostgreSQL ────────────────────────────────────────────────
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
-POSTGRES_DB=occ_vulns
-POSTGRES_USER=occ_admin
+POSTGRES_DB=argos
+POSTGRES_USER=argos_admin
 POSTGRES_PASSWORD=OCC_S3cur3_P4ss!
-DATABASE_URL=postgresql://occ_admin:OCC_S3cur3_P4ss!@localhost:5432/occ_vulns?schema=public
+DATABASE_URL=postgresql://argos_admin:OCC_S3cur3_P4ss!@localhost:5432/argos?schema=public
 
 # ── Redis ─────────────────────────────────────────────────────
 REDIS_HOST=localhost
@@ -399,7 +399,7 @@ PUPPETEER_EXECUTABLE_PATH=
 # En Docker: /usr/bin/chromium
 
 # ── pgAdmin (opcional) ───────────────────────────────────────
-PGADMIN_EMAIL=admin@occ.local
+PGADMIN_EMAIL=admin@argos.local
 PGADMIN_PASSWORD=admin
 PGADMIN_PORT=5050
 DOTENV
@@ -681,7 +681,7 @@ async function bootstrap() {
 
   // Swagger
   const config = new DocumentBuilder()
-    .setTitle('Servicios OCC — Vulnerability Collector')
+    .setTitle('Servicios ARGOS — Vulnerability Collector')
     .setDescription('API para recolección, análisis y reporte de vulnerabilidades')
     .setVersion('1.0')
     .addBearerAuth()
@@ -691,7 +691,7 @@ async function bootstrap() {
 
   const port = process.env.APP_PORT || 3000;
   await app.listen(port);
-  logger.log(`🚀 Servicios OCC API running on http://localhost:${port}`);
+  logger.log(`🚀 Servicios ARGOS API running on http://localhost:${port}`);
   logger.log(`📚 Swagger docs: http://localhost:${port}/api/docs`);
 }
 
@@ -1055,7 +1055,7 @@ export class NvdCollector {
     };
 
     const headers: Record<string, string> = {
-      'User-Agent': 'Servicios-OCC-VulnCollector/1.0',
+      'User-Agent': 'Servicios-ARGOS-VulnCollector/1.0',
     };
     if (this.apiKey) {
       headers['apiKey'] = this.apiKey;
@@ -1829,7 +1829,7 @@ export class ReportGeneratorService {
       printBackground: true,
       displayHeaderFooter: true,
       headerTemplate: `<div style="font-size:9px;width:100%;text-align:center;color:#666;">
-        Servicios OCC — Informe de Vulnerabilidades — CONFIDENCIAL</div>`,
+        Servicios ARGOS — Informe de Vulnerabilidades — CONFIDENCIAL</div>`,
       footerTemplate: `<div style="font-size:9px;width:100%;display:flex;justify-content:space-between;padding:0 20mm;color:#666;">
         <span>Generado: ${now.toLocaleString('es-ES')}</span>
         <span>Pág. <span class="pageNumber"></span>/<span class="totalPages"></span></span></div>`,
@@ -1931,9 +1931,9 @@ cat > src/modules/vulnerability-collector/report/templates/vuln-report.template.
 
 <!-- COVER -->
 <div class="cover">
-  <div class="cover-logo">OCC</div>
+  <div class="cover-logo">ARGOS</div>
   <h1>Informe de Vulnerabilidades</h1>
-  <h2>Boletín de Seguridad — Servicios OCC</h2>
+  <h2>Boletín de Seguridad — Servicios ARGOS</h2>
   <div class="meta">
     <p>Fecha: {{reportDate}}</p>
     <p>Hora de generación: {{reportTime}}</p>
@@ -2107,7 +2107,7 @@ cat > src/modules/vulnerability-collector/report/templates/vuln-report.template.
 
 <!-- FOOTER -->
 <div class="footer-note">
-  Informe generado automáticamente por Servicios OCC — {{generatedAt}}<br>
+  Informe generado automáticamente por Servicios ARGOS — {{generatedAt}}<br>
   Fuentes: NVD (NIST), CISA KEV, FIRST EPSS, GitHub PoC Database<br>
   Clasificación: CONFIDENCIAL — Uso Interno
 </div>
@@ -2336,7 +2336,7 @@ export class DashboardController {
   @Get()
   healthCheck() {
     return {
-      service: 'Servicios OCC — Vulnerability Collector',
+      service: 'Servicios ARGOS — Vulnerability Collector',
       status: 'running',
       timestamp: new Date().toISOString(),
       version: '1.0.0',
@@ -2388,7 +2388,7 @@ MANUALCOLLECT
 info "Generando README..."
 
 cat > README.md << 'README'
-# Servicios OCC — Vulnerability Collector
+# Servicios ARGOS — Vulnerability Collector
 
 Sistema automatizado de recolección, análisis y reporte de vulnerabilidades para la Oficina de Ciberseguridad.
 
@@ -2486,7 +2486,7 @@ npx ts-node scripts/manual-collect.ts
 ```
 
 El PDF incluye:
-- Portada con branding SEIDOR/OCC
+- Portada con branding SEIDOR/ARGOS
 - Resumen ejecutivo con métricas
 - Sección de acción inmediata (CVEs con explotación activa)
 - Tabla completa con CVSS, EPSS, exploit status, productos y remediación

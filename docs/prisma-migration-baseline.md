@@ -1,4 +1,4 @@
-# Prisma Migration Baseline — occ-vuls
+# Prisma Migration Baseline — argos
 
 ## Contexto
 

@@ -1,4 +1,4 @@
-# Manual de Configuración y Uso — API Externa OCC-Vuls
+# Manual de Configuración y Uso — API Externa ARGOS-Vuls
 
 ## Tabla de Contenidos
 
@@ -17,7 +17,7 @@
 
 ## 1. Introducción
 
-La API externa de OCC-Vuls permite que aplicaciones de terceros (SIEMs, dashboards, scripts de automatización, sistemas de ticketing) consuman datos de vulnerabilidades de forma programática.
+La API externa de ARGOS-Vuls permite que aplicaciones de terceros (SIEMs, dashboards, scripts de automatización, sistemas de ticketing) consuman datos de vulnerabilidades de forma programática.
 
 **Características principales:**
 

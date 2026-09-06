@@ -64,7 +64,7 @@ describe('ApiKeysService', () => {
 
   it('maps missing table errors to a 503 with actionable message', async () => {
     const prisma = makePrisma();
-    prisma.apiKey.create.mockRejectedValue(Object.assign(new Error("Table 'occ_vulns.api_keys' doesn't exist"), { code: 'P2021' }));
+    prisma.apiKey.create.mockRejectedValue(Object.assign(new Error("Table 'argos.api_keys' doesn't exist"), { code: 'P2021' }));
 
     (crypto as any).randomBytes.mockReturnValue(Buffer.from('deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', 'hex'));
     (bcrypt as any).hash.mockResolvedValue('bcrypt-hash');

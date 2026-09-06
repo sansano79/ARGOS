@@ -1,4 +1,4 @@
-# Resolución de Problemas - OCC Vulnerabilities Platform
+# Resolución de Problemas - ARGOS Vulnerabilities Platform
 
 **Fecha**: 2026-03-08
 **Estado**: ✅ COMPLETADO

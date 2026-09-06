@@ -25,7 +25,7 @@ async function main() {
   const admin = await prisma.user.upsert({
     where: { email: adminEmail },
     update: {
-      name: 'Administrador OCC',
+      name: 'Administrador ARGOS',
       role: 'ADMIN',
       isActive: true,
       canLogin: true,
@@ -35,7 +35,7 @@ async function main() {
     create: {
       email: adminEmail,
       passwordHash: adminHash,
-      name: 'Administrador OCC',
+      name: 'Administrador ARGOS',
       role: 'ADMIN',
       isActive: true,
       canLogin: true,
@@ -48,7 +48,7 @@ async function main() {
   const viewer = await prisma.user.upsert({
     where: { email: viewerEmail },
     update: {
-      name: 'Viewer OCC',
+      name: 'Viewer ARGOS',
       role: 'VIEWER',
       isActive: true,
       canLogin: true,
@@ -58,7 +58,7 @@ async function main() {
     create: {
       email: viewerEmail,
       passwordHash: viewerHash,
-      name: 'Viewer OCC',
+      name: 'Viewer ARGOS',
       role: 'VIEWER',
       isActive: true,
       canLogin: true,

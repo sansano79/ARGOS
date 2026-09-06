@@ -1,6 +1,6 @@
 # 02 — Registro de deuda técnica (Technical Debt Register)
 
-> **Consulta 1 — OCC-TVM.** Rama `feature/mejoras-v1.1-sin-keycloak`, HEAD `64bb678`.
+> **Consulta 1 — ARGOS.** Rama `feature/mejoras-v1.1-sin-keycloak`, HEAD `64bb678`.
 > Cada hallazgo se clasifica con: **ID · Categoría · Severidad · Evidencia · Archivo/símbolo · Impacto · Causa raíz · Recomendación · Esfuerzo · Dependencia · Decisión** (conservar / corregir / refactorizar / desacoplar / retirar).
 > Severidad: **Crítica / Alta / Media / Baja**. Esfuerzo: **S / M / L / XL**.
 > Los hallazgos de seguridad viven en `03-security-assessment.md`; aquí van arquitectura, datos, mantenibilidad y operación. Marcas de evidencia según convención del doc 01 (`[HECHO]`/`[INFERENCIA]`/`[RIESGO]`/`[N/D]`).

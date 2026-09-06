@@ -1,6 +1,6 @@
 # 04 — Capacidades reutilizables para CTEM (Reusable Capabilities)
 
-> **Consulta 1 — OCC-TVM.** Rama `feature/mejoras-v1.1-sin-keycloak`, HEAD `64bb678`.
+> **Consulta 1 — ARGOS.** Rama `feature/mejoras-v1.1-sin-keycloak`, HEAD `64bb678`.
 > Objetivo: inventariar qué capacidades actuales sirven de sustrato para una evolución CTEM **sin reescritura**, clasificando su grado de reutilización. **No** se diseña aquí la arquitectura CTEM ni el roadmap.
 > Marcas de evidencia según convención del doc 01.
 >
@@ -127,4 +127,4 @@
 - **Validation:** `[INFERENCIA]` **débil** — sólo enriquecimiento de explotabilidad; no hay validación activa (pentest/simulación/exposición confirmada).
 - **Mobilization:** `[INFERENCIA]` **parcial pero con deuda** (CAP-09, CAP-12, CAP-13, CAP-17) — notificación e informes existen pero requieren refactor (grado C) y falta workflow de remediación con SLA.
 
-**Conclusión de reutilización `[INFERENCIA]`:** OCC-TVM es una base sólida para las fases de *Discovery* y *Prioritization* de CTEM, aprovechable con poco o ningún refactor. Las fases de *Validation* y *Mobilization* requieren nuevas capacidades y refactor del motor de notificaciones. *Scoping* necesita elevar el modelo de equipos a frontera de datos real. Nada de esto exige reescritura total.
+**Conclusión de reutilización `[INFERENCIA]`:** ARGOS es una base sólida para las fases de *Discovery* y *Prioritization* de CTEM, aprovechable con poco o ningún refactor. Las fases de *Validation* y *Mobilization* requieren nuevas capacidades y refactor del motor de notificaciones. *Scoping* necesita elevar el modelo de equipos a frontera de datos real. Nada de esto exige reescritura total.

@@ -1,6 +1,6 @@
-# OCC-TVM — Evidencia de preparación para producción
+# ARGOS — Evidencia de preparación para producción
 
-OCC-TVM significa **Threat & Vulnerability Management**. Esta lista acompaña al despliegue y no sustituye la evidencia obtenida en el servidor.
+ARGOS significa **Threat & Vulnerability Management**. Esta lista acompaña al despliegue y no sustituye la evidencia obtenida en el servidor.
 
 ## Contratos ya aplicados al repositorio
 

@@ -27,7 +27,7 @@ if ! docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps mysql >/dev/nul
 fi
 
 timestamp="$(date +%Y%m%d_%H%M%S)"
-default_out="$ROOT_DIR/storage/backups/occ_vulns_${timestamp}.sql.gz"
+default_out="$ROOT_DIR/storage/backups/argos_${timestamp}.sql.gz"
 out_file="${1:-$default_out}"
 
 mkdir -p "$(dirname "$out_file")"

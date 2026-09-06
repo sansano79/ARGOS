@@ -3,10 +3,10 @@
 # Limpia contenedor, red y volumen siempre, incluso si falla.
 set -euo pipefail
 
-CONTAINER="occ_vuls_migrate_test"
-NETWORK="occ_vuls_migrate_net"
-VOLUME="occ_vuls_migrate_vol"
-DB_NAME="occ_vuls_test"
+CONTAINER="argos_migrate_test"
+NETWORK="argos_migrate_net"
+VOLUME="argos_migrate_vol"
+DB_NAME="argos_test"
 DB_PASS="testpass123"
 DB_PORT="3399"
 MYSQL_IMAGE="mysql:8.0"

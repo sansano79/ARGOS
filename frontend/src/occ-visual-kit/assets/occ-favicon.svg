@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="OCC">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ARGOS">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#1e3a8a" />
@@ -7,5 +7,5 @@
   </defs>
   <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)" />
   <path d="M18 20h28v24H18z" fill="#0f172a" opacity=".16" />
-  <text x="32" y="40" text-anchor="middle" font-size="20" font-family="Inter, Arial, sans-serif" font-weight="700" fill="#ffffff">OCC</text>
+  <text x="32" y="40" text-anchor="middle" font-size="20" font-family="Inter, Arial, sans-serif" font-weight="700" fill="#ffffff">ARGOS</text>
 </svg>

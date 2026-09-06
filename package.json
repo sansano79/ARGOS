@@ -1,8 +1,8 @@
 {
-  "name": "occ-tvm",
+  "name": "argos",
   "version": "1.0.0",
-  "description": "Servicios OCC — Vulnerability Collector & Report Generator",
-  "author": "OCC Security Team",
+  "description": "Servicios ARGOS — Vulnerability Collector & Report Generator",
+  "author": "ARGOS Security Team",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {

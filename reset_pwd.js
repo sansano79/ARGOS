@@ -20,7 +20,7 @@ async function main() {
         create: {
             email,
             passwordHash,
-            name: 'Administrador OCC',
+            name: 'Administrador ARGOS',
             role: 'ADMIN',
             isActive: true,
         }

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
-# Servicios OCC — Frontend Setup
+# Servicios ARGOS — Frontend Setup
 # ═══════════════════════════════════════════════════════════════
 set -e
 
@@ -9,7 +9,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 
 echo "╔══════════════════════════════════════════════╗"
-echo "║  Servicios OCC — Frontend Setup              ║"
+echo "║  Servicios ARGOS — Frontend Setup              ║"
 echo "╚══════════════════════════════════════════════╝"
 
 # Check Node.js

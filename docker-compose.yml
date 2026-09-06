@@ -2,11 +2,11 @@ services:
   # ── MySQL ───────────────────────────────────────────────────
   mysql:
     image: mysql:8.0
-    container_name: occ-mysql
+    container_name: argos-mysql
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-occ_vulns}
-      MYSQL_USER: ${MYSQL_USER:-occ_admin}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-argos}
+      MYSQL_USER: ${MYSQL_USER:-argos_admin}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
     volumes:
@@ -22,7 +22,7 @@ services:
   # ── Redis ───────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: occ-redis
+    container_name: argos-redis
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
@@ -45,7 +45,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    container_name: occ-api
+    container_name: argos-api
     restart: unless-stopped
     env_file:
       - .env.prod
@@ -79,7 +79,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
-    container_name: occ-frontend
+    container_name: argos-frontend
     restart: unless-stopped
     ports:
       - "${OCC_HTTP_PORT:-80}:80"

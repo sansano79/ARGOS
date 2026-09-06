@@ -274,8 +274,8 @@ export class SmartNotificationsService {
         promptLanguage: 'es',
         promptExtraInstructions: '',
         aiModelOverride: '',
-        subjectPrefix: '[OCC] Hallazgo inteligente de vulnerabilidades',
-        emailTitle: '🧠 Hallazgo Inteligente OCC',
+        subjectPrefix: '[ARGOS] Hallazgo inteligente de vulnerabilidades',
+        emailTitle: '🧠 Hallazgo Inteligente ARGOS',
         introText: 'Este informe resume hallazgos inteligentes y correlaciones relevantes detectadas en tus activos durante la ventana analizada.',
         footerText: 'ARGOS — Informe inteligente generado automáticamente',
         sectionExecutiveTitle: 'Resumen Ejecutivo',
@@ -1372,10 +1372,10 @@ export class SmartNotificationsService {
         const generatedAtIso = new Date().toISOString();
         return {
             cveIds: ranked.map((item: any) => item.cveId).filter(Boolean),
-            emailTitle: this.escapeHtml(language === 'en' ? 'OCC Intelligent Notification' : 'Notificación Inteligente OCC'),
+            emailTitle: this.escapeHtml(language === 'en' ? 'ARGOS Intelligent Notification' : 'Notificación Inteligente ARGOS'),
             brandSubtitle: this.escapeHtml(language === 'en' ? 'ARGOS — Threat & Vulnerability Management' : 'ARGOS — Gestión de amenazas y vulnerabilidades'),
             footerText: this.escapeHtml(language === 'en'
-                ? 'Services OCC — Automatically generated notification'
+                ? 'Services ARGOS — Automatically generated notification'
                 : 'ARGOS — notificación generada automáticamente'),
             generatedAtLine: this.escapeHtml(language === 'en'
                 ? `Automated analysis · Generated ${generatedAtIso}`
@@ -1953,11 +1953,11 @@ ${detailLink}`;
 
     private buildIntelligentEmailSubject(finding: IntelligentFinding, language: 'es' | 'en') {
         const priority = this.getIntelligentPriorityMeta(finding).label;
-        const base = language === 'en' ? 'OCC Intelligent Notification' : 'Notificación Inteligente OCC';
+        const base = language === 'en' ? 'ARGOS Intelligent Notification' : 'Notificación Inteligente ARGOS';
         const title = String(finding.title || '').trim() || (language === 'en' ? 'Prioritized finding' : 'Hallazgo priorizado');
         return language === 'en'
-            ? `[OCC] ${base} · ${priority}: ${title}`
-            : `[OCC] ${base} · ${priority}: ${title}`;
+            ? `[ARGOS] ${base} · ${priority}: ${title}`
+            : `[ARGOS] ${base} · ${priority}: ${title}`;
     }
 
     private async sleep(ms: number) {
@@ -3012,7 +3012,7 @@ ${detailLink}`;
                 critical: 0,
                 high: 0,
                 medium: 0,
-                recommendedSubject: '[OCC] Alerta inteligente: 0 vulnerabilidades priorizadas',
+                recommendedSubject: '[ARGOS] Alerta inteligente: 0 vulnerabilidades priorizadas',
                 recommendationText: 'No se seleccionaron vulnerabilidades para notificar.\nSeleccione CVEs críticas o altas para iniciar una alerta priorizada.',
             };
         }
@@ -3046,7 +3046,7 @@ ${detailLink}`;
             critical,
             high,
             medium,
-            recommendedSubject: `[OCC] Alerta inteligente: ${total} vulnerabilidades priorizadas`,
+            recommendedSubject: `[ARGOS] Alerta inteligente: ${total} vulnerabilidades priorizadas`,
             recommendationText: `Se priorizaron ${total} vulnerabilidades: ${critical} críticas, ${high} altas y ${medium} medias.\nRecomendación: notificar primero las críticas y altas para reducir exposición inmediata.\nMantenga las medias en cola para comunicación programada y seguimiento.`,
         };
     }

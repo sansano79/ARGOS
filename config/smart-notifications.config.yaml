@@ -3,7 +3,7 @@ name: smart-notifications
 profile: production
 
 metadata:
-  ownerTeam: OCC Security
+  ownerTeam: ARGOS Security
   description: >-
     Configuración integral de Notificaciones Inteligentes:
     pipeline de datos, análisis IA, formato de salida, automatización, trazabilidad
@@ -131,14 +131,14 @@ aiLayer:
     persistFallbackFlag: true
 
 notificationOutput:
-  subjectPrefix: "[OCC] Informe inteligente semanal"
+  subjectPrefix: "[ARGOS] Informe inteligente semanal"
 
   contentCustomization:
     emailTitle: "🧠 Informe Inteligente Semanal"
     introText: >-
       Este informe resume el análisis inteligente de las vulnerabilidades detectadas
       en tus activos durante los últimos {{lookbackDays}} días.
-    footerText: "Servicios OCC — Informe inteligente generado automáticamente"
+    footerText: "Servicios ARGOS — Informe inteligente generado automáticamente"
 
   sectionTitles:
     executive: "Resumen Ejecutivo"

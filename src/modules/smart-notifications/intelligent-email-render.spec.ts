@@ -259,7 +259,7 @@ describe('intelligent email render quality rules', () => {
       makeVulnMap(),
       'es',
     );
-    expect(String(es.emailTitle)).toContain('Notificación Inteligente OCC');
+    expect(String(es.emailTitle)).toContain('Notificación Inteligente ARGOS');
     expect(String(es.executiveSectionHtml)).toContain('Resumen ejecutivo');
 
     const en = (service as any).buildIntelligentEmailContext(
@@ -268,7 +268,7 @@ describe('intelligent email render quality rules', () => {
       makeVulnMap(),
       'en',
     );
-    expect(String(en.emailTitle)).toContain('OCC Intelligent Notification');
+    expect(String(en.emailTitle)).toContain('ARGOS Intelligent Notification');
     expect(String(en.executiveSectionHtml)).toContain('Executive Summary');
     expect(String(en.greetingHtml)).toContain('Hello,');
   });

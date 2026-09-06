@@ -865,7 +865,7 @@ export class NotificationService {
       </div>
     </div>
     <p style="color:#9CA3AF;font-size:11px;text-align:center;margin:16px 0 0;">
-      Este mensaje ha sido generado automáticamente por el sistema de Gestión de Vulnerabilidades OCC.<br>
+      Este mensaje ha sido generado automáticamente por el sistema de Gestión de Vulnerabilidades ARGOS.<br>
       No respondas a este correo.
     </p>
   </div>
@@ -1052,7 +1052,7 @@ export class NotificationService {
       </div>
     </div>
     <p style="color:#9CA3AF;font-size:11px;text-align:center;margin:16px 0 0;">
-      Este mensaje ha sido generado automáticamente por el sistema de Gestión de Vulnerabilidades OCC.<br>
+      Este mensaje ha sido generado automáticamente por el sistema de Gestión de Vulnerabilidades ARGOS.<br>
       No respondas a este correo.
     </p>
   </div>
@@ -2359,7 +2359,7 @@ export class NotificationService {
       ${smartBody}
     </div>
     <p style="color:#9CA3AF;font-size:11px;text-align:center;margin:16px 0 0;">
-      Este mensaje ha sido generado automaticamente por el sistema de Gestion de Vulnerabilidades OCC.<br>
+      Este mensaje ha sido generado automaticamente por el sistema de Gestion de Vulnerabilidades ARGOS.<br>
       No respondas a este correo.
     </p>
   </div>

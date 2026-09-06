@@ -11,10 +11,10 @@
 #   6. Verificar que: fila legacy intacta, 5 tablas nuevas presentes.
 set -euo pipefail
 
-CONTAINER="occ_vuls_existing_test"
-NETWORK="occ_vuls_existing_net"
-VOLUME="occ_vuls_existing_vol"
-DB_NAME="occ_vuls_test"
+CONTAINER="argos_existing_test"
+NETWORK="argos_existing_net"
+VOLUME="argos_existing_vol"
+DB_NAME="argos_test"
 DB_PASS="testpass123"
 DB_PORT="3400"
 MYSQL_IMAGE="mysql:8.0"

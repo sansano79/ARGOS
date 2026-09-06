@@ -154,15 +154,15 @@ Genera un archivo `.sql.gz` en `storage/backups/`.
 ### 2) Copiar dump al servidor
 
 ```bash
-scp ./storage/backups/occ_vulns_YYYYMMDD_HHMMSS.sql.gz usuario@tu-servidor:/opt/occ-vuls-git/storage/backups/
+scp ./storage/backups/argos_YYYYMMDD_HHMMSS.sql.gz usuario@tu-servidor:/opt/argos-git/storage/backups/
 ```
 
 ### 3) Restaurar en servidor destino
 
 ```bash
-cd /opt/occ-vuls-git
+cd /opt/argos-git
 docker compose -f docker-compose.yml --env-file .env.prod up -d mysql
-./scripts/db-restore-prod.sh ./storage/backups/occ_vulns_YYYYMMDD_HHMMSS.sql.gz
+./scripts/db-restore-prod.sh ./storage/backups/argos_YYYYMMDD_HHMMSS.sql.gz
 ```
 
 Notas:

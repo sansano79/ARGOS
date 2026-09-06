@@ -1,14 +1,14 @@
-# OCC-TVM — Catálogo de Producto
+# ARGOS — Catálogo de Producto
 
 **Threat & Vulnerability Management para la Oficina de Ciberseguridad**
 
-> Documento de catálogo funcional. Describe las capacidades y características de la plataforma OCC-TVM tal como están implementadas en el repositorio. Cada capacidad está respaldada por componentes reales del sistema.
+> Documento de catálogo funcional. Describe las capacidades y características de la plataforma ARGOS tal como están implementadas en el repositorio. Cada capacidad está respaldada por componentes reales del sistema.
 
 ---
 
 ## Visión general
 
-OCC-TVM es una plataforma de **gestión de amenazas y vulnerabilidades** que automatiza el ciclo completo: descubre vulnerabilidades desde las principales fuentes públicas de inteligencia, las correlaciona con el inventario tecnológico de la organización, prioriza según explotabilidad real, y notifica a los equipos responsables con informes accionables.
+ARGOS es una plataforma de **gestión de amenazas y vulnerabilidades** que automatiza el ciclo completo: descubre vulnerabilidades desde las principales fuentes públicas de inteligencia, las correlaciona con el inventario tecnológico de la organización, prioriza según explotabilidad real, y notifica a los equipos responsables con informes accionables.
 
 Está diseñada como base evolutiva hacia una plataforma **CTEM** (Continuous Threat Exposure Management) completa, y hoy cubre con solidez las fases de **descubrimiento** y **priorización** de exposición.
 
@@ -46,7 +46,7 @@ Cada vulnerabilidad conserva su **linaje completo** desde el origen.
 
 ### 3. 🎯 Priorización por exposición real
 
-No todas las vulnerabilidades importan igual. OCC-TVM prioriza según riesgo efectivo.
+No todas las vulnerabilidades importan igual. ARGOS prioriza según riesgo efectivo.
 
 - **Señal EPSS**: probabilidad real de explotación.
 - **Señal KEV**: explotación confirmada en el mundo real.
@@ -111,7 +111,7 @@ Cada cliente/equipo gestiona su propia exposición.
 
 ### 10. 🔌 API externa para integración
 
-OCC-TVM se conecta con tu ecosistema de seguridad.
+ARGOS se conecta con tu ecosistema de seguridad.
 
 - **API REST versionada** (`/api/v1`) para vulnerabilidades, productos, catálogo y colector.
 - Autenticación por **API keys con scopes** (permisos granulares por clave).
@@ -182,7 +182,7 @@ Visión de conjunto en tiempo real.
 
 ## Posicionamiento CTEM
 
-OCC-TVM ya cubre de forma nativa el corazón del ciclo de gestión de exposición:
+ARGOS ya cubre de forma nativa el corazón del ciclo de gestión de exposición:
 
 | Fase CTEM | Cobertura actual |
 |-----------|------------------|
@@ -194,4 +194,4 @@ OCC-TVM ya cubre de forma nativa el corazón del ciclo de gestión de exposició
 
 ---
 
-*OCC-TVM — Threat & Vulnerability Management. Descubre. Prioriza. Notifica. Remedia.*
+*ARGOS — Threat & Vulnerability Management. Descubre. Prioriza. Notifica. Remedia.*
