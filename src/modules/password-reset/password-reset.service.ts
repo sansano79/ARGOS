@@ -111,7 +111,7 @@ export class PasswordResetService {
         try {
             await this.notificationService.sendEmail(
                 user.notificationEmail || user.email,
-                'Recuperación de contraseña — OCC-TVM',
+                'Recuperación de contraseña — ARGOS',
                 'password-reset',
                 {
                     recipientName: user.name,

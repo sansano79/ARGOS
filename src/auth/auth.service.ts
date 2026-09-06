@@ -186,7 +186,7 @@ export class AuthService {
     }
 
     const secret = authenticator.generateSecret();
-    const issuer = process.env.MFA_ISSUER || 'OCC-TVM';
+    const issuer = process.env.MFA_ISSUER || 'ARGOS';
     const otpauthUrl = authenticator.keyuri(user.email, issuer, secret);
     const qrDataUrl = await QRCode.toDataURL(otpauthUrl);
 

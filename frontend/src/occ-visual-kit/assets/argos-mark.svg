@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ARGOS">
+  <g fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 4 L55 17.5 V44.5 L32 58 L9 44.5 V17.5 Z" stroke-width="3.5" opacity=".9"/>
+    <path d="M15 31 q17 -14 34 0 q-17 14 -34 0 Z" stroke-width="3"/>
+  </g>
+  <circle cx="32" cy="31" r="5.6" fill="#ffffff"/>
+</svg>

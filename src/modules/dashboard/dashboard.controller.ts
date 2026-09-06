@@ -5,7 +5,7 @@ export class DashboardController {
   @Get()
   healthCheck() {
     return {
-      service: 'OCC-TVM — Threat & Vulnerability Management',
+      service: 'ARGOS — Threat & Vulnerability Management',
       status: 'running',
       timestamp: new Date().toISOString(),
       version: '1.0.0',

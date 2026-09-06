@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-echo "🚀 OCC-TVM — Starting..."
+echo "🚀 ARGOS — Starting..."
 
 PRISMA="./node_modules/.bin/prisma"
 

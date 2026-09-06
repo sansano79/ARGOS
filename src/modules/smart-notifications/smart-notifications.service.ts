@@ -277,7 +277,7 @@ export class SmartNotificationsService {
         subjectPrefix: '[OCC] Hallazgo inteligente de vulnerabilidades',
         emailTitle: '🧠 Hallazgo Inteligente OCC',
         introText: 'Este informe resume hallazgos inteligentes y correlaciones relevantes detectadas en tus activos durante la ventana analizada.',
-        footerText: 'OCC-TVM — Informe inteligente generado automáticamente',
+        footerText: 'ARGOS — Informe inteligente generado automáticamente',
         sectionExecutiveTitle: 'Resumen Ejecutivo',
         sectionTopRiskTitle: 'Top Riesgo Real',
         sectionCorrelationsTitle: 'Correlaciones Detectadas',
@@ -1373,10 +1373,10 @@ export class SmartNotificationsService {
         return {
             cveIds: ranked.map((item: any) => item.cveId).filter(Boolean),
             emailTitle: this.escapeHtml(language === 'en' ? 'OCC Intelligent Notification' : 'Notificación Inteligente OCC'),
-            brandSubtitle: this.escapeHtml(language === 'en' ? 'OCC-TVM — Threat & Vulnerability Management' : 'OCC-TVM — Gestión de amenazas y vulnerabilidades'),
+            brandSubtitle: this.escapeHtml(language === 'en' ? 'ARGOS — Threat & Vulnerability Management' : 'ARGOS — Gestión de amenazas y vulnerabilidades'),
             footerText: this.escapeHtml(language === 'en'
                 ? 'Services OCC — Automatically generated notification'
-                : 'OCC-TVM — notificación generada automáticamente'),
+                : 'ARGOS — notificación generada automáticamente'),
             generatedAtLine: this.escapeHtml(language === 'en'
                 ? `Automated analysis · Generated ${generatedAtIso}`
                 : `Análisis automatizado · Generado el ${generatedAtIso}`),
@@ -3790,7 +3790,7 @@ ${roadmapHtml}`
             generatedAt: new Date().toISOString(),
             totalVulnerabilities: dataset.stats.total,
             emailTitle: this.escapeHtml(smartConfig.emailTitle),
-            brandSubtitle: this.escapeHtml('OCC-TVM — Gestión de amenazas y vulnerabilidades'),
+            brandSubtitle: this.escapeHtml('ARGOS — Gestión de amenazas y vulnerabilidades'),
             introText,
             footerText: this.escapeHtml(smartConfig.footerText),
             headerMetaStripHtml: `
@@ -3808,7 +3808,7 @@ ${roadmapHtml}`
             whyReceivedSectionHtml: `<h2 style="${sectionTitleStyle}">Por qué recibes esta alerta</h2>
 <div style="border:1px solid #E2E8F0;border-radius:10px;background:#F8FAFC;padding:16px;">
   <div style="font-size:13px;color:#475569;line-height:1.65;">
-    Recibes este informe porque eres suscriptor de OCC-TVM. El análisis se ha filtrado basándose en tus <strong>${dataset.groupedAssets.length} fabricantes/productos suscritos</strong> y en tu infraestructura monitorizada.
+    Recibes este informe porque eres suscriptor de ARGOS. El análisis se ha filtrado basándose en tus <strong>${dataset.groupedAssets.length} fabricantes/productos suscritos</strong> y en tu infraestructura monitorizada.
   </div>
 </div>`,
             closingSectionHtml: `<div style="margin-top:24px;padding:16px;border-radius:10px;border:1px solid #DBEAFE;background:#EFF6FF;">

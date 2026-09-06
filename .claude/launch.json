@@ -4,13 +4,19 @@
     {
       "name": "backend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "start:dev"],
+      "runtimeArgs": [
+        "run",
+        "start:dev"
+      ],
       "port": 3000
     },
     {
       "name": "frontend",
-      "runtimeExecutable": "/bin/zsh",
-      "runtimeArgs": ["-c", "source ~/.nvm/nvm.sh && npm run frontend:dev"],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "frontend:dev"
+      ],
       "port": 5173
     }
   ]

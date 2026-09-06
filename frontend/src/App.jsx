@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import occLogo from "./occ-visual-kit/assets/occ-favicon.svg";
+import argosLogo from "./occ-visual-kit/assets/argos-mark.svg";
+import ArgosAuthLayout, { ARGOS_AUTH_COPY } from "./features/auth/ArgosAuthLayout.jsx";
 import {
   ACCOUNT_PATH,
   DETAIL_VIEW,
@@ -3638,141 +3639,125 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
   return (
     !isLoggedIn ? (
-      <div className="occ-login-shell" style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "var(--occ-font-sans)" }}>
-        <div className="occ-login-card occ-panel" style={{ background: "#fff", borderRadius: 16, padding: "36px 32px", width: 380 }}>
-          <div style={{ textAlign: "center", marginBottom: 28 }}>
-            <div style={{ width: 56, height: 56, background: "linear-gradient(135deg, var(--occ-primary) 0%, #3d8bff 100%)", borderRadius: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 12, padding: 10 }}>
-              <img src={occLogo} alt="OCC" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+      <ArgosAuthLayout
+        title={(ARGOS_AUTH_COPY[authMode] || ARGOS_AUTH_COPY.login).title}
+        subtitle={(ARGOS_AUTH_COPY[authMode] || ARGOS_AUTH_COPY.login).subtitle}
+      >
+        {authMode === "login" && (
+          <form onSubmit={handleLogin}>
+            <div className="argos-auth__field">
+              <label className="argos-auth__label" htmlFor="argos-email">Identidad</label>
+              <input id="argos-email" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} type="email" autoComplete="username" placeholder="nombre@empresa.com" required />
             </div>
-            <h1 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: "0 0 4px", letterSpacing: "-0.01em" }}>OCC-TVM</h1>
-            <p style={{ fontSize: 11, color: C.gray500, margin: 0, letterSpacing: 1, textTransform: "uppercase" }}>Oficina de Ciberseguridad Corporativa</p>
-          </div>
-          {authMode === "login" && (
-            <form onSubmit={handleLogin}>
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email</label>
-                <input value={loginEmail} onChange={e => setLoginEmail(e.target.value)} type="email" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Contraseña</label>
-                <input value={loginPass} onChange={e => setLoginPass(e.target.value)} type="password" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
-              </div>
-              <div style={{ textAlign: "right", marginBottom: 16 }}>
-                <button type="button" onClick={() => { setAuthMode("forgot"); setForgotEmail(loginEmail); setLoginErr(""); }} style={{ background: "none", border: "none", color: C.blue, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}>
-                  ¿Olvidaste tu contraseña?
-                </button>
-              </div>
-              {loginErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{loginErr}</div>}
-              <button type="submit" disabled={loginLoading} style={{ width: "100%", padding: "12px", fontSize: 14, fontWeight: 700, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>{loginLoading ? "Accediendo..." : "Iniciar Sesión"}</button>
-              {authProviders.azureOidc && (
-                <>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0" }}>
-                    <div style={{ height: 1, background: C.gray200, flex: 1 }} />
-                    <div style={{ fontSize: 11, color: C.gray500, fontWeight: 700 }}>o</div>
-                    <div style={{ height: 1, background: C.gray200, flex: 1 }} />
-                  </div>
-                  <a href={`${API_BASE}/auth/azure/login`} style={{ display: "block", textAlign: "center", width: "100%", padding: "11px", fontSize: 13, fontWeight: 800, background: "#fff", color: C.navy, border: `1px solid ${C.gray300}`, borderRadius: 8, textDecoration: "none" }}>
-                    Entrar con Azure
-                  </a>
-                </>
-              )}
-            </form>
-          )}
+            <div className="argos-auth__field">
+              <label className="argos-auth__label" htmlFor="argos-pass">Credencial</label>
+              <input id="argos-pass" value={loginPass} onChange={e => setLoginPass(e.target.value)} type="password" autoComplete="current-password" placeholder="Credencial" required />
+            </div>
+            <div className="argos-auth__row-right">
+              <button type="button" className="argos-auth__link" onClick={() => { setAuthMode("forgot"); setForgotEmail(loginEmail); setLoginErr(""); }}>
+                ¿Olvidaste tu contraseña?
+              </button>
+            </div>
+            {loginErr && <div className="argos-auth__alert argos-auth__alert--error">{loginErr}</div>}
+            <button type="submit" className="argos-auth__btn" disabled={loginLoading}>{loginLoading ? "Accediendo..." : "Iniciar sesión"}</button>
+            {authProviders.azureOidc && (
+              <>
+                <div className="argos-auth__divider">o</div>
+                <a href={`${API_BASE}/auth/azure/login`} className="argos-auth__sso">Entrar con Azure</a>
+              </>
+            )}
+          </form>
+        )}
 
-          {authMode === "mfa-enroll" && (
-            <form onSubmit={handleMfaEnroll}>
-              <div style={{ fontSize: 12, color: C.gray600, marginBottom: 14 }}>
-                Activa MFA para continuar. Escanea el QR con tu autenticador y escribe el código.
-              </div>
-              {mfaQr && (
-                <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
-                  <img src={mfaQr} alt="QR MFA" style={{ width: 200, height: 200, borderRadius: 12, border: `1px solid ${C.gray200}` }} />
-                </div>
-              )}
-              {!mfaQr && (
-                <div style={{ background: C.infoBg, color: C.info, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 600 }}>
-                  Generando QR...
-                </div>
-              )}
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Código MFA</label>
-                <input value={mfaCode} onChange={e => setMfaCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
-              </div>
-              {mfaErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 600 }}>{mfaErr}</div>}
-              <button type="submit" disabled={mfaLoading} style={{ width: "100%", padding: "12px", fontSize: 14, fontWeight: 800, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", marginBottom: 10 }}>{mfaLoading ? "Verificando..." : "Activar MFA"}</button>
-              <button type="button" onClick={() => { setAuthMode("login"); setMfaErr(""); setMfaCode(""); setMfaQr(""); setMfaToken(""); }} style={{ width: "100%", padding: "11px", fontSize: 13, fontWeight: 700, background: "#fff", color: C.gray700, border: `1px solid ${C.gray300}`, borderRadius: 8, cursor: "pointer" }}>
+        {authMode === "mfa-enroll" && (
+          <form onSubmit={handleMfaEnroll}>
+            <div className="argos-auth__hint">
+              Escanea el QR con tu autenticador y escribe el código generado.
+            </div>
+            {mfaQr && <img className="argos-auth__qr" src={mfaQr} alt="QR MFA" />}
+            {!mfaQr && <div className="argos-auth__alert argos-auth__alert--info">Generando QR...</div>}
+            <div className="argos-auth__field">
+              <label className="argos-auth__label" htmlFor="argos-mfa-enroll">Código MFA</label>
+              <input id="argos-mfa-enroll" value={mfaCode} onChange={e => setMfaCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" required />
+            </div>
+            {mfaErr && <div className="argos-auth__alert argos-auth__alert--error">{mfaErr}</div>}
+            <div className="argos-auth__stack">
+              <button type="submit" className="argos-auth__btn" disabled={mfaLoading}>{mfaLoading ? "Verificando..." : "Activar MFA"}</button>
+              <button type="button" className="argos-auth__btn argos-auth__btn--ghost" onClick={() => { setAuthMode("login"); setMfaErr(""); setMfaCode(""); setMfaQr(""); setMfaToken(""); }}>
                 Volver al login
               </button>
-            </form>
-          )}
+            </div>
+          </form>
+        )}
 
-          {authMode === "mfa" && (
-            <form onSubmit={handleMfaVerify}>
-              <div style={{ fontSize: 12, color: C.gray600, marginBottom: 14 }}>
-                Introduce el código de tu autenticador para continuar.
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Código MFA</label>
-                <input value={mfaCode} onChange={e => setMfaCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
-              </div>
-              {mfaErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 600 }}>{mfaErr}</div>}
-              <button type="submit" disabled={mfaLoading} style={{ width: "100%", padding: "12px", fontSize: 14, fontWeight: 800, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", marginBottom: 10 }}>{mfaLoading ? "Verificando..." : "Continuar"}</button>
-              <button type="button" onClick={() => { setAuthMode("login"); setMfaErr(""); setMfaCode(""); setMfaToken(""); }} style={{ width: "100%", padding: "11px", fontSize: 13, fontWeight: 700, background: "#fff", color: C.gray700, border: `1px solid ${C.gray300}`, borderRadius: 8, cursor: "pointer" }}>
+        {authMode === "mfa" && (
+          <form onSubmit={handleMfaVerify}>
+            <div className="argos-auth__field">
+              <label className="argos-auth__label" htmlFor="argos-mfa">Código MFA</label>
+              <input id="argos-mfa" value={mfaCode} onChange={e => setMfaCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" required />
+            </div>
+            {mfaErr && <div className="argos-auth__alert argos-auth__alert--error">{mfaErr}</div>}
+            <div className="argos-auth__stack">
+              <button type="submit" className="argos-auth__btn" disabled={mfaLoading}>{mfaLoading ? "Verificando..." : "Continuar"}</button>
+              <button type="button" className="argos-auth__btn argos-auth__btn--ghost" onClick={() => { setAuthMode("login"); setMfaErr(""); setMfaCode(""); setMfaToken(""); }}>
                 Volver al login
               </button>
-            </form>
-          )}
+            </div>
+          </form>
+        )}
 
-          {authMode === "forgot" && (
-            <form onSubmit={handleForgotPassword}>
-              <div style={{ fontSize: 12, color: C.gray600, marginBottom: 14 }}>
-                Ingresa tu correo y te enviaremos un enlace de recuperación.
-              </div>
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Email</label>
-                <input value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} type="email" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
-              </div>
-              {forgotErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{forgotErr}</div>}
-              {forgotMsg && <div style={{ background: C.infoBg, color: C.info, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{forgotMsg}</div>}
-              <button type="submit" disabled={forgotLoading} style={{ width: "100%", padding: "12px", fontSize: 14, fontWeight: 700, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", marginBottom: 10 }}>{forgotLoading ? "Enviando..." : "Enviar enlace"}</button>
-              <button type="button" onClick={() => { setAuthMode("login"); setForgotErr(""); }} style={{ width: "100%", padding: "11px", fontSize: 13, fontWeight: 700, background: "#fff", color: C.gray700, border: `1px solid ${C.gray300}`, borderRadius: 8, cursor: "pointer" }}>Volver al login</button>
-            </form>
-          )}
+        {authMode === "forgot" && (
+          <form onSubmit={handleForgotPassword}>
+            <div className="argos-auth__field">
+              <label className="argos-auth__label" htmlFor="argos-forgot">Identidad</label>
+              <input id="argos-forgot" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} type="email" placeholder="nombre@empresa.com" required />
+            </div>
+            {forgotErr && <div className="argos-auth__alert argos-auth__alert--error">{forgotErr}</div>}
+            {forgotMsg && <div className="argos-auth__alert argos-auth__alert--info">{forgotMsg}</div>}
+            <div className="argos-auth__stack">
+              <button type="submit" className="argos-auth__btn" disabled={forgotLoading}>{forgotLoading ? "Enviando..." : "Enviar enlace"}</button>
+              <button type="button" className="argos-auth__btn argos-auth__btn--ghost" onClick={() => { setAuthMode("login"); setForgotErr(""); }}>Volver al login</button>
+            </div>
+          </form>
+        )}
 
-          {authMode === "reset" && (
-            <>
-              {tokenCheckLoading && <div style={{ background: C.infoBg, color: C.info, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>Validando enlace de recuperación...</div>}
-              {!tokenCheckLoading && !tokenValid && (
-                <>
-                  {resetErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{resetErr}</div>}
-                  <button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setAuthMode("forgot"); }} style={{ width: "100%", padding: "11px", fontSize: 13, fontWeight: 700, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", marginBottom: 10 }}>Solicitar nuevo enlace</button>
-                  <button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setAuthMode("login"); }} style={{ width: "100%", padding: "11px", fontSize: 13, fontWeight: 700, background: "#fff", color: C.gray700, border: `1px solid ${C.gray300}`, borderRadius: 8, cursor: "pointer" }}>Volver al login</button>
-                </>
-              )}
+        {authMode === "reset" && (
+          <>
+            {tokenCheckLoading && <div className="argos-auth__alert argos-auth__alert--info">Validando enlace de recuperación...</div>}
+            {!tokenCheckLoading && !tokenValid && (
+              <>
+                {resetErr && <div className="argos-auth__alert argos-auth__alert--error">{resetErr}</div>}
+                <div className="argos-auth__stack">
+                  <button type="button" className="argos-auth__btn" onClick={() => { window.history.replaceState({}, "", "/"); setAuthMode("forgot"); }}>Solicitar nuevo enlace</button>
+                  <button type="button" className="argos-auth__btn argos-auth__btn--ghost" onClick={() => { window.history.replaceState({}, "", "/"); setAuthMode("login"); }}>Volver al login</button>
+                </div>
+              </>
+            )}
 
-              {!tokenCheckLoading && tokenValid && (
-                <form onSubmit={handleResetPassword}>
-                  <div style={{ fontSize: 12, color: C.gray600, marginBottom: 14 }}>
-                    Define tu nueva contraseña para la cuenta <strong>{loginEmail || ""}</strong>.
-                  </div>
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Nueva contraseña</label>
-                    <input value={resetPass} onChange={e => setResetPass(e.target.value)} type="password" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
-                  </div>
-                  <div style={{ marginBottom: 16 }}>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: C.gray600, display: "block", marginBottom: 4 }}>Confirmar contraseña</label>
-                    <input value={resetConfirm} onChange={e => setResetConfirm(e.target.value)} type="password" required style={{ width: "100%", padding: "11px 14px", fontSize: 13, border: `1px solid ${C.gray200}`, borderRadius: 8, boxSizing: "border-box", outline: "none" }} />
-                  </div>
-                  {resetErr && <div style={{ background: C.criticalBg, color: C.critical, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{resetErr}</div>}
-                  {resetMsg && <div style={{ background: C.infoBg, color: C.info, padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 14, fontWeight: 500 }}>{resetMsg}</div>}
-                  <button type="submit" disabled={resetLoading} style={{ width: "100%", padding: "12px", fontSize: 14, fontWeight: 700, background: C.navy, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", marginBottom: 10 }}>{resetLoading ? "Actualizando..." : "Actualizar contraseña"}</button>
-                  <button type="button" onClick={() => { window.history.replaceState({}, "", "/"); setAuthMode("login"); }} style={{ width: "100%", padding: "11px", fontSize: 13, fontWeight: 700, background: "#fff", color: C.gray700, border: `1px solid ${C.gray300}`, borderRadius: 8, cursor: "pointer" }}>Volver al login</button>
-                </form>
-              )}
-            </>
-          )}
-        </div>
-      </div>
+            {!tokenCheckLoading && tokenValid && (
+              <form onSubmit={handleResetPassword}>
+                <div className="argos-auth__hint">
+                  Define tu nueva contraseña para la cuenta <strong>{loginEmail || ""}</strong>.
+                </div>
+                <div className="argos-auth__field">
+                  <label className="argos-auth__label" htmlFor="argos-reset-pass">Nueva contraseña</label>
+                  <input id="argos-reset-pass" value={resetPass} onChange={e => setResetPass(e.target.value)} type="password" autoComplete="new-password" required />
+                </div>
+                <div className="argos-auth__field">
+                  <label className="argos-auth__label" htmlFor="argos-reset-confirm">Confirmar contraseña</label>
+                  <input id="argos-reset-confirm" value={resetConfirm} onChange={e => setResetConfirm(e.target.value)} type="password" autoComplete="new-password" required />
+                </div>
+                {resetErr && <div className="argos-auth__alert argos-auth__alert--error">{resetErr}</div>}
+                {resetMsg && <div className="argos-auth__alert argos-auth__alert--info">{resetMsg}</div>}
+                <div className="argos-auth__stack">
+                  <button type="submit" className="argos-auth__btn" disabled={resetLoading}>{resetLoading ? "Actualizando..." : "Actualizar contraseña"}</button>
+                  <button type="button" className="argos-auth__btn argos-auth__btn--ghost" onClick={() => { window.history.replaceState({}, "", "/"); setAuthMode("login"); }}>Volver al login</button>
+                </div>
+              </form>
+            )}
+          </>
+        )}
+      </ArgosAuthLayout>
     ) : (
       <div className="occ-app-shell" style={{ display: "flex", minHeight: "100vh", background: "var(--occ-bg-page)", fontFamily: "var(--occ-font-sans)" }}>
         <style>{`
@@ -3841,9 +3826,9 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         <nav className="occ-sidebar" style={{ width: sw, position: "fixed", top: 0, left: 0, height: "100vh", zIndex: 100, transition: "width 0.2s ease", overflow: "hidden" }}>
           <div className="occ-brand" style={{ padding: collapsed ? "14px 10px" : "16px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)", justifyContent: collapsed ? "center" : "flex-start" }}>
             <div className="occ-brand-logo" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, padding: 7 }}>
-              <img src={occLogo} alt="OCC" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+              <img src={argosLogo} alt="ARGOS" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
             </div>
-            {!collapsed && <div><div style={{ fontSize: 14, fontWeight: 700, color: "#fff", letterSpacing: "-0.01em" }}>OCC-TVM</div><div className="occ-brand-subtitle" style={{ fontSize: 10, color: "rgba(148,163,184,0.7)" }}>Threat &amp; Vulnerability Management</div></div>}
+            {!collapsed && <div><div style={{ fontSize: 14, fontWeight: 700, color: "#fff", letterSpacing: "-0.01em" }}>ARGOS</div><div className="occ-brand-subtitle" style={{ fontSize: 10, color: "rgba(148,163,184,0.7)" }}>Threat &amp; Vulnerability Management</div></div>}
           </div>
           <div style={{ flex: 1, padding: "10px 0", overflowY: "auto" }}>
             {!collapsed && <div style={{ padding: "4px 20px 6px", fontSize: 9, fontWeight: 600, color: "rgba(148,163,184,0.5)", letterSpacing: "1.5px", textTransform: "uppercase" }}>Módulos</div>}
@@ -4760,7 +4745,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ SUBSCRIBER PORTAL ═══ */}
             {view === "portal" && <>
-              <PageHeader title="Mis Suscripciones" subtitle="Gestiona el software que monitoriza OCC-TVM para tus alertas." actions={
+              <PageHeader title="Mis Suscripciones" subtitle="Gestiona el software que monitoriza ARGOS para tus alertas." actions={
                 <div style={{ display: "flex", gap: 8 }}>
                   <Btn onClick={() => loadData("portal")} disabled={portalLoading || portalSaving}><I name="refresh" size={12} /> Actualizar</Btn>
                   <Btn primary onClick={savePortalSubscriptions} disabled={portalLoading || portalSaving}>

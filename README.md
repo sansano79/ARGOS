@@ -1,4 +1,4 @@
-# OCC-TVM — Threat & Vulnerability Management
+# ARGOS — Threat & Vulnerability Management
 
 Sistema automatizado de recolección, análisis y reporte de vulnerabilidades para la Oficina de Ciberseguridad.
 
@@ -42,7 +42,7 @@ npx prisma db seed
 npm run start:dev
 ```
 
-## Despliegue en Producción de OCC-TVM
+## Despliegue en Producción de ARGOS
 
 ### 1) Requisitos recomendados
 

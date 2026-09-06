@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ARGOS">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1630"/>
+      <stop offset="1" stop-color="#1e5fd8"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)"/>
+  <g fill="none" stroke="#e9f0ff" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 12 L48 21.5 V40.5 L32 50 L16 40.5 V21.5 Z" stroke-width="2.4" opacity=".75"/>
+    <path d="M20 31 q12 -10 24 0 q-12 10 -24 0 Z" stroke-width="2.4"/>
+  </g>
+  <circle cx="32" cy="31" r="4.2" fill="#e9f0ff"/>
+</svg>

@@ -73,7 +73,7 @@ async function bootstrap() {
 
   if (enableSwagger) {
     const config = new DocumentBuilder()
-      .setTitle('OCC-TVM — Threat & Vulnerability Management')
+      .setTitle('ARGOS — Threat & Vulnerability Management')
       .setDescription('API para recolección, análisis y reporte de vulnerabilidades')
       .setVersion('1.0')
       .addBearerAuth()
@@ -91,7 +91,7 @@ async function bootstrap() {
 
   const port = process.env.API_PORT || process.env.APP_PORT || 3000;
   await app.listen(port, '0.0.0.0');
-  logger.log(`🚀 OCC-TVM API running on http://0.0.0.0:${port}`);
+  logger.log(`🚀 ARGOS API running on http://0.0.0.0:${port}`);
   if (testMfaBypassStatus.enabled) {
     logger.warn(`WARNING: Test MFA bypass enabled for ${testMfaBypassStatus.allowlistCount} explicitly allowlisted accounts`);
   }

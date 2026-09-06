@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Script de despliegue para el stack OCC-TVM
+# Script de despliegue para el stack ARGOS
 # Uso: ./deploy.sh
 
 set -euo pipefail
 
-echo "🚀 Iniciando despliegue de OCC-TVM..."
+echo "🚀 Iniciando despliegue de ARGOS..."
 
 COMPOSE="docker compose --env-file .env.prod -f docker-compose.yml"
 

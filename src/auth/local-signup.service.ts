@@ -91,7 +91,7 @@ export class LocalSignupService {
     try {
       await this.notification.sendEmail(
         this.getApproverEmail(),
-        'Aprobación de alta local — OCC-TVM',
+        'Aprobación de alta local — ARGOS',
         'local-signup-approval',
         {
           requesterEmail,
@@ -179,7 +179,7 @@ export class LocalSignupService {
     try {
       await this.notification.sendEmail(
         record.requesterEmail,
-        'Solicitud de alta local — OCC-TVM',
+        'Solicitud de alta local — ARGOS',
         'local-signup-denied',
         { requesterName: record.requesterName },
       );
