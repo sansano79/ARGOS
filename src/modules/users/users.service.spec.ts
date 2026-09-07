@@ -314,4 +314,162 @@ describe('UsersService', () => {
             data: { isActive: false },
         });
     });
+
+    // Test cases for bug fix: canLogin existing + role change without password
+    describe('Role changes without password on existing canLogin users', () => {
+        it('A: allows role change from VIEWER to USER when canLogin was already true, without password', async () => {
+            const existingUser = makeUserRecord({
+                id: 13,
+                role: 'VIEWER',
+                canLogin: true,
+                passwordHash: 'existing-hash',
+            });
+            const updatedUser = makeUserRecord({
+                id: 13,
+                role: 'USER',
+                canLogin: true,
+                passwordHash: 'existing-hash',
+            });
+
+            prisma.user.findUnique
+                .mockResolvedValueOnce(existingUser)
+                .mockResolvedValueOnce(updatedUser);
+            prisma.user.update.mockResolvedValueOnce({});
+
+            const result = await service.update(13, {
+                role: 'USER',
+                canLogin: true,
+            });
+
+            expect(prisma.user.update).toHaveBeenCalledWith({
+                where: { id: 13 },
+                data: expect.objectContaining({
+                    role: 'USER',
+                    canLogin: true,
+                }),
+            });
+            expect(result.role).toBe('USER');
+        });
+
+        it('B: allows role change between permitted roles when canLogin was already true, without password', async () => {
+            const existingUser = makeUserRecord({
+                id: 14,
+                role: 'USER',
+                canLogin: true,
+                passwordHash: 'existing-hash',
+            });
+            const updatedUser = makeUserRecord({
+                id: 14,
+                role: 'TEAM_MANAGER',
+                canLogin: true,
+                passwordHash: 'existing-hash',
+            });
+
+            prisma.user.findUnique
+                .mockResolvedValueOnce(existingUser)
+                .mockResolvedValueOnce(updatedUser);
+            prisma.user.update.mockResolvedValueOnce({});
+            prisma.subscriberTeam.findMany.mockResolvedValueOnce([]);
+            prisma.teamMember.findMany.mockResolvedValueOnce([]);
+
+            const result = await service.update(14, {
+                role: 'TEAM_MANAGER',
+                canLogin: true,
+            });
+
+            expect(prisma.user.update).toHaveBeenCalled();
+            expect(result.role).toBe('TEAM_MANAGER');
+        });
+
+        it('C: rejects enabling login (canLogin false->true) for local user without password', async () => {
+            const existingUser = makeUserRecord({
+                id: 15,
+                role: 'VIEWER',
+                canLogin: false,
+                passwordHash: null,
+            });
+
+            prisma.user.findUnique.mockResolvedValueOnce(existingUser);
+
+            try {
+                await service.update(15, {
+                    canLogin: true,
+                });
+                fail('Expected BadRequestException to be thrown');
+            } catch (error) {
+                expect(error).toBeInstanceOf(BadRequestException);
+                expect((error as BadRequestException).message).toBe('Password is required to enable login for this user');
+            }
+        });
+
+        it('D: allows enabling login (canLogin false->true) when password is provided', async () => {
+            const existingUser = makeUserRecord({
+                id: 16,
+                role: 'VIEWER',
+                canLogin: false,
+                passwordHash: null,
+            });
+            const updatedUser = makeUserRecord({
+                id: 16,
+                role: 'VIEWER',
+                canLogin: true,
+                passwordHash: 'new-hash',
+            });
+
+            prisma.user.findUnique
+                .mockResolvedValueOnce(existingUser)
+                .mockResolvedValueOnce(updatedUser);
+            prisma.user.update.mockResolvedValueOnce({});
+
+            const result = await service.update(16, {
+                canLogin: true,
+                password: 'NewPassword123',
+            });
+
+            expect(prisma.user.update).toHaveBeenCalledWith({
+                where: { id: 16 },
+                data: expect.objectContaining({
+                    canLogin: true,
+                    passwordHash: 'hashed-password',
+                }),
+            });
+            expect(result.canLogin).toBe(true);
+        });
+    });
+
+    describe('SSO/Entra ID user handling', () => {
+        it('F: allows role change for SSO user without password (canLogin already true, no passwordHash required)', async () => {
+            const ssoUser = makeUserRecord({
+                id: 17,
+                role: 'VIEWER',
+                canLogin: true,
+                passwordHash: null,
+            });
+            const updatedUser = makeUserRecord({
+                id: 17,
+                role: 'USER',
+                canLogin: true,
+                passwordHash: null,
+            });
+
+            prisma.user.findUnique
+                .mockResolvedValueOnce(ssoUser)
+                .mockResolvedValueOnce(updatedUser);
+            prisma.user.update.mockResolvedValueOnce({});
+
+            const result = await service.update(17, {
+                role: 'USER',
+                canLogin: true,
+            });
+
+            expect(prisma.user.update).toHaveBeenCalledWith({
+                where: { id: 17 },
+                data: expect.objectContaining({
+                    role: 'USER',
+                    canLogin: true,
+                }),
+            });
+            expect(result.role).toBe('USER');
+        });
+    });
 });

@@ -305,8 +305,11 @@ export class UsersService {
             updateData.canLogin = true;
         } else if (!canLogin) {
             updateData.passwordHash = null;
-        } else if (canLogin && !existing.passwordHash) {
-            throw new BadRequestException('Password is required to enable login for this user');
+        } else {
+            const isEnablingLogin = !existing.canLogin && canLogin;
+            if (isEnablingLogin && !existing.passwordHash) {
+                throw new BadRequestException('Password is required to enable login for this user');
+            }
         }
 
         await this.prisma.$transaction(async (tx) => {
