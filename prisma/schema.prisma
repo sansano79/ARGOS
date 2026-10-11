@@ -196,6 +196,9 @@ model Vulnerability {
   firstSeenAt      DateTime  @default(now()) @map("first_seen_at")
   enrichedAt       DateTime? @map("enriched_at")
 
+  needsEnrichment  Boolean   @default(false) @map("needs_enrichment")
+  enrichmentReason String?   @map("enrichment_reason") @db.VarChar(64)
+
   isNotificable Boolean @default(false) @map("is_notificable")
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -225,6 +228,9 @@ model Vulnerability {
   @@index([recordStatus])
   @@index([lastChangeDetectedAt])
   @@index([isNotificable])
+  @@index([isKnownExploited(sort: Desc), operationalRiskScore(sort: Desc), cvssV31Score(sort: Desc), publishedAt(sort: Desc)], map: "idx_vuln_exploit_risk_cvss_pub")
+  @@index([hasPublicExploit(sort: Desc), operationalRiskScore(sort: Desc), publishedAt(sort: Desc)], map: "idx_vuln_public_exploit_risk")
+  @@index([isKnownExploited, hasPublicExploit, exploitStatus], map: "idx_vuln_exploit_signals")
   @@map("vulnerabilities")
 }
 
@@ -633,7 +639,7 @@ model SoftwareCatalog {
   id        Int      @id @default(autoincrement())
   vendor    String
   product   String
-  versions  String?  @db.Text
+  versions  String?  @db.MediumText
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

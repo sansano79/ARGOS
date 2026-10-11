@@ -1,5 +1,9 @@
 import {
-  Controller, Get, Param, Query, UseGuards,
+  Controller,
+  Get,
+  Param,
+  Query,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiSecurity, ApiOperation } from '@nestjs/swagger';
 import { ThrottlerGuard } from '@nestjs/throttler';
@@ -17,7 +21,7 @@ export class ExtVulnerabilitiesController {
   constructor(private readonly service: ExternalApiService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List vulnerabilities with filtering and pagination' })
+  @ApiOperation({ summary: 'List vulnerabilities with filtering, pagination and incremental sync' })
   async list(@Query() query: VulnerabilityQueryDto) {
     return this.service.listVulnerabilities(query);
   }
@@ -30,8 +34,20 @@ export class ExtVulnerabilitiesController {
 
   @Get(':cveId')
   @ApiOperation({ summary: 'Get vulnerability details by CVE ID' })
-  async getByCveId(@Param('cveId') cveId: string) {
-    return this.service.getVulnerabilityByCveId(cveId);
+  async getByCveId(
+    @Param('cveId') cveId: string,
+    @Query('include') include?: string,
+  ) {
+    return this.service.getVulnerabilityByCveId(cveId, include);
+  }
+
+  @Get(':cveId/evidence')
+  @ApiOperation({ summary: 'Get paginated evidence records for a CVE' })
+  async getEvidence(
+    @Param('cveId') cveId: string,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.service.getVulnerabilityEvidence(cveId, query);
   }
 
   @Get(':cveId/changes')
