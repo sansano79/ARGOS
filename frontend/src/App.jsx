@@ -1349,18 +1349,6 @@ export default function VulnDashboard() {
     return () => clearInterval(t);
   }, [view, backfillJobId, backfillStatus?.job?.status]);
 
-  useEffect(() => {
-    if (!enrichmentStatus?.isRunning) return undefined;
-    const t = setInterval(() => {
-      refreshEnrichmentStatus().then((data) => {
-        if (data && !data.isRunning) {
-          loadData("overview");
-        }
-      });
-    }, 3500);
-    return () => clearInterval(t);
-  }, [enrichmentStatus?.isRunning, refreshEnrichmentStatus, loadData]);
-
   // Login handler
   const handleLogin = async (e) => {
     e.preventDefault(); setLoginErr(""); setLoginLoading(true);
@@ -3406,6 +3394,18 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     }
     return null;
   }, []);
+
+  useEffect(() => {
+    if (!enrichmentStatus?.isRunning) return undefined;
+    const t = setInterval(() => {
+      refreshEnrichmentStatus().then((data) => {
+        if (data && !data.isRunning) {
+          loadData("overview");
+        }
+      });
+    }, 3500);
+    return () => clearInterval(t);
+  }, [enrichmentStatus?.isRunning, refreshEnrichmentStatus, loadData]);
 
   const resumeEnrichment = async (fromId) => {
     setEnrichmentBusy(true);
