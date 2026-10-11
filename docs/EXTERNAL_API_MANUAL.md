@@ -8,33 +8,54 @@
 4. [Gestión de API Keys (Admin)](#4-gestión-de-api-keys-admin)
 5. [Rate Limiting](#5-rate-limiting)
 6. [Endpoints Disponibles](#6-endpoints-disponibles)
-7. [Formato de Respuesta](#7-formato-de-respuesta)
-8. [Ejemplos de Uso](#8-ejemplos-de-uso)
-9. [Códigos de Error](#9-códigos-de-error)
-10. [Integración con Aplicaciones Externas](#10-integración-con-aplicaciones-externas)
+   - [6.1 Vulnerabilidades](#61-vulnerabilidades)
+   - [6.2 Evidencias y Fuentes](#62-evidencias-y-fuentes)
+   - [6.3 Cobertura y Salud de Inteligencia](#63-cobertura-y-salud-de-inteligencia)
+   - [6.4 Products & Assets](#64-products--assets)
+   - [6.5 Catálogo](#65-catálogo)
+   - [6.6 Collector & Reports](#66-collector--reports)
+7. [Contrato de Datos y Estados de Inteligencia](#7-contrato-de-datos-y-estados-de-inteligencia)
+   - [7.1 Compatibilidad hacia atrás](#71-compatibilidad-hacia-atrás)
+   - [7.2 Atributos enriquecidos](#72-atributos-enriquecidos)
+   - [7.3 Bloques normalizados de inteligencia](#73-bloques-normalizados-de-inteligencia)
+   - [7.4 Política de Privacidad y Raw Data](#74-política-de-privacidad-y-raw-data)
+8. [Sincronización Incremental](#8-sincronización-incremental)
+   - [8.1 Uso de updatedSince](#81-uso-de-updatedsince)
+   - [8.2 Paginación por cursor y watermark](#82-paginación-por-cursor-y-watermark)
+9. [Formato de Respuesta](#9-formato-de-respuesta)
+10. [Ejemplos Reales de Uso](#10-ejemplos-reales-de-uso)
+    - [10.1 Listado con metadatos y bloques de inteligencia](#101-listado-con-metadatos-y-bloques-de-inteligencia)
+    - [10.2 Detalle de vulnerabilidad (con y sin include=raw)](#102-detalle-de-vulnerabilidad-con-y-sin-includeraw)
+    - [10.3 Evidencias de un CVE (/evidence)](#103-evidencias-de-un-cve-evidence)
+    - [10.4 Resumen de cobertura (/coverage)](#104-resumen-de-cobertura-coverage)
+    - [10.5 Ejemplos de estados unknown y source_unavailable](#105-ejemplos-de-estados-unknown-y-source_unavailable)
+    - [10.6 Scripts en Python y Node.js para sincronización continua](#106-scripts-en-python-y-nodejs-para-sincronización-continua)
+11. [Códigos de Error](#11-códigos-de-error)
+12. [Integración con Aplicaciones Externas (ASTREA, SIEM, SOAR)](#12-integración-con-aplicaciones-externas-astrea-siem-soar)
 
 ---
 
 ## 1. Introducción
 
-La API externa de ARGOS-Vuls permite que aplicaciones de terceros (SIEMs, dashboards, scripts de automatización, sistemas de ticketing) consuman datos de vulnerabilidades de forma programática.
+La API externa de ARGOS-Vuls permite que sistemas consumidores como **ASTREA**, SIEMs, dashboards analíticos, scripts de automatización y orquestadores SOAR consuman datos de vulnerabilidades de forma programática con alta riqueza contextual, trazabilidad de fuentes y sincronización incremental eficiente.
 
 **Características principales:**
 
-- Autenticación por API Key (`X-API-Key` header)
-- Endpoints read-only bajo `/api/v1/`
-- Rate limiting configurable (100 req/min por defecto)
-- Respuestas paginadas con formato consistente
-- Control de acceso granular mediante scopes
-- Documentación Swagger interactiva en `/api/docs`
+- Autenticación por API Key (`X-API-Key` header).
+- Endpoints read-only bajo `/api/v1/`.
+- **Compatibilidad absoluta hacia atrás:** se conservan todos los campos planos actuales mientras se añaden atributos de trazabilidad y bloques de inteligencia normalizados.
+- **Sincronización incremental:** soporte de `updatedSince`, `cursor`, `watermark` y `hasMore`.
+- **Endpoint de evidencias (`/evidence`):** auditoría de fuentes primarias por CVE sin datos fabricados.
+- **Endpoint de cobertura (`/coverage`):** visibilidad del dataset global distinguiendo cero real, datos desconocidos y fuentes no disponibles.
+- **Privacidad estricta:** omisión de datos personales (correos, destinatarios de notificación) y control granular de payloads crudos (`?include=raw`).
+- Rate limiting configurable (100 req/min por defecto).
+- Documentación Swagger interactiva en `/api/docs`.
 
 **Base URL:**
 
 ```
 http://<tu-servidor>/api/v1
 ```
-
-En producción, si la plataforma se publica por HTTPS, TLS y certificados los gestiona el proxy/ingress externo. Este stack expone HTTP y mantiene la API bajo `/api/v1`.
 
 ---
 
@@ -52,28 +73,11 @@ API_RATE_LIMIT_MAX=100      # Máximo de requests por ventana (default: 100)
 
 ### 2.2 Migración de Base de Datos
 
-Al desplegar la nueva versión, ejecutar la migración de Prisma para crear la tabla `api_keys`:
+Verificar que las migraciones de Prisma estén aplicadas:
 
 ```bash
 npx prisma migrate deploy
 ```
-
-Esto creará la tabla `api_keys` en MySQL con los campos necesarios para almacenar las API keys de forma segura (hash bcrypt).
-
-### 2.3 Verificar Swagger
-
-Si Swagger está habilitado (`ENABLE_SWAGGER=true` o entorno no productivo), la documentación interactiva estará disponible en:
-
-```
-http://<tu-servidor>/api/docs
-```
-
-Los endpoints de la API externa aparecen bajo las secciones:
-- **External API — Vulnerabilities**
-- **External API — Products & Assets**
-- **External API — Catalog**
-- **External API — Collector & Reports**
-- **API Key Management**
 
 ---
 
@@ -90,169 +94,41 @@ curl -H "X-API-Key: occ_a3f8b2c1e4d567890abcdef1234567890abcdef12" \
 
 ### 3.2 Scopes disponibles
 
-Cada API key tiene un conjunto de scopes que determinan a qué endpoints puede acceder:
+Cada API key cuenta con un conjunto de scopes que restringen los endpoints accesibles:
 
 | Scope | Endpoints permitidos |
 |-------|---------------------|
-| `vulnerabilities:read` | `/v1/vulnerabilities`, `/v1/vulnerabilities/stats`, `/v1/vulnerabilities/:cveId`, `/v1/vulnerabilities/:cveId/changes` |
+| `vulnerabilities:read` | `/v1/vulnerabilities`, `/v1/vulnerabilities/stats`, `/v1/vulnerabilities/:cveId`, `/v1/vulnerabilities/:cveId/evidence`, `/v1/vulnerabilities/:cveId/changes`, `/v1/coverage` |
 | `products:read` | `/v1/product-assets`, `/v1/product-assets/:id/dependencies`, `/v1/product-assets/:id/vulnerabilities`, `/v1/products` |
 | `catalog:read` | `/v1/manufacturers`, `/v1/tags`, `/v1/kev`, `/v1/exploits` |
-| `collector:read` | `/v1/collector/runs`, `/v1/collector/sources-health` |
+| `collector:read` | `/v1/collector/runs`, `/v1/collector/sources-health`, `/v1/coverage` |
 | `reports:read` | `/v1/reports` |
-
-Si no se especifican scopes al crear la key, se otorgan **todos los scopes** por defecto.
-
-### 3.3 Seguridad
-
-- Las API keys se almacenan como hash bcrypt (nunca en texto plano)
-- El prefijo de la key (primeros 12 caracteres) se usa para identificación rápida en la UI
-- La key completa se muestra **una sola vez** al momento de crearla
-- Cada key está asociada a un usuario del sistema
-- Las keys pueden tener fecha de expiración opcional
-- Se registra la última fecha de uso (`lastUsedAt`) de cada key
 
 ---
 
 ## 4. Gestión de API Keys (Admin)
 
-Los endpoints de gestión de API keys requieren autenticación JWT con rol `ADMIN`.
+Los endpoints de gestión de API keys requieren autenticación JWT con rol `ADMIN`:
 
-### 4.1 Crear una API Key
-
-```bash
-curl -X POST http://<tu-servidor>/api/api-keys \
-  -H "Authorization: Bearer <jwt-token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Dashboard SIEM",
-    "scopes": ["vulnerabilities:read", "catalog:read"],
-    "expiresAt": "2027-01-01T00:00:00Z"
-  }'
-```
-
-**Respuesta:**
-
-```json
-{
-  "id": 1,
-  "name": "Dashboard SIEM",
-  "key": "occ_a3f8b2c1e4d567890abcdef1234567890abcdef12",
-  "keyPrefix": "occ_a3f8b2c1",
-  "scopes": ["vulnerabilities:read", "catalog:read"],
-  "expiresAt": "2027-01-01T00:00:00.000Z",
-  "createdAt": "2026-03-28T20:00:00.000Z",
-  "message": "Store this key securely — it will not be shown again."
-}
-```
-
-> **IMPORTANTE:** Copia y guarda la key inmediatamente. No se puede recuperar después.
-
-### 4.2 Listar API Keys
-
-```bash
-curl http://<tu-servidor>/api/api-keys \
-  -H "Authorization: Bearer <jwt-token>"
-```
-
-**Respuesta:**
-
-```json
-[
-  {
-    "id": 1,
-    "name": "Dashboard SIEM",
-    "keyPrefix": "occ_a3f8b2c1",
-    "scopes": ["vulnerabilities:read", "catalog:read"],
-    "isActive": true,
-    "expiresAt": "2027-01-01T00:00:00.000Z",
-    "lastUsedAt": "2026-03-28T21:30:00.000Z",
-    "createdAt": "2026-03-28T20:00:00.000Z",
-    "user": { "id": 1, "name": "Admin", "email": "admin@example.com" }
-  }
-]
-```
-
-### 4.3 Consultar scopes disponibles
-
-```bash
-curl http://<tu-servidor>/api/api-keys/scopes \
-  -H "Authorization: Bearer <jwt-token>"
-```
-
-**Respuesta:**
-
-```json
-["vulnerabilities:read", "products:read", "catalog:read", "collector:read", "reports:read"]
-```
-
-### 4.4 Actualizar una API Key
-
-```bash
-curl -X PATCH http://<tu-servidor>/api/api-keys/1 \
-  -H "Authorization: Bearer <jwt-token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Dashboard SIEM v2",
-    "scopes": ["vulnerabilities:read", "catalog:read", "products:read"],
-    "isActive": true
-  }'
-```
-
-### 4.5 Revocar una API Key
-
-```bash
-curl -X DELETE http://<tu-servidor>/api/api-keys/1 \
-  -H "Authorization: Bearer <jwt-token>"
-```
-
-**Respuesta:**
-
-```json
-{ "message": "API key revoked" }
-```
-
-La key se desactiva (`isActive = false`), no se elimina de la base de datos.
+- `POST /api/api-keys`: Crear API Key.
+- `GET /api/api-keys`: Listar API Keys.
+- `GET /api/api-keys/scopes`: Consultar scopes disponibles.
+- `PATCH /api/api-keys/:id`: Modificar nombre, scopes o estado activo.
+- `DELETE /api/api-keys/:id`: Desactivar una API Key.
 
 ---
 
 ## 5. Rate Limiting
-
-La API externa tiene rate limiting por API key para proteger el servicio.
 
 | Parámetro | Default | Variable de Entorno |
 |-----------|---------|-------------------|
 | Ventana de tiempo | 60 segundos | `API_RATE_LIMIT_TTL` (en ms) |
 | Máximo de requests | 100 por ventana | `API_RATE_LIMIT_MAX` |
 
-Cuando se excede el límite, la API responde con:
-
-```
-HTTP 429 Too Many Requests
-```
-
-**Headers de rate limit en cada respuesta:**
-
-```
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 95
-X-RateLimit-Reset: 1711656120
-```
-
-### Ajustar límites
-
-Para un entorno con alto volumen de consultas:
-
-```bash
-API_RATE_LIMIT_TTL=60000    # 1 minuto
-API_RATE_LIMIT_MAX=500      # 500 requests por minuto
-```
-
-Para un entorno restrictivo:
-
-```bash
-API_RATE_LIMIT_TTL=60000
-API_RATE_LIMIT_MAX=30       # 30 requests por minuto
-```
+Headers retornados en cada respuesta:
+- `X-RateLimit-Limit`
+- `X-RateLimit-Remaining`
+- `X-RateLimit-Reset`
 
 ---
 
@@ -262,435 +138,727 @@ API_RATE_LIMIT_MAX=30       # 30 requests por minuto
 
 #### `GET /api/v1/vulnerabilities`
 
-Lista vulnerabilidades con filtros y paginación.
+Lista vulnerabilidades con filtrado avanzado, paginación y sincronización incremental.
 
 **Parámetros de query:**
 
 | Parámetro | Tipo | Descripción |
 |-----------|------|-------------|
-| `page` | int | Página (default: 1) |
-| `limit` | int | Resultados por página (default: 50, max: 200) |
-| `severity` | string | Filtrar por severidad: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` |
-| `exploited` | string | Solo explotadas conocidas: `true` |
-| `minCvss` | number | Puntuación CVSS v3.1 mínima (0-10) |
-| `maxCvss` | number | Puntuación CVSS v3.1 máxima (0-10) |
-| `minEpss` | number | Puntuación EPSS mínima (0-1) |
-| `vendor` | string | Filtrar por fabricante |
-| `product` | string | Filtrar por producto |
-| `publishedFrom` | string | Fecha publicación desde (ISO 8601) |
-| `publishedTo` | string | Fecha publicación hasta (ISO 8601) |
-| `search` | string | Búsqueda en CVE ID, descripción, vendor, producto |
-| `tag` | string | Filtrar por tag (nombre o ID) |
-| `riskTier` | string | Filtrar por nivel de riesgo operacional |
-| `exploitStatus` | string | Filtrar por estado de exploit |
-| `hasPublicExploit` | string | Con exploit público: `true` |
-| `patchAvailable` | string | Con parche disponible: `true`/`false` |
-| `weaknessCategory` | string | Filtrar por categoría de debilidad |
-
-**Ejemplo:**
-
-```bash
-curl -H "X-API-Key: occ_..." \
-  "http://server/api/v1/vulnerabilities?severity=CRITICAL&exploited=true&limit=10"
-```
-
----
-
-#### `GET /api/v1/vulnerabilities/stats`
-
-Estadísticas agregadas de vulnerabilidades.
-
-**Respuesta:**
-
-```json
-{
-  "total": 25430,
-  "bySeverity": {
-    "critical": 1250,
-    "high": 5600,
-    "medium": 12300,
-    "low": 6280
-  },
-  "exploited": 340,
-  "withPublicExploits": 890,
-  "patchAvailable": 18500,
-  "newLast24h": 45,
-  "newLast7d": 312
-}
-```
+| `page` | int | Página solicitada (default: 1, base 1). |
+| `limit` | int | Registros por página (default: 50, máx: 200). |
+| `updatedSince` | string (ISO-8601) | **Sincronización incremental.** Filtra registros modificados desde esa fecha (`lastChangeDetectedAt >= fecha` o `updatedAt >= fecha`). |
+| `cursor` | string | Cursor opaco (base64 o numérico) devuelto en `meta.nextCursor` para continuar la lectura de forma secuencial. |
+| `severity` | string | Filtrar por severidad CVSS v3.1: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`. |
+| `exploited` | string | Si es `true`, filtra únicamente vulnerabilidades en catálogos de explotación activa (CISA KEV). |
+| `hasPublicExploit` | string | `true` o `false` para filtrar por existencia de exploit público. |
+| `exploitStatus` | string | Filtrar por estado de explotación (ej. `active_exploitation`, `public_poc`, `none`). |
+| `exploitType` | string | Filtro semántico directo: `kev`, `public_exploit` o `confirmed`. |
+| `patchAvailable` | string | `true` o `false` según la existencia de parches confirmados. |
+| `minCvss` | number | Puntuación CVSS v3.1 mínima (0 - 10). |
+| `maxCvss` | number | Puntuación CVSS v3.1 máxima (0 - 10). |
+| `minEpss` | number | Puntuación EPSS mínima (0.0 - 1.0). |
+| `vendor` | string | Filtrar por fabricante primario normalizado. |
+| `product` | string | Filtrar por producto primario normalizado. |
+| `source` | string | Filtrar por fuente asociada (ej. `nvd`, `cisa_kev`, `exploitdb`, `epss`). |
+| `recordStatus` | string | Filtrar por estado del registro: `enriched`, `needs_enrichment`, `catalogued`. |
+| `publishedFrom` | string (ISO-8601) | Fecha de publicación inicial. |
+| `publishedTo` | string (ISO-8601) | Fecha de publicación final. |
+| `search` | string | Búsqueda por texto en CVE ID, descripción, fabricante o producto. |
+| `tag` | string | Filtrar por tag (nombre o ID). |
+| `riskTier` | string | Nivel de riesgo operacional: `critical`, `high`, `medium`, `low`. |
+| `weaknessCategory`| string | Categoría de debilidad CWE (ej. `sql_injection`, `path_traversal`). |
 
 ---
 
 #### `GET /api/v1/vulnerabilities/:cveId`
 
-Detalle completo de una vulnerabilidad por CVE ID.
+Obtiene el detalle completo de una vulnerabilidad identificada por su identificador CVE oficial.
 
-**Ejemplo:**
+**Parámetros:**
+- `cveId` (path): Identificador CVE (ej. `CVE-2024-3094`, insensible a mayúsculas/minúsculas).
+- `include` (query, opcional): Lista separada por comas de campos adicionales. Para incluir el payload original sin transformar, especifique `?include=raw`.
 
-```bash
-curl -H "X-API-Key: occ_..." \
-  "http://server/api/v1/vulnerabilities/CVE-2024-3094"
-```
+---
 
-**Respuesta:** Objeto completo con todos los campos de la vulnerabilidad, tags, y registros de fuentes.
+#### `GET /api/v1/vulnerabilities/stats`
+
+Estadísticas agregadas del inventario de vulnerabilidades:
+- Conteo total y por severidad CVSS.
+- Totales explotados y con exploit público.
+- Totales con parche disponible.
+- Nuevas vulnerabilidades detectadas en las últimas 24 horas y 7 días.
 
 ---
 
 #### `GET /api/v1/vulnerabilities/:cveId/changes`
 
-Historial de cambios detectados para una vulnerabilidad.
-
-**Parámetros:** `page`, `limit`
-
-**Respuesta:** Lista paginada de eventos de cambio con `changeType`, `fieldName`, `oldValue`, `newValue`, `isSignificant`, `summary`, `detectedAt`.
+Auditoría cronológica de cambios detectados para un CVE. Devuelve una lista paginada de eventos con tipo de cambio, campo modificado, valor anterior y nuevo valor.
 
 ---
 
-### 6.2 Products & Assets
+### 6.2 Evidencias y Fuentes
 
-#### `GET /api/v1/product-assets`
+#### `GET /api/v1/vulnerabilities/:cveId/evidence`
 
-Lista de activos de producto registrados.
+Lista paginada de registros de fuentes y evidencias primarias recopiladas para una vulnerabilidad concreta.
 
 **Parámetros:**
+- `cveId` (path): CVE a consultar.
+- `page`, `limit` (query): Paginación estándar.
 
-| Parámetro | Tipo | Descripción |
-|-----------|------|-------------|
-| `page`, `limit` | int | Paginación |
-| `environment` | string | Filtrar: `prod`, `staging`, `dev` |
-| `criticality` | string | Filtrar: `critical`, `high`, `medium`, `low` |
-| `productType` | string | Tipo de producto |
-| `isActive` | string | Estado activo: `true`/`false` |
-| `search` | string | Buscar por nombre |
+**Campos devueltos por evidencia:**
+- `source`: Identificador de la fuente (`cisa_kev`, `nvd`, `exploitdb`, `epss`, `cveorg`, `osv`).
+- `sourceUrl`: URL oficial del registro o aviso en la fuente.
+- `evidenceType`: Tipo de evidencia (`kev_catalog`, `exploit_poc`, `nvd_cve_advisory`, `epss_metric`, `package_advisory`, `cve_record`, `advisory`).
+- `summary`: Resumen descriptivo de la evidencia.
+- `observedAt`: Fecha de primera detección o publicación en la fuente.
+- `lastValidatedAt`: Fecha de última comprobación o sincronización válida.
+- `confidence`: Nivel de confianza numérico (0.0 - 1.0).
+- `isCanonical`: `true` si es la fuente canónica del identificador.
+- `status`: Estado de validación (`verified`, `active`).
 
----
-
-#### `GET /api/v1/product-assets/:id/dependencies`
-
-Lista de dependencias (librerías, frameworks) de un activo.
-
-Incluye: `componentName`, `componentVendor`, `componentVersion`, `ecosystem`, `purl`, `cpe`, `directDependency`, `confidence`.
+> **Regla de integridad:** Si un CVE no cuenta con registros para una fuente determinada en ARGOS, el endpoint devuelve únicamente las evidencias reales existentes. **Nunca se fabrican evidencias artificiales.**
 
 ---
 
-#### `GET /api/v1/product-assets/:id/vulnerabilities`
+### 6.3 Cobertura y Salud de Inteligencia
 
-Vulnerabilidades que afectan a un activo específico.
+#### `GET /api/v1/coverage`
 
-Incluye: `cveId`, `impactStatus`, `confidence`, `matchedComponentName`, `fixedVersion`, y datos de la vulnerabilidad asociada (CVSS, EPSS, KEV).
+Ofrece un resumen integral del dataset de vulnerabilidades, el grado de enriquecimiento del catálogo, la cobertura por cada fuente de inteligencia y el estado de frescura operativo.
+
+**Información devuelta:**
+- `totalVulnerabilities`: Total absoluto de vulnerabilidades en base de datos.
+- `totalEnriched`: Total con catálogo normalizado y enriquecimiento completado.
+- `totalPending`: Total pendiente de enriquecimiento (`needs_enrichment=true`).
+- `totalKev`: Total de vulnerabilidades presentes en CISA KEV.
+- `totalWithPublicExploit`: Total con prueba de concepto pública (ExploitDB, etc.).
+- `totalConfirmedExploited`: Total confirmado con explotación activa.
+- `coverageBySource`: Desglose por fuente (`nvd`, `cisa_kev`, `exploitdb`, `epss`, `cveorg`, `osv`):
+  - `total`: Número de registros asociados a la fuente (o `null` si no está configurada).
+  - `percentage`: Porcentaje de cobertura sobre el total de CVEs.
+  - `status`: Estado de la fuente (`active`, `not_configured`, `source_unavailable`).
+  - `isAvailable`: Indicador booleano de disponibilidad.
+  - `distinction`: Diferenciación explícita entre `recorded` (registros presentes), `real_zero` (fuente ejecutada con 0 elementos) y `unknown` (sin datos o no configurada).
+- `lastExecutionBySource`: Última ejecución del collector por fuente (fecha, estado, duración en ms, elementos procesados, errores).
+- `recentErrors`: Lista de errores recientes en collectors.
+- `calculatedAt`: Fecha y hora de cálculo (ISO-8601).
+- `freshnessStatus`: Estado de frescura global (`fresh`, `stale`, `outdated`, `degraded`).
 
 ---
 
-#### `GET /api/v1/products`
+### 6.4 Products & Assets
 
-Catálogo de software (pares vendor/producto).
+- `GET /api/v1/product-assets`: Lista de activos de producto monitorizados.
+- `GET /api/v1/product-assets/:id/dependencies`: Inventario de dependencias de un activo (SBOM/PURL/CPE).
+- `GET /api/v1/product-assets/:id/vulnerabilities`: Vulnerabilidades asociadas al inventario de un activo.
+- `GET /api/v1/products`: Catálogo de pares fabricante/producto registrados.
 
-**Parámetros:** `page`, `limit`, `vendor`, `product`
+### 6.5 Catálogo
+
+- `GET /api/v1/manufacturers`: Catálogo de fabricantes normalizados.
+- `GET /api/v1/tags`: Etiquetas y categorías asignadas a vulnerabilidades.
+- `GET /api/v1/kev`: Listado directo de vulnerabilidades CISA KEV.
+- `GET /api/v1/exploits`: Listado directo de vulnerabilidades con exploits públicos.
+
+### 6.6 Collector & Reports
+
+- `GET /api/v1/collector/runs`: Auditoría de ejecuciones históricas del colector.
+- `GET /api/v1/collector/sources-health`: Métricas operativas de salud por fuente.
+- `GET /api/v1/reports`: Informes periódicos ejecutivos generados.
 
 ---
 
-### 6.3 Catálogo
+## 7. Contrato de Datos y Estados de Inteligencia
 
-#### `GET /api/v1/manufacturers`
+### 7.1 Compatibilidad hacia atrás
 
-Lista de fabricantes de software.
+La respuesta de vulnerabilidad conserva todos los campos planos anteriores:
+- Identificadores y métricas: `id`, `cveId`, `description`, `publishedAt`, `lastModifiedAt`, `firstSeenAt`.
+- CVSS: `cvssV31Score`, `cvssV31Severity`, `cvssV31Vector`, `cvssV40Score`, `cvssV40Severity`, `cvssV40Vector`.
+- Explotación plana: `epssScore`, `epssPercentile`, `isKnownExploited`, `kevDateAdded`, `kevDueDate`, `hasPublicExploit`, `exploitStatus`, `exploitConfidence`.
+- Inventario plano: `primaryVendor`, `primaryProduct`, `affectedProducts`, `affectedProductsDetailed`, `patchAvailable`.
+- Riesgo plano: `operationalRiskScore`, `operationalRiskTier`, `weaknessCategory`.
+- Notificaciones agregadas: `notificable`, `notificada`, `fechaNotificacion`, `notificacionesCount`.
 
-**Parámetros:** `page`, `limit`
+### 7.2 Atributos enriquecidos
+
+Se incorporan al primer nivel de cada vulnerabilidad cuando están disponibles:
+
+| Campo | Tipo | Significado |
+|-------|------|-------------|
+| `dataConfidence` | float \| null | Nivel de confianza ponderado del registro global (0.0 - 1.0). |
+| `recordStatus` | string | Estado del registro (`enriched`, `needs_enrichment`, `catalogued`, etc.). |
+| `canonicalSource` | string | Fuente de autoridad principal (`nvd`, `cveorg`). |
+| `sourceCount` | int | Cantidad de fuentes distintas que corroboran la vulnerabilidad. |
+| `enrichedAt` | string (ISO) \| null | Fecha en la que se completó el enriquecimiento semántico. |
+| `lastChangeDetectedAt` | string (ISO) \| null | Fecha de detección del último cambio relevante en upstream. |
+| `exploitFirstSeenAt` | string (ISO) \| null | Primera fecha en la que se observó el exploit. |
+| `exploitLastCheckedAt`| string (ISO) \| null | Última fecha en la que se verificó la disponibilidad de exploits. |
+| `patchPriority` | string \| null | Prioridad recomendada de aplicación de parche (`CRITICAL`, `HIGH`, etc.). |
+| `workarounds` | array/object \| null | Medidas de mitigación temporal alternativas al parche. |
+| `detectionOpportunities` | array/object \| null | Reglas de detección, firmas Snort/Suricata o indicadores de detección. |
+| `riskSignals` | array \| null | Señales operacionales observadas (ej. `remote_code_execution`, `wormable`). |
+| `affectedCpes` | string[] | Lista de identificadores CPE 2.3 normalizados. |
+| `evidenceTypes` | string[] | Tipos de evidencias disponibles (`advisory`, `kev_catalog`, `exploit_poc`, `epss_metric`). |
+| `isConfirmedExploited` | boolean | `true` si la vulnerabilidad tiene explotación confirmada en el mundo real. |
+
+### 7.3 Bloques normalizados de inteligencia
+
+Para facilitar el consumo analítico en ASTREA, cada vulnerabilidad incluye estructuras semánticas tipadas:
+
+#### Bloque `exploitation`
+```json
+{
+  "exploitation": {
+    "status": "confirmed|not_found|unknown|not_checked|source_unavailable",
+    "isKnownExploited": true,
+    "hasPublicExploit": false,
+    "exploitStatus": "active_exploitation",
+    "sources": ["cisa_kev"],
+    "lastCheckedAt": "2026-10-11T10:33:11.000Z"
+  }
+}
+```
+
+Estados posibles de `status`:
+- `confirmed`: Explotación o prueba de concepto comprobada y confirmada en fuentes oficiales.
+- `not_found`: Verificado contra fuentes de explotación pero no se hallaron registros activos.
+- `not_checked`: Pendiente de verificación o registro en cola de enriquecimiento.
+- `unknown`: No es posible determinar el estado con los datos actuales.
+- `source_unavailable`: La fuente de explotación experimentó un fallo o no está disponible.
+
+#### Bloque `epss`
+```json
+{
+  "epss": {
+    "status": "confirmed|not_found|unknown|not_checked|source_unavailable",
+    "score": 0.01062,
+    "percentile": 0.63623,
+    "lastCheckedAt": "2026-10-11T10:30:00.000Z"
+  }
+}
+```
+
+#### Bloque `patch`
+```json
+{
+  "patch": {
+    "status": "available|unavailable|workaround_only|unknown",
+    "isAvailable": true,
+    "priority": "CRITICAL",
+    "fixedVersions": ["2.4.50"],
+    "hasWorkarounds": true,
+    "workaroundsCount": 1
+  }
+}
+```
+
+#### Bloques `primaryEntity` y `affectedProduct`
+```json
+{
+  "primaryEntity": {
+    "status": "identified|unresolved|unknown|multiple",
+    "vendor": "apache",
+    "product": "http_server",
+    "affectedCpes": ["cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*"],
+    "detailedCount": 1
+  }
+}
+```
+
+#### Bloque `operationalRisk`
+```json
+{
+  "operationalRisk": {
+    "status": "assessed|pending|unknown",
+    "score": 95.0,
+    "tier": "critical",
+    "signals": ["remote_code_execution", "in_the_wild"]
+  }
+}
+```
+
+### 7.4 Política de Privacidad y Raw Data
+
+1. **Privacidad garantizada:** Los serializadores externos **no exponen correos electrónicos de suscriptores, nombres de personas ni historiales personales de notificación**. Solo se entregan contadores e indicadores de estado agregados (`notificada`, `fechaNotificacion`, `notificacionesCount`).
+2. **Protección de Raw Data:** En los listados generales `/v1/vulnerabilities`, el campo `rawData` **nunca se incluye**, evitando sobrecarga de transferencia y fugas no deseadas. En el detalle `/v1/vulnerabilities/:cveId`, el payload original se omite por defecto y solo se retorna cuando el cliente lo solicita expresamente mediante `?include=raw`.
 
 ---
 
-#### `GET /api/v1/tags`
+## 8. Sincronización Incremental
 
-Lista de tags de vulnerabilidades con conteo.
+### 8.1 Uso de updatedSince
+
+Para sincronizaciones continuas de deltas:
+
+```
+GET /api/v1/vulnerabilities?updatedSince=2026-10-11T00:00:00.000Z
+```
+
+**Regla de filtrado:** El backend evalúa tanto la fecha de cambio en fuentes externas (`lastChangeDetectedAt`) como la fecha de modificación interna en ARGOS (`updatedAt`). De esta forma, ASTREA recibe:
+- Modificaciones upstream en descripciones, severidades, CVSS o KEV.
+- Enriquecimientos completados por tareas en segundo plano.
+
+### 8.2 Paginación por cursor y watermark
+
+En la sección `meta` de la respuesta:
+
+```json
+{
+  "meta": {
+    "total": 26583,
+    "page": 1,
+    "limit": 50,
+    "pages": 532,
+    "hasMore": true,
+    "nextCursor": "eyJpZCI6NTU2OTM5LCJ1cGRhdGVkQXQiOiIyMDI2LTEwLTExVDEwOjQ0OjE2LjAwMFoifQ==",
+    "watermark": "2026-10-11T10:44:16.000Z"
+  }
+}
+```
+
+- `watermark`: Marca de agua que contiene la fecha máxima procesada en el lote. Almacénela localmente para usarla en el siguiente ciclo como `updatedSince=<watermark>`.
+- `hasMore`: Booleano que indica si existen registros pendientes en la consulta actual.
+- `nextCursor`: Token opaco para solicitar la siguiente página sin drift de inserción:
+  ```
+  GET /api/v1/vulnerabilities?cursor=eyJpZCI6NTU2OTM5...&limit=50
+  ```
+
+---
+
+## 9. Formato de Respuesta
+
+### Formato Paginado Estándar
+
+```json
+{
+  "data": [ ... ],
+  "meta": {
+    "total": 404202,
+    "page": 1,
+    "limit": 50,
+    "pages": 8085,
+    "hasMore": true,
+    "nextCursor": "eyJpZCI6MTAxfQ==",
+    "watermark": "2026-10-11T12:00:00.000Z"
+  }
+}
+```
+
+---
+
+## 10. Ejemplos Reales de Uso
+
+### 10.1 Listado con metadatos y bloques de inteligencia
+
+**Petición:**
+
+```bash
+curl -s -H "X-API-Key: occ_..." \
+     "http://localhost:3000/api/v1/vulnerabilities?limit=1"
+```
 
 **Respuesta:**
 
 ```json
-[
-  {
-    "id": 1,
-    "name": "zero-day",
-    "color": "#FF0000",
-    "isAutoGenerated": false,
-    "vulnerabilityCount": 42
+{
+  "data": [
+    {
+      "id": 546681,
+      "cveId": "CVE-2026-93952",
+      "description": "VeloCloud Orchestrator (VCO) on-prem has a security issue...",
+      "cvssV31Score": 10.0,
+      "cvssV31Severity": "CRITICAL",
+      "cvssV31Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+      "cvssV40Score": null,
+      "cvssV40Severity": null,
+      "cvssV40Vector": null,
+      "cvssVersion": null,
+      "epssScore": 0.01062,
+      "epssPercentile": 0.63623,
+      "isKnownExploited": true,
+      "kevDateAdded": "2026-09-22T02:00:00.000Z",
+      "kevDueDate": "2026-09-25T02:00:00.000Z",
+      "hasPublicExploit": false,
+      "exploitStatus": "active_exploitation",
+      "exploitConfidence": null,
+      "exploitFirstSeenAt": null,
+      "exploitLastCheckedAt": null,
+      "primaryVendor": "arista",
+      "primaryProduct": "velocloud_orchestrator",
+      "affectedProducts": [
+        { "vendor": "arista", "product": "velocloud_orchestrator" }
+      ],
+      "affectedProductsDetailed": [],
+      "affectedCpes": [],
+      "patchAvailable": null,
+      "patchPriority": null,
+      "fixedVersions": null,
+      "workarounds": null,
+      "detectionOpportunities": null,
+      "operationalRiskScore": null,
+      "operationalRiskTier": null,
+      "riskSignals": null,
+      "dataConfidence": null,
+      "canonicalSource": "nvd",
+      "sourceCount": 1,
+      "sourcesPresent": ["cisa_kev"],
+      "recordStatus": "needs_enrichment",
+      "cweIds": null,
+      "cweNames": null,
+      "weaknessCategory": null,
+      "source": "nvd",
+      "processingStatus": "new",
+      "needsEnrichment": true,
+      "firstSeenAt": "2026-10-10T20:46:19.000Z",
+      "publishedAt": "2026-09-22T08:16:43.047Z",
+      "lastModifiedAt": "2026-09-23T14:32:12.417Z",
+      "lastChangeDetectedAt": "2026-10-11T10:44:15.000Z",
+      "enrichedAt": null,
+      "isNotificable": false,
+      "createdAt": "2026-10-10T20:46:19.000Z",
+      "updatedAt": "2026-10-11T10:44:15.000Z",
+      "tags": [],
+      "evidenceTypes": ["advisory", "kev_catalog", "epss_metric"],
+      "isConfirmedExploited": true,
+      "exploitation": {
+        "status": "confirmed",
+        "isKnownExploited": true,
+        "hasPublicExploit": false,
+        "exploitStatus": "active_exploitation",
+        "sources": ["cisa_kev"],
+        "lastCheckedAt": null
+      },
+      "epss": {
+        "status": "confirmed",
+        "score": 0.01062,
+        "percentile": 0.63623,
+        "lastCheckedAt": null
+      },
+      "patch": {
+        "status": "unknown",
+        "isAvailable": null,
+        "priority": null,
+        "fixedVersions": [],
+        "hasWorkarounds": false,
+        "workaroundsCount": 0
+      },
+      "primaryEntity": {
+        "status": "identified",
+        "vendor": "arista",
+        "product": "velocloud_orchestrator",
+        "affectedCpes": [],
+        "detailedCount": 0
+      },
+      "affectedProduct": {
+        "status": "identified",
+        "vendor": "arista",
+        "product": "velocloud_orchestrator",
+        "affectedCpes": [],
+        "detailedCount": 0
+      },
+      "operationalRisk": {
+        "status": "pending",
+        "score": null,
+        "tier": null,
+        "signals": []
+      },
+      "notificable": false,
+      "notificada": false,
+      "fechaNotificacion": null,
+      "notificacionesCount": 0
+    }
+  ],
+  "meta": {
+    "total": 404202,
+    "page": 1,
+    "limit": 1,
+    "pages": 404202,
+    "hasMore": true,
+    "nextCursor": "eyJpZCI6NTQ2NjgxLCJ1cGRhdGVkQXQiOiIyMDI2LTEwLTExVDEwOjQ0OjE1LjAwMFoifQ==",
+    "watermark": "2026-10-11T10:44:15.000Z"
   }
-]
+}
 ```
 
 ---
 
-#### `GET /api/v1/kev`
+### 10.2 Detalle de vulnerabilidad (con y sin include=raw)
 
-Vulnerabilidades conocidas explotadas (CISA KEV).
+**Sin `include=raw`:**
 
-**Parámetros:** `page`, `limit`
+```bash
+curl -s -H "X-API-Key: occ_..." \
+     "http://localhost:3000/api/v1/vulnerabilities/CVE-2026-93952"
+```
 
-Incluye: `cveId`, `cvssV31Score`, `kevDateAdded`, `kevDueDate`, `primaryVendor`, `primaryProduct`, `patchAvailable`.
+El campo `rawData` **no figura** en el JSON retornado.
 
----
+**Con `include=raw`:**
 
-#### `GET /api/v1/exploits`
+```bash
+curl -s -H "X-API-Key: occ_..." \
+     "http://localhost:3000/api/v1/vulnerabilities/CVE-2026-93952?include=raw"
+```
 
-Vulnerabilidades con exploits públicos disponibles.
+Se adjunta `rawData`:
 
-**Parámetros:** `page`, `limit`
-
-Incluye: `exploitStatus`, `exploitConfidence`, `exploitReferences`, `exploitFirstSeenAt`.
-
----
-
-### 6.4 Collector & Reports
-
-#### `GET /api/v1/collector/runs`
-
-Historial de ejecuciones del collector.
-
-**Parámetros:** `page`, `limit`, `source`, `status`
-
----
-
-#### `GET /api/v1/collector/sources-health`
-
-Estado de salud de cada fuente de datos (NVD, CISA, EPSS, GitHub, etc.).
-
-**Respuesta:** Lista con `source`, `fetchStatus`, `itemsFetched`, `itemsProcessed`, `itemsErrored`, `durationMs`.
+```json
+{
+  "id": 546681,
+  "cveId": "CVE-2026-93952",
+  "rawData": {
+    "cve": {
+      "id": "CVE-2026-93952",
+      "sourceIdentifier": "security@vmware.com"
+    }
+  }
+}
+```
 
 ---
 
-#### `GET /api/v1/reports`
+### 10.3 Evidencias de un CVE (/evidence)
 
-Lista de reportes de vulnerabilidades generados.
+**Petición:**
 
-**Parámetros:** `page`, `limit`
+```bash
+curl -s -H "X-API-Key: occ_..." \
+     "http://localhost:3000/api/v1/vulnerabilities/CVE-2026-93952/evidence"
+```
 
----
-
-## 7. Formato de Respuesta
-
-### 7.1 Respuestas paginadas
-
-Todos los endpoints que retornan listas usan el siguiente formato:
+**Respuesta:**
 
 ```json
 {
   "data": [
-    { ... },
-    { ... }
+    {
+      "id": 97622,
+      "source": "cisa_kev",
+      "sourceUrl": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog?search_api_fulltext=CVE-2026-93952",
+      "evidenceType": "kev_catalog",
+      "summary": "Registro en el catálogo CISA KEV (Known Exploited Vulnerabilities) para CVE-2026-93952",
+      "observedAt": "2026-10-11T10:33:11.000Z",
+      "lastValidatedAt": "2026-10-11T10:33:11.000Z",
+      "confidence": 1.0,
+      "isCanonical": false,
+      "status": "verified"
+    }
   ],
   "meta": {
-    "total": 1234,
+    "total": 1,
     "page": 1,
     "limit": 50,
-    "pages": 25
+    "pages": 1,
+    "hasMore": false,
+    "nextCursor": null,
+    "watermark": null
   }
 }
 ```
 
-| Campo | Descripción |
-|-------|-------------|
-| `data` | Array de resultados |
-| `meta.total` | Total de registros que coinciden con los filtros |
-| `meta.page` | Página actual |
-| `meta.limit` | Registros por página |
-| `meta.pages` | Total de páginas |
-
-### 7.2 Respuestas individuales
-
-Los endpoints que retornan un solo recurso (ej: `/v1/vulnerabilities/:cveId`) retornan el objeto directamente sin envelope.
-
 ---
 
-## 8. Ejemplos de Uso
+### 10.4 Resumen de cobertura (/coverage)
 
-### 8.1 Python
-
-```python
-import requests
-
-API_URL = "http://server/api/v1"
-API_KEY = "occ_a3f8b2c1e4d567890abcdef1234567890abcdef12"
-HEADERS = {"X-API-Key": API_KEY}
-
-# Listar vulnerabilidades críticas explotadas
-response = requests.get(
-    f"{API_URL}/vulnerabilities",
-    headers=HEADERS,
-    params={
-        "severity": "CRITICAL",
-        "exploited": "true",
-        "limit": 20,
-    },
-)
-data = response.json()
-
-for vuln in data["data"]:
-    print(f"{vuln['cveId']} - CVSS: {vuln['cvssV31Score']} - {vuln['primaryVendor']}/{vuln['primaryProduct']}")
-
-print(f"\nTotal: {data['meta']['total']} vulnerabilidades")
-```
-
-### 8.2 JavaScript / Node.js
-
-```javascript
-const API_URL = "http://server/api/v1";
-const API_KEY = "occ_a3f8b2c1e4d567890abcdef1234567890abcdef12";
-
-async function getVulnerabilities() {
-  const res = await fetch(`${API_URL}/vulnerabilities?severity=CRITICAL&limit=10`, {
-    headers: { "X-API-Key": API_KEY },
-  });
-  const { data, meta } = await res.json();
-
-  console.log(`Mostrando ${data.length} de ${meta.total} resultados`);
-  data.forEach((v) => console.log(`${v.cveId} - ${v.cvssV31Severity}`));
-}
-
-getVulnerabilities();
-```
-
-### 8.3 PowerShell
-
-```powershell
-$ApiUrl = "http://server/api/v1"
-$Headers = @{ "X-API-Key" = "occ_a3f8b2c1e4d567890abcdef1234567890abcdef12" }
-
-# Obtener estadísticas
-$stats = Invoke-RestMethod -Uri "$ApiUrl/vulnerabilities/stats" -Headers $Headers
-Write-Host "Total: $($stats.total) | Críticas: $($stats.bySeverity.critical) | Explotadas: $($stats.exploited)"
-
-# Listar KEV
-$kev = Invoke-RestMethod -Uri "$ApiUrl/kev?limit=5" -Headers $Headers
-$kev.data | ForEach-Object { Write-Host "$($_.cveId) - Due: $($_.kevDueDate)" }
-```
-
-### 8.4 cURL — Recorrer todas las páginas
+**Petición:**
 
 ```bash
-API_KEY="occ_a3f8b2c1e4d567890abcdef1234567890abcdef12"
-PAGE=1
-TOTAL_PAGES=1
-
-while [ $PAGE -le $TOTAL_PAGES ]; do
-  RESPONSE=$(curl -s -H "X-API-Key: $API_KEY" \
-    "http://server/api/v1/vulnerabilities?severity=CRITICAL&page=$PAGE&limit=100")
-
-  TOTAL_PAGES=$(echo $RESPONSE | jq '.meta.pages')
-  COUNT=$(echo $RESPONSE | jq '.data | length')
-  echo "Página $PAGE/$TOTAL_PAGES — $COUNT resultados"
-
-  # Procesar datos...
-  echo $RESPONSE | jq '.data[].cveId'
-
-  PAGE=$((PAGE + 1))
-done
+curl -s -H "X-API-Key: occ_..." \
+     "http://localhost:3000/api/v1/coverage"
 ```
 
-### 8.5 Integración con SIEM (Splunk HEC)
-
-```python
-import requests
-
-OCC_API = "http://server/api/v1"
-OCC_KEY = "occ_..."
-SPLUNK_HEC = "https://splunk:8088/services/collector/event"
-SPLUNK_TOKEN = "..."
-
-# Obtener vulnerabilidades nuevas (últimas 24h)
-vulns = requests.get(
-    f"{OCC_API}/vulnerabilities",
-    headers={"X-API-Key": OCC_KEY},
-    params={"publishedFrom": "2026-03-27T00:00:00Z", "severity": "CRITICAL"},
-).json()
-
-# Enviar a Splunk
-for v in vulns["data"]:
-    requests.post(
-        SPLUNK_HEC,
-        headers={"Authorization": f"Splunk {SPLUNK_TOKEN}"},
-        json={
-            "event": {
-                "cveId": v["cveId"],
-                "severity": v["cvssV31Severity"],
-                "cvss": v["cvssV31Score"],
-                "vendor": v["primaryVendor"],
-                "product": v["primaryProduct"],
-                "exploited": v["isKnownExploited"],
-            },
-            "sourcetype": "occ:vulnerability",
-        },
-    )
-```
-
----
-
-## 9. Códigos de Error
-
-| Código | Descripción | Causa |
-|--------|-------------|-------|
-| `200` | OK | Solicitud exitosa |
-| `401` | Unauthorized | API key faltante, inválida, expirada o usuario deshabilitado |
-| `403` | Forbidden | API key no tiene el scope requerido para este endpoint |
-| `404` | Not Found | Recurso no encontrado (CVE, product asset, etc.) |
-| `429` | Too Many Requests | Rate limit excedido — esperar antes de reintentar |
-
-### Formato de error
+**Respuesta:**
 
 ```json
 {
-  "statusCode": 401,
-  "message": "Invalid API key",
-  "error": "Unauthorized"
+  "totalVulnerabilities": 404202,
+  "totalEnriched": 79581,
+  "totalPending": 307057,
+  "totalKev": 1739,
+  "totalWithPublicExploit": 25052,
+  "totalConfirmedExploited": 1739,
+  "coverageBySource": {
+    "nvd": {
+      "total": 97145,
+      "percentage": 24.03,
+      "status": "active",
+      "isAvailable": true,
+      "distinction": "recorded"
+    },
+    "cisa_kev": {
+      "total": 1739,
+      "percentage": 0.43,
+      "status": "active",
+      "isAvailable": true,
+      "distinction": "recorded"
+    },
+    "exploitdb": {
+      "total": 25052,
+      "percentage": 6.2,
+      "status": "active",
+      "isAvailable": true,
+      "distinction": "recorded"
+    },
+    "epss": {
+      "total": 1,
+      "percentage": 0,
+      "status": "active",
+      "isAvailable": true,
+      "distinction": "recorded"
+    },
+    "cveorg": {
+      "total": null,
+      "percentage": null,
+      "status": "not_configured",
+      "isAvailable": false,
+      "distinction": "unknown"
+    },
+    "osv": {
+      "total": null,
+      "percentage": null,
+      "status": "not_configured",
+      "isAvailable": false,
+      "distinction": "unknown"
+    }
+  },
+  "lastExecutionBySource": {
+    "cisa_kev": {
+      "runDate": "2026-10-11T11:00:01.335Z",
+      "status": "success",
+      "durationMs": 398,
+      "itemsProcessed": 1739,
+      "itemsErrored": 0,
+      "errorMessage": null
+    },
+    "exploitdb": {
+      "runDate": "2026-10-11T11:00:02.983Z",
+      "status": "success",
+      "durationMs": 1642,
+      "itemsProcessed": 25052,
+      "itemsErrored": 0,
+      "errorMessage": null
+    }
+  },
+  "recentErrors": [],
+  "calculatedAt": "2026-10-11T11:20:04.602Z",
+  "freshnessStatus": "fresh"
 }
-```
-
-### Manejo de errores recomendado
-
-```python
-response = requests.get(url, headers=headers)
-
-if response.status_code == 429:
-    retry_after = int(response.headers.get("Retry-After", 60))
-    time.sleep(retry_after)
-    # reintentar...
-elif response.status_code == 401:
-    print("API key inválida o expirada")
-elif response.status_code == 403:
-    print("Sin permisos para este endpoint — verificar scopes de la key")
-elif response.status_code == 200:
-    data = response.json()
 ```
 
 ---
 
-## 10. Integración con Aplicaciones Externas
+### 10.5 Ejemplos de estados unknown y source_unavailable
 
-### 10.1 Flujo recomendado
+#### Estado de explotación `unknown` / `not_checked`
+En vulnerabilidades históricas o importadas recientemente que no han completado el ciclo de colectores:
+```json
+{
+  "exploitation": {
+    "status": "not_checked",
+    "isKnownExploited": false,
+    "hasPublicExploit": false,
+    "exploitStatus": "none",
+    "sources": [],
+    "lastCheckedAt": null
+  }
+}
+```
 
-1. Un administrador crea una API key desde la UI o via `POST /api/api-keys`
-2. Se asignan solo los scopes necesarios (principio de mínimo privilegio)
-3. Se configura una fecha de expiración si es apropiado
-4. La aplicación externa almacena la key de forma segura (vault, variable de entorno)
-5. Cada request incluye el header `X-API-Key`
+#### Cobertura con `source_unavailable`
+Si el colector de EPSS o CISA falla en sus peticiones por caída del servicio remoto o rate limit upstream:
+```json
+{
+  "coverageBySource": {
+    "epss": {
+      "total": 0,
+      "percentage": null,
+      "status": "source_unavailable",
+      "isAvailable": false,
+      "distinction": "unknown"
+    }
+  },
+  "lastExecutionBySource": {
+    "epss": {
+      "runDate": "2026-10-11T10:30:02.477Z",
+      "status": "failed",
+      "errorMessage": "HTTP 429 Too Many Requests from upstream FIRST EPSS API"
+    }
+  }
+}
+```
 
-### 10.2 Buenas prácticas
+---
 
-- **Una key por aplicación:** Crear una API key dedicada para cada integración. Esto permite revocar acceso de forma granular.
-- **Scopes mínimos:** Otorgar solo los scopes que la aplicación necesita.
-- **Rotación:** Establecer fechas de expiración y rotar keys periódicamente.
-- **Monitoreo:** Revisar `lastUsedAt` en la lista de keys para detectar keys sin uso.
-- **Almacenamiento seguro:** Nunca incluir API keys en código fuente o repositorios. Usar variables de entorno o gestores de secretos.
-- **Paginación:** Usar paginación en lugar de solicitar todos los registros. El máximo es 200 por página.
-- **Caché:** Implementar caché local para datos que no cambian frecuentemente (tags, manufacturers, software catalog).
-- **Rate limiting:** Diseñar la aplicación para respetar los límites de rate. Implementar exponential backoff en caso de HTTP 429.
+### 10.6 Scripts en Python y Node.js para sincronización continua
 
-### 10.3 Casos de uso comunes
+#### Consumo Incremental en Python (ASTREA Worker)
 
-| Caso de uso | Endpoints sugeridos | Frecuencia |
-|-------------|-------------------|------------|
-| Dashboard de seguridad | `/vulnerabilities/stats`, `/kev`, `/exploits` | Cada 5-15 min |
-| Alertas de nuevas CVEs | `/vulnerabilities?publishedFrom=...` | Cada 1 hora |
-| Inventario de activos | `/product-assets`, `/product-assets/:id/dependencies` | Diario |
-| Feed a SIEM | `/vulnerabilities?severity=CRITICAL`, `/kev` | Cada 1 hora |
-| Auditoría de parches | `/product-assets/:id/vulnerabilities` | Diario |
-| Estado del collector | `/collector/runs`, `/collector/sources-health` | Cada 30 min |
-| Reporte ejecutivo | `/vulnerabilities/stats`, `/reports` | Semanal |
+```python
+import time
+import requests
+
+API_URL = "http://localhost:3000/api/v1"
+API_KEY = "occ_6669fff108e72e81dc430f64735618de5d3686ef"
+HEADERS = {"X-API-Key": API_KEY}
+
+last_watermark = "2026-10-11T00:00:00.000Z"
+
+while True:
+    print(f"Sincronizando cambios desde {last_watermark}...")
+    cursor = None
+    has_more = True
+
+    while has_more:
+        params = {"limit": 100}
+        if cursor:
+            params["cursor"] = cursor
+        else:
+            params["updatedSince"] = last_watermark
+
+        resp = requests.get(f"{API_URL}/vulnerabilities", headers=HEADERS, params=params)
+        if resp.status_code != 200:
+            print(f"Error {resp.status_code}: {resp.text}")
+            break
+
+        body = resp.json()
+        data = body.get("data", [])
+        meta = body.get("meta", {})
+
+        for vuln in data:
+            cve_id = vuln["cveId"]
+            exploit_status = vuln["exploitation"]["status"]
+            print(f"  Procesando {cve_id} (Explotación: {exploit_status}, CVSS: {vuln.get('cvssV31Score')})")
+
+        has_more = meta.get("hasMore", False)
+        cursor = meta.get("nextCursor")
+        if meta.get("watermark"):
+            last_watermark = meta["watermark"]
+
+    print("Ciclo completado. Esperando 5 minutos...")
+    time.sleep(300)
+```
+
+---
+
+## 11. Códigos de Error
+
+| Código | Significado | Causa común |
+|--------|-------------|-------------|
+| `200` | OK | Petición ejecutada exitosamente. |
+| `400` | Bad Request | Formato de parámetros inválido (ej. fecha mal formada en `updatedSince`). |
+| `401` | Unauthorized | Falta la cabecera `X-API-Key` o la clave no existe o está expirada. |
+| `403` | Forbidden | La clave carece del scope requerido (ej. `vulnerabilities:read`). |
+| `404` | Not Found | El CVE especificado en la ruta no existe en el catálogo. |
+| `429` | Too Many Requests | Se superó el límite de peticiones por minuto. Esperar antes de reintentar. |
+| `500` | Internal Server Error | Error inesperado en el servidor. |
+
+---
+
+## 12. Integración con Aplicaciones Externas (ASTREA, SIEM, SOAR)
+
+1. **Principio de mínimo privilegio:** Otorgue únicamente el scope `vulnerabilities:read` a sistemas que solo requieran consultar CVEs, evidencias o cobertura.
+2. **Uso de Watermarks:** Persista siempre `meta.watermark` en la base de datos de ASTREA para reiniciar la sincronización desde el último estado conocido tras cualquier reinicio.
+3. **Auditoría de Evidencias:** Utilice `/api/v1/vulnerabilities/:cveId/evidence` para justificar decisiones automatizadas de parcheo basándose únicamente en fuentes corroboradas.
+4. **Respeto a la Privacidad:** La API externa garantiza la ausencia de información de destinatarios de correo electrónico por defecto.

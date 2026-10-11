@@ -36,6 +36,9 @@ coverage/
 # Docker
 postgres_data/
 redis_data/
+docker-compose.override.yml
+.env.*.backup*
+migration-dry-run-report.json
 docker/ssl/*.key
 docker/ssl/*.pem
 docker/ssl/*.pfx

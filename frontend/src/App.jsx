@@ -1087,6 +1087,12 @@ export default function VulnDashboard() {
     topExploited: [],
     lastRun: null,
   });
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewLoaded, setOverviewLoaded] = useState(false);
+  const [overviewError, setOverviewError] = useState(null);
+  const [exploitFilterTab, setExploitFilterTab] = useState("confirmed"); // "confirmed" | "kev" | "public"
+  const [exploitedLoading, setExploitedLoading] = useState(false);
+  const [exploitedError, setExploitedError] = useState(null);
   const [vulns, setVulns] = useState([]);
   const [vulnsTotal, setVulnsTotal] = useState(0);
   const [vulnsPage, setVulnsPage] = useState(1);
@@ -1274,6 +1280,10 @@ export default function VulnDashboard() {
   const [notifSending, setNotifSending] = useState(false);
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [notifContactsLoading, setNotifContactsLoading] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(null);
+  const [collapsedVendors, setCollapsedVendors] = useState(() => new Set());
+  const [showNotifPopover, setShowNotifPopover] = useState(false);
+  const [showRawPayload, setShowRawPayload] = useState(false);
 
   const aiEndRef = useRef(null);
   const validatedTokenRef = useRef("");
@@ -1719,7 +1729,21 @@ export default function VulnDashboard() {
   const loadData = useCallback(async (v) => {
     try {
       if (v === "overview") {
-        const r = await apiFetch("/vulnerabilities/dashboard"); setDash(await r.json());
+        setOverviewLoading(true);
+        setOverviewError(null);
+        try {
+          const r = await apiFetch("/vulnerabilities/dashboard");
+          if (!r.ok) {
+            throw new Error(`Error ${r.status}: No se pudo cargar el panel de vulnerabilidades`);
+          }
+          const data = await r.json();
+          setDash(data);
+          setOverviewLoaded(true);
+        } catch (err) {
+          setOverviewError(err.message || "Error al conectar con la API del panel");
+        } finally {
+          setOverviewLoading(false);
+        }
       } else if (v === "account") {
         setAccountLoading(true);
         try {
@@ -1745,13 +1769,28 @@ export default function VulnDashboard() {
       } else if (v === "vulns" || v === "search") {
         await loadVulnerabilityExplorer({ page: 1, append: false });
       } else if (v === "exploited") {
-        const params = new URLSearchParams();
-        params.set("limit", "100");
-        if (v === "exploited") {
+        setExploitedLoading(true);
+        setExploitedError(null);
+        try {
+          const params = new URLSearchParams();
+          params.set("limit", "100");
           params.set("exploited", "true");
+          if (exploitFilterTab && exploitFilterTab !== "confirmed") {
+            params.set("exploitType", exploitFilterTab === "kev" ? "kev" : "public_exploit");
+          }
+          const q = `?${params.toString()}`;
+          const r = await apiFetch(`/vulnerabilities${q}`);
+          if (!r.ok) {
+            throw new Error(`Error ${r.status}: No se pudieron cargar las vulnerabilidades explotadas`);
+          }
+          const d = await r.json();
+          setVulns(d.data || []);
+          setVulnsTotal(d.total || 0);
+        } catch (err) {
+          setExploitedError(err.message || "Error cargando vulnerabilidades explotadas");
+        } finally {
+          setExploitedLoading(false);
         }
-        const q = `?${params.toString()}`;
-        const r = await apiFetch(`/vulnerabilities${q}`); const d = await r.json(); setVulns(d.data || []); setVulnsTotal(d.total || 0);
       } else if (v === "contacts") {
         const r = await apiFetch("/users"); const allUsers = await r.json();
         setContacts((Array.isArray(allUsers) ? allUsers : []).filter(u => u.isSubscriber));
@@ -1933,7 +1972,7 @@ export default function VulnDashboard() {
       setNotificationCenterLoading(false);
       console.error("Load error:", e.message);
     }
-  }, [loadVulnerabilityExplorer, loadSubscriberPortal, backfillJobId, settingsTab]);
+  }, [loadVulnerabilityExplorer, loadSubscriberPortal, backfillJobId, settingsTab, exploitFilterTab]);
 
   useEffect(() => { if (isLoggedIn) loadData(view); }, [view, isLoggedIn, loadData]);
 
@@ -2304,7 +2343,13 @@ export default function VulnDashboard() {
     : hasSearchCriteria
       ? `${explorerRows.length} resultados de ${vulnsTotal} CVEs (búsqueda servidor)`
       : `Mostrando ${vulns.length} de ${vulnsTotal} CVEs`;
-  const kevListRows = sortKevModuleRows(vulns.filter((v) => v.isKnownExploited));
+  const kevListRows = sortKevModuleRows(
+    vulns.filter((v) => {
+      if (exploitFilterTab === "kev") return Boolean(v.isKnownExploited);
+      if (exploitFilterTab === "public") return Boolean(v.hasPublicExploit);
+      return Boolean(v.isKnownExploited || v.hasPublicExploit || (v.exploitStatus && v.exploitStatus !== "none"));
+    })
+  );
   const detailSourceView = normalizeDetailSourceView(detailContext.sourceView);
   const detailNavigationRows = detailSourceView === "exploited" ? kevListRows : explorerRows;
   const detailCveId = String(vulnDetail?.cveId || detailContext.cveId || "").trim().toUpperCase();
@@ -2321,34 +2366,58 @@ export default function VulnDashboard() {
     if (!target) return;
     openVulnerabilityDetail(target, { sourceView: detailSourceView });
   };
-  const copyText = async (value, successText = "Copiado") => {
+  const handleCopy = async (value, key = "cve") => {
     try {
       if (navigator?.clipboard?.writeText) {
         await navigator.clipboard.writeText(String(value || ""));
+        setCopiedKey(key);
+        setTimeout(() => setCopiedKey((curr) => (curr === key ? null : curr)), 1800);
         return;
       }
     } catch {
-      // noop
+      // fallback
     }
-    alert(successText);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey((curr) => (curr === key ? null : curr)), 1800);
   };
+  const copyText = (value) => handleCopy(value, "cve");
+
+  useEffect(() => {
+    if (view !== DETAIL_VIEW) return;
+    const handleKeyDown = (e) => {
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target?.tagName)) return;
+      if (e.key === "Escape") {
+        closeVulnerabilityDetail();
+      } else if (e.key === "ArrowLeft" && previousDetailRow) {
+        openAdjacentVulnerability(-1);
+      } else if (e.key === "ArrowRight" && nextDetailRow) {
+        openAdjacentVulnerability(1);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [view, previousDetailRow, nextDetailRow]);
+
   const renderVulnerabilityDetailPage = () => {
     if (vulnLoading && !vulnDetail) {
       return (
-        <Card style={{ padding: 28 }}>
-          <div style={{ padding: 40, textAlign: "center", color: C.gray500, fontSize: 13 }}>Cargando detalle de vulnerabilidad...</div>
+        <Card style={{ padding: 36, textAlign: "center" }}>
+          <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 32, height: 32, border: `3px solid ${C.bluePale}`, borderTopColor: C.blue, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            <div style={{ color: C.gray600, fontSize: 13, fontWeight: 600 }}>Cargando detalle de vulnerabilidad...</div>
+          </div>
         </Card>
       );
     }
 
     if (!vulnDetail || vulnDetail?.error) {
       return (
-        <Card style={{ padding: 28 }}>
+        <Card style={{ padding: 32 }}>
           <div style={{ fontSize: 18, fontWeight: 800, color: C.text, marginBottom: 8 }}>Vulnerabilidad no disponible</div>
           <div style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
             No se pudo cargar el detalle solicitado o la CVE no existe en la colección actual.
           </div>
-          <Btn onClick={closeVulnerabilityDetail}>Volver al listado</Btn>
+          <Btn onClick={closeVulnerabilityDetail}><I name="arrowRight" size={14} style={{ transform: "rotate(180deg)" }} /> Volver al listado</Btn>
         </Card>
       );
     }
@@ -2356,6 +2425,10 @@ export default function VulnDashboard() {
     const detail = vulnDetail;
     const semantic = getSemanticSummary(detail);
     const riskSignals = normalizeFieldList(detail.riskSignals);
+    const affectedCpes = normalizeFieldList(detail.affectedCpes);
+    const evidenceTypes = normalizeFieldList(detail.evidenceTypes);
+    const sourceRecords = normalizeFieldList(detail.sourceRecords);
+    const isConfirmedExploited = detail.isConfirmedExploited ?? (detail.isKnownExploited || detail.exploitStatus === "active_exploitation" || detail.exploitStatus === "confirmed");
     const detailedProducts = normalizeFieldList(detail.affectedProductsDetailed);
     const summaryProducts = normalizeFieldList(detail.affectedProducts);
     const displayProducts = detailedProducts.length > 0 ? detailedProducts : summaryProducts;
@@ -2437,20 +2510,17 @@ export default function VulnDashboard() {
       referenceGroups.nvd.links[0]?.url ||
       referenceGroups.other.links[0]?.url ||
       null;
-    const keyFacts = [
-      { label: "CVE", value: detail.cveId },
-      { label: "Producto principal", value: semantic.hasReliablePrimaryEntity ? semantic.displayTitle : "Clasificación pendiente" },
-      { label: "Tipo de componente", value: componentTypeMeta(semantic.componentType).label },
-      { label: "Estado del registro", value: recordStatusMeta(detail.recordStatus).label },
-      { label: "Fuente canónica", value: detail.canonicalSource || "No informada" },
-      { label: "Fuentes presentes", value: sourcesPresent.length > 0 ? sourcesPresent.map((item) => summarizeTextValue(item)).join(", ") : "No informadas" },
-      { label: "Confianza del dato", value: fmtConfidence(detail.dataConfidence) },
-      { label: "Último cambio detectado", value: fmtDate(detail.lastChangeDetectedAt) },
-    ];
 
-    // ── Riesgo Real score ──
+    // ── Riesgo Real score & dynamic gradient ──
     const riskScore = detail.operationalRiskScore != null ? Math.round(parseFloat(detail.operationalRiskScore)) : null;
     const riskScoreColor = riskScore >= 75 ? C.critical : riskScore >= 50 ? C.high : riskScore >= 25 ? "#d97706" : C.low;
+    const riskGradient = riskScore >= 75
+      ? `linear-gradient(90deg, ${C.high}, ${C.critical})`
+      : riskScore >= 50
+      ? `linear-gradient(90deg, #d97706, ${C.high})`
+      : riskScore >= 25
+      ? `linear-gradient(90deg, ${C.blue}, #d97706)`
+      : `linear-gradient(90deg, #10B981, ${C.blue})`;
 
     // ── Products grouped by vendor (deduplicated) ──
     const vendorGroups = {};
@@ -2469,21 +2539,44 @@ export default function VulnDashboard() {
       });
     });
 
+    const toggleVendor = (vName) => {
+      setCollapsedVendors((prev) => {
+        const next = new Set(prev);
+        if (next.has(vName)) next.delete(vName);
+        else next.add(vName);
+        return next;
+      });
+    };
+
     // ── Exploit links for scrollable list ──
     const exploitLinks = referenceGroups.exploit.links || [];
 
     return (
       <div className="fade" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        {/* ═══ HEADER ═══ */}
-        <Card style={{ padding: 20, overflow: "visible" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-              <div style={{ fontSize: 11, color: C.gray500, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase" }}>
-                {detailSourceView === "exploited" ? "KEV / Explotación confirmada" : "Catálogo de vulnerabilidades"} / Detalle CVE
+        {/* ═══ HEADER (Unified Hero Banner) ═══ */}
+        <Card style={{ padding: 22, overflow: "visible", border: `1px solid ${C.gray200}`, boxShadow: "0 1px 3px rgba(0,0,0,0.03)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 24, flexWrap: "wrap", alignItems: "flex-start" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: "1 1 500px", minWidth: 280 }}>
+              {/* Breadcrumbs */}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.gray500, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                <span style={{ cursor: "pointer", color: C.blue }} onClick={closeVulnerabilityDetail}>
+                  {detailSourceView === "exploited" ? "KEV / Explotación confirmada" : "Catálogo de vulnerabilidades"}
+                </span>
+                <span style={{ color: C.gray400 }}>/</span>
+                <span style={{ color: C.text }}>Detalle CVE</span>
+                {detailIndex >= 0 && (
+                  <span style={{ marginLeft: "auto", color: C.gray400, fontWeight: 600, textTransform: "none", fontSize: 10, fontFamily: "'JetBrains Mono', monospace" }}>
+                    {detailIndex + 1} de {detailNavigationRows.length}
+                  </span>
+                )}
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <h1 style={{ fontSize: 28, fontWeight: 900, margin: 0, fontFamily: "'JetBrains Mono', monospace", color: C.navy }}>{detail.cveId}</h1>
-                <span className="occ-tooltip-wrap">
+
+              {/* Title & Badges */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0, fontFamily: "'JetBrains Mono', monospace", color: C.navy, letterSpacing: "-0.5px" }}>
+                  {detail.cveId}
+                </h1>
+                <span className="occ-tooltip-wrap" tabIndex={0} aria-label={`Severidad: ${detail.cvssV31Severity || "N/A"}`}>
                   <SevBadge s={detail.cvssV31Severity} />
                   <span className="occ-tooltip" style={{ width: 260 }}>
                     <strong>Severidad: {detail.cvssV31Severity || "N/A"}</strong><br /><br />
@@ -2493,26 +2586,57 @@ export default function VulnDashboard() {
                     <em style={{ color: "#94A3B8" }}>Clasificación asignada por NVD (NIST).</em>
                   </span>
                 </span>
+                {isConfirmedExploited && (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 800, background: "#FEF2F2", color: "#991B1B", border: "1px solid #FECACA" }}>
+                    ● Explotación Confirmada
+                  </span>
+                )}
               </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 2 }}>
+
+              {/* Metadata Badges */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                 <SoftBadge label={`Publicado ${fmtDate(detail.publishedAt)}`} bg={C.gray50} color={C.gray700} border={C.gray300} />
                 <SoftBadge label={`Actualizado ${fmtDate(detail.lastModifiedAt)}`} bg={C.gray50} color={C.gray700} border={C.gray300} />
                 {hasValue(detail.enrichedAt) && <SoftBadge label={`Enriquecido ${fmtDate(detail.enrichedAt)}`} bg={C.bluePale} color={C.navy} border={C.gray200} />}
+                {detail.recordStatus && <SoftBadge label={recordStatusMeta(detail.recordStatus).label} bg="#F8FAFC" color={C.gray700} border={C.gray300} />}
               </div>
-              <div className="occ-vuln-header-actions" style={{ justifyContent: "flex-start", marginTop: 4 }}>
-                <Btn onClick={closeVulnerabilityDetail}><I name="arrowRight" size={14} /> Volver</Btn>
-                <Btn onClick={() => openAdjacentVulnerability(-1)} disabled={!previousDetailRow}>Anterior</Btn>
-                <Btn onClick={() => openAdjacentVulnerability(1)} disabled={!nextDetailRow}>Siguiente</Btn>
-                <Btn onClick={() => copyText(detail.cveId, "CVE copiada")}>Copiar CVE</Btn>
-                <Btn onClick={() => primaryReferenceUrl && window.open(primaryReferenceUrl, "_blank", "noopener,noreferrer")} disabled={!primaryReferenceUrl}>Abrir advisory</Btn>
-                <Btn onClick={() => analyzeVulnerabilityWithAi(detail)}><I name="brain" size={14} /> Analizar con IA</Btn>
+
+              {/* Action Toolbar */}
+              <div className="occ-vuln-header-actions" style={{ justifyContent: "flex-start", marginTop: 4, gap: 6 }}>
+                <Btn onClick={closeVulnerabilityDetail} title="Volver al catálogo (Esc)">
+                  <I name="arrowRight" size={13} style={{ transform: "rotate(180deg)" }} /> Volver
+                </Btn>
+                <Btn onClick={() => openAdjacentVulnerability(-1)} disabled={!previousDetailRow} title="CVE anterior (←)">
+                  <I name="arrowLeft" size={13} /> Anterior
+                </Btn>
+                <Btn onClick={() => openAdjacentVulnerability(1)} disabled={!nextDetailRow} title="Siguiente CVE (→)">
+                  Siguiente <I name="arrowRight" size={13} />
+                </Btn>
+                <Btn
+                  onClick={() => handleCopy(detail.cveId, "cve")}
+                  style={copiedKey === "cve" ? { borderColor: "#10B981", color: "#065F46", background: "#ECFDF5", fontWeight: 700 } : {}}
+                  title="Copiar identificador al portapapeles"
+                >
+                  {copiedKey === "cve" ? "✓ ¡Copiado!" : "Copiar CVE"}
+                </Btn>
+                <Btn onClick={() => primaryReferenceUrl && window.open(primaryReferenceUrl, "_blank", "noopener,noreferrer")} disabled={!primaryReferenceUrl}>
+                  <I name="external" size={13} /> Abrir advisory
+                </Btn>
+                <Btn onClick={() => analyzeVulnerabilityWithAi(detail)} style={{ background: "linear-gradient(135deg, #1E40AF 0%, #3B82F6 100%)", color: "#fff", border: "none", fontWeight: 700 }}>
+                  <I name="brain" size={14} /> Analizar con IA
+                </Btn>
               </div>
             </div>
 
             {/* ═══ RIESGO REAL BOX ═══ */}
-            <div style={{ background: "#fff", borderRadius: 14, padding: "16px 20px", minWidth: 280, border: `2px solid ${C.gray200}`, position: "relative" }}>
-              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${C.high}, ${C.critical})`, borderRadius: "14px 14px 0 0" }} />
-              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", color: C.gray500, marginBottom: 10 }}>Riesgo Real</div>
+            <div style={{ background: "#fff", borderRadius: 14, padding: "18px 22px", minWidth: 280, flex: "0 0 320px", border: `2px solid ${C.gray200}`, position: "relative", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 4, background: riskGradient, borderRadius: "14px 14px 0 0" }} />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "1px", color: C.gray500 }}>Riesgo Real Compuesto</div>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: riskScore >= 75 ? C.criticalBg : riskScore >= 50 ? C.highBg : C.lowBg, color: riskScoreColor }}>
+                  {riskScore >= 75 ? "Crítico" : riskScore >= 50 ? "Alto" : riskScore >= 25 ? "Medio" : "Bajo"}
+                </span>
+              </div>
               <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 12 }}>
                 {detail.exploitStatus === "active_exploitation" && <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: C.criticalBg, color: C.critical, border: "1px solid #FCA5A5" }}>● Explotación activa</span>}
                 {detail.isKnownExploited && <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: C.highBg, color: C.high, border: "1px solid #FDBA74" }}>KEV{detail.epssScore != null ? ` · EPSS ${fmtEpss(detail.epssScore)}` : ""}</span>}
@@ -2520,28 +2644,32 @@ export default function VulnDashboard() {
                 <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: detail.patchAvailable ? C.lowBg : C.criticalBg, color: detail.patchAvailable ? C.low : C.critical, border: `1px solid ${detail.patchAvailable ? "#BBF7D0" : "#FCA5A5"}` }}>
                   {detail.patchAvailable ? "✓ Parche disponible" : "✗ Sin parche"}
                 </span>
+                {riskSignals.slice(0, 3).map((sig, i) => (
+                  <span key={i} style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: "#F1F5F9", color: "#334155", border: "1px solid #CBD5E1" }}>
+                    #{sig}
+                  </span>
+                ))}
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ height: 6, background: "#F1F5F9", borderRadius: 3, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${riskScore || 0}%`, borderRadius: 3, background: `linear-gradient(90deg, ${C.high}, ${C.critical})`, transition: "width 0.6s ease" }} />
+                  <div style={{ height: 8, background: "#F1F5F9", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${riskScore || 0}%`, borderRadius: 4, background: riskGradient, transition: "width 0.6s ease" }} />
                   </div>
-                  <div style={{ fontSize: 10, color: C.gray500, fontWeight: 600, marginTop: 4 }}>Puntuación compuesta</div>
+                  <div style={{ fontSize: 10, color: C.gray500, fontWeight: 600, marginTop: 5 }}>Puntuación contextual ponderada</div>
                 </div>
-                <span className="occ-tooltip-wrap occ-tooltip-right occ-tooltip-below">
-                  <span style={{ fontSize: 28, fontWeight: 900, fontFamily: "'JetBrains Mono', monospace", color: riskScoreColor, cursor: "help" }}>
+                <span className="occ-tooltip-wrap occ-tooltip-right occ-tooltip-below" tabIndex={0} aria-label="Desglose del cálculo de Riesgo Real">
+                  <span style={{ fontSize: 30, fontWeight: 900, fontFamily: "'JetBrains Mono', monospace", color: riskScoreColor, cursor: "help" }}>
                     {riskScore != null ? riskScore : "-"}<span style={{ fontSize: 14, fontWeight: 600, color: C.gray400 }}>/100</span>
                   </span>
-                  <span className="occ-tooltip" style={{ width: 280 }}>
+                  <span className="occ-tooltip" style={{ width: 280, maxWidth: "min(320px, 90vw)" }}>
                     <strong>Cálculo del Riesgo Real (0-100):</strong><br /><br />
-                    Composición ponderada de:<br />
+                    Composición ponderada:<br />
                     • CVSS v3.1: {fmtScore(detail.cvssV31Score)} (peso 30%)<br />
-                    • EPSS probabilidad: {detail.epssScore != null ? parseFloat(detail.epssScore).toFixed(3) : "N/A"} (peso 20%)<br />
+                    • EPSS probabilidad: {detail.epssScore != null ? (typeof detail.epssScore === "number" ? detail.epssScore.toFixed(3) : parseFloat(detail.epssScore).toFixed(3)) : "N/A"} (peso 20%)<br />
                     • KEV / Explotación activa: {detail.isKnownExploited ? "+15" : "+0"}<br />
                     • Exploit público: {detail.hasPublicExploit ? "+10" : "+0"}<br />
                     • Parche no disponible: {detail.patchAvailable === false ? "+10" : "+0"}<br />
-                    • Confianza del dato: {fmtConfidence(detail.dataConfidence)}<br /><br />
-                    <em style={{ color: "#94A3B8" }}>Pasa el ratón por encima para ver este detalle.</em>
+                    • Confianza del dato: {fmtConfidence(detail.dataConfidence)}<br />
                   </span>
                 </span>
               </div>
@@ -2553,90 +2681,109 @@ export default function VulnDashboard() {
         <div className="occ-vuln-detail-layout">
           <div className="occ-vuln-detail-main">
 
-            {/* ═══ DESCRIPCIÓN (compacta) ═══ */}
-            <Card>
+            {/* ═══ DESCRIPCIÓN ═══ */}
+            <Card title="Resumen Ejecutivo" icon="fileText">
               <div style={{ fontSize: 13, color: C.gray700, lineHeight: 1.7 }}>{summaryText}</div>
               {summaryText !== technicalText && technicalText !== "Sin descripción técnica adicional." && (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.gray100}` }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>Descripción técnica</div>
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.gray100}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>Descripción técnica detallada</div>
                   <div style={{ fontSize: 13, color: C.gray700, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{technicalText}</div>
                 </div>
               )}
             </Card>
 
-            {/* ═══ MÉTRICAS COMPACTAS (4 en 1 línea) ═══ */}
+            {/* ═══ MÉTRICAS COMPACTAS (4 en 1 línea con foco accesible) ═══ */}
             <div className="occ-vuln-metrics-grid">
-              <div className="occ-tooltip-wrap" style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
-                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: sevColor(detail.cvssV31Severity) }} />
-                <div style={{ fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>CVSS v3.1</div>
-                <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: C.text, letterSpacing: "-0.5px" }}>{fmtScore(detail.cvssV31Score)}</div>
+              <div className="occ-tooltip-wrap" tabIndex={0} aria-label={`CVSS: ${fmtScore(detail.cvssV31Score)}`} style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "visible" }}>
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: sevColor(detail.cvssV31Severity) }} />
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>CVSS v3.1</div>
+                <div style={{ fontSize: 22, fontWeight: 900, fontFamily: "'JetBrains Mono', monospace", color: C.text, letterSpacing: "-0.5px" }}>{fmtScore(detail.cvssV31Score)}</div>
                 <span className="occ-tooltip">
                   <strong>CVSS v3.1:</strong> {fmtScore(detail.cvssV31Score)} {detail.cvssV31Severity || "N/A"}<br />
                   Vector: {detail.cvssV31Vector || "No informado"}<br /><br />
                   {detail.cvssV40Score != null && <><strong>CVSS v4.0:</strong> {fmtScore(detail.cvssV40Score)} {detail.cvssV40Severity || "N/A"}<br />Vector: {detail.cvssV40Vector || "No informado"}</>}
                 </span>
               </div>
-              <div className="occ-tooltip-wrap" style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
-                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: C.blue }} />
-                <div style={{ fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>EPSS</div>
-                <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>{fmtEpss(detail.epssScore)}</div>
+              <div className="occ-tooltip-wrap" tabIndex={0} aria-label={`EPSS: ${fmtEpss(detail.epssScore)}`} style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "visible" }}>
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: C.blue }} />
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>EPSS</div>
+                <div style={{ fontSize: 22, fontWeight: 900, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>{fmtEpss(detail.epssScore)}</div>
                 <span className="occ-tooltip">
-                  <strong>Probabilidad de explotación:</strong> {detail.epssScore != null ? parseFloat(detail.epssScore).toFixed(3) : "N/A"}<br />
+                  <strong>Probabilidad de explotación:</strong> {detail.epssScore != null ? (typeof detail.epssScore === "number" ? detail.epssScore.toFixed(3) : parseFloat(detail.epssScore).toFixed(3)) : "N/A"}<br />
                   <strong>Percentil:</strong> {(Number(detail.epssPercentile || 0) * 100).toFixed(0)}%<br />
                   Posición relativa frente a todas las CVE conocidas.
                 </span>
               </div>
-              <div className="occ-tooltip-wrap" style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
-                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: C.high }} />
-                <div style={{ fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>CWE</div>
-                <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>{cweIds[0] || "N/A"}</div>
+              <div className="occ-tooltip-wrap" tabIndex={0} aria-label={`CWE: ${cweIds[0] || "N/A"}`} style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "visible" }}>
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: C.high }} />
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>CWE</div>
+                <div style={{ fontSize: 17, fontWeight: 900, fontFamily: "'JetBrains Mono', monospace", color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {cweIds[0] || "N/A"}{cweIds.length > 1 ? ` (+${cweIds.length - 1})` : ""}
+                </div>
                 <span className="occ-tooltip">
                   <strong>{cweIds[0] || "N/A"}:</strong> {cweNames[0] || "Sin nombre"}<br />
-                  {detail.weaknessCategory && <>Categoría: {detail.weaknessCategory}</>}
+                  {detail.weaknessCategory && <>Categoría: {detail.weaknessCategory}<br /></>}
+                  {cweIds.length > 1 && <>Otras debilidades: {cweIds.slice(1).join(", ")}</>}
                 </span>
               </div>
-              <div className="occ-tooltip-wrap" style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "hidden" }}>
-                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: C.navy }} />
-                <div style={{ fontSize: 10, fontWeight: 600, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>Confianza</div>
-                <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>{fmtConfidence(detail.dataConfidence)}</div>
+              <div className="occ-tooltip-wrap" tabIndex={0} aria-label={`Confianza: ${fmtConfidence(detail.dataConfidence)}`} style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.gray200}`, position: "relative", overflow: "visible" }}>
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: C.navy }} />
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>Confianza</div>
+                <div style={{ fontSize: 22, fontWeight: 900, fontFamily: "'JetBrains Mono', monospace", color: C.text }}>{fmtConfidence(detail.dataConfidence)}</div>
                 <span className="occ-tooltip">
                   <strong>Confianza del dato:</strong> {fmtConfidence(detail.dataConfidence)}<br />
-                  Basado en {detail.sourceCount || "?"} fuentes independientes:<br />
-                  {sourcesPresent.length > 0 ? sourcesPresent.map(s => String(s)).join(", ") : "No informadas"}
+                  Basado en {detail.sourceCount || 1} fuente{(detail.sourceCount || 1) !== 1 ? "s" : ""}:<br />
+                  {sourcesPresent.length > 0 ? sourcesPresent.map((s) => String(s)).join(", ") : "NVD NIST"}
                 </span>
               </div>
             </div>
 
-            {/* ═══ ESTADO NOTIFICACIÓN (con popover suscriptores) ═══ */}
+            {/* ═══ ESTADO NOTIFICACIÓN (reactivo declarativo) ═══ */}
             <Card title="Estado de notificación" icon="bell" style={{ overflow: "visible" }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
-                <div style={{ padding: 10, background: detail.notificable ? "#D1FAE5" : C.gray50, borderRadius: 8, textAlign: "center", border: `1px solid ${detail.notificable ? "#6EE7B7" : C.gray200}` }}>
+                <div style={{ padding: "10px 12px", background: detail.notificable ? "#D1FAE5" : C.gray50, borderRadius: 8, textAlign: "center", border: `1px solid ${detail.notificable ? "#6EE7B7" : C.gray200}` }}>
                   <div style={{ fontSize: 9, color: C.gray500, marginBottom: 3, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Notificable</div>
                   <div style={{ fontSize: 15, fontWeight: 800, color: detail.notificable ? "#065F46" : C.gray400 }}>{detail.notificable ? "SI" : "NO"}</div>
                 </div>
-                <div style={{ padding: 10, background: detail.notificada ? "#DBEAFE" : C.gray50, borderRadius: 8, textAlign: "center", border: `1px solid ${detail.notificada ? "#93C5FD" : C.gray200}` }}>
+                <div style={{ padding: "10px 12px", background: detail.notificada ? "#DBEAFE" : C.gray50, borderRadius: 8, textAlign: "center", border: `1px solid ${detail.notificada ? "#93C5FD" : C.gray200}` }}>
                   <div style={{ fontSize: 9, color: C.gray500, marginBottom: 3, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Notificada</div>
                   <div style={{ fontSize: 15, fontWeight: 800, color: detail.notificada ? "#1E40AF" : C.gray400 }}>{detail.notificada ? "SI" : "NO"}</div>
                 </div>
-                <div style={{ padding: 10, background: C.gray50, borderRadius: 8, textAlign: "center", border: `1px solid ${C.gray200}` }}>
+                <div style={{ padding: "10px 12px", background: C.gray50, borderRadius: 8, textAlign: "center", border: `1px solid ${C.gray200}` }}>
                   <div style={{ fontSize: 9, color: C.gray500, marginBottom: 3, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Fecha</div>
                   <div style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: detail.fechaNotificacion ? C.text : C.gray400 }}>
                     {detail.fechaNotificacion ? fmtDate(detail.fechaNotificacion) : "—"}
                   </div>
                 </div>
                 <div
-                  className={`occ-popover-wrap${(detail.suscriptoresNotificados || []).length > 0 ? "" : ""}`}
-                  style={{ padding: 10, background: C.gray50, borderRadius: 8, textAlign: "center", border: `1px solid ${C.gray200}`, cursor: (detail.suscriptoresNotificados || []).length > 0 ? "pointer" : "default" }}
-                  onClick={(e) => { if ((detail.suscriptoresNotificados || []).length > 0) { e.currentTarget.classList.toggle("occ-open"); e.stopPropagation(); } }}
+                  className={`occ-popover-wrap${showNotifPopover ? " occ-open" : ""}`}
+                  style={{ padding: "10px 12px", background: C.gray50, borderRadius: 8, textAlign: "center", border: `1px solid ${C.gray200}`, cursor: (detail.suscriptoresNotificados || []).length > 0 ? "pointer" : "default" }}
+                  tabIndex={(detail.suscriptoresNotificados || []).length > 0 ? 0 : undefined}
+                  role={(detail.suscriptoresNotificados || []).length > 0 ? "button" : undefined}
+                  aria-expanded={(detail.suscriptoresNotificados || []).length > 0 ? showNotifPopover : undefined}
+                  onClick={() => {
+                    if ((detail.suscriptoresNotificados || []).length > 0) {
+                      setShowNotifPopover(!showNotifPopover);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (["Enter", " "].includes(e.key) && (detail.suscriptoresNotificados || []).length > 0) {
+                      e.preventDefault();
+                      setShowNotifPopover(!showNotifPopover);
+                    }
+                  }}
                 >
                   <div style={{ fontSize: 9, color: C.gray500, marginBottom: 3, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Suscriptores</div>
                   <div style={{ fontSize: 15, fontWeight: 800, color: (detail.suscriptoresNotificados || []).length > 0 ? C.blue : C.gray400 }}>
-                    {(detail.suscriptoresNotificados || []).length}
+                    {detail.notificacionesCount ?? (detail.suscriptoresNotificados || []).length}
                     {(detail.suscriptoresNotificados || []).length > 0 && <span style={{ fontSize: 9, fontWeight: 600, color: C.gray400, marginLeft: 4 }}>▼</span>}
                   </div>
-                  {(detail.suscriptoresNotificados || []).length > 0 && (
+                  {showNotifPopover && (detail.suscriptoresNotificados || []).length > 0 && (
                     <div className="occ-popover-content" onClick={(e) => e.stopPropagation()}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: C.gray500, textTransform: "uppercase", marginBottom: 8 }}>Suscriptores notificados</div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: C.gray500, textTransform: "uppercase" }}>Suscriptores notificados</div>
+                        <button type="button" onClick={() => setShowNotifPopover(false)} style={{ border: "none", background: "none", cursor: "pointer", color: C.gray400, fontSize: 14 }}>✕</button>
+                      </div>
                       {(detail.suscriptoresNotificados || []).map((s, idx) => (
                         <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 8px", borderRadius: 6 }}>
                           <div style={{ width: 26, height: 26, borderRadius: "50%", background: C.bluePale, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: C.blue }}>
@@ -2655,14 +2802,28 @@ export default function VulnDashboard() {
               </div>
             </Card>
 
-            {/* ═══ PRODUCTOS AFECTADOS (doble nivel con scroll y búsqueda) ═══ */}
-            <Card title="Productos afectados" icon="server" action={<span style={{ fontSize: 10, color: C.gray500 }}>{displayProducts.length} producto{displayProducts.length !== 1 ? "s" : ""}</span>}>
+            {/* ═══ PRODUCTOS AFECTADOS (con CPEs y acordeón declarativo) ═══ */}
+            <Card
+              title="Productos afectados"
+              icon="server"
+              action={
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {affectedCpes.length > 0 && (
+                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#EFF6FF", color: "#1E40AF", fontWeight: 700 }}>
+                      {affectedCpes.length} CPE{affectedCpes.length !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                  <span style={{ fontSize: 10, color: C.gray500, fontWeight: 600 }}>
+                    {displayProducts.length} producto{displayProducts.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+              }
+            >
               {displayProducts.length === 0 ? (
                 <div style={{ fontSize: 12, color: C.gray500 }}>Sin detalle de productos afectados.</div>
               ) : (() => {
-                const [prodFilter, setProdFilter] = [detailProductFilter, setDetailProductFilter];
+                const q = (detailProductFilter || "").toLowerCase().trim();
                 const filteredVendorGroups = Object.entries(vendorGroups).map(([vendor, products]) => {
-                  const q = (prodFilter || "").toLowerCase();
                   if (!q) return { vendor, products, visible: true };
                   const vendorMatch = vendor.toLowerCase().includes(q);
                   const filteredProducts = vendorMatch ? products : products.filter((p) => {
@@ -2674,43 +2835,96 @@ export default function VulnDashboard() {
 
                 return (
                   <>
-                    <div style={{ position: "relative", marginBottom: 8 }}>
+                    <div style={{ position: "relative", marginBottom: 10 }}>
                       <span style={{ position: "absolute", left: 10, top: 9, color: "#94A3B8", fontSize: 13 }}>⌕</span>
                       <input
-                        value={prodFilter}
-                        onChange={(e) => setProdFilter(e.target.value)}
-                        placeholder="Buscar fabricante o producto..."
-                        style={{ width: "100%", padding: "8px 12px 8px 32px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#F8FAFC", outline: "none", boxSizing: "border-box" }}
+                        value={detailProductFilter}
+                        onChange={(e) => setDetailProductFilter(e.target.value)}
+                        placeholder="Buscar fabricante o producto afectado..."
+                        style={{ width: "100%", padding: "8px 28px 8px 32px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#F8FAFC", outline: "none", boxSizing: "border-box" }}
                       />
+                      {detailProductFilter && (
+                        <button
+                          type="button"
+                          onClick={() => setDetailProductFilter("")}
+                          style={{ position: "absolute", right: 8, top: 8, border: "none", background: "none", cursor: "pointer", color: C.gray400, fontSize: 12 }}
+                          title="Limpiar búsqueda"
+                        >
+                          ✕
+                        </button>
+                      )}
                     </div>
-                    <div className="occ-scroll-list">
-                      {filteredVendorGroups.map(({ vendor, products }) => (
-                        <div key={vendor} className="occ-vendor-group">
-                          <div className="occ-vendor-header" onClick={(e) => e.currentTarget.classList.toggle("occ-collapsed")}>
-                            <span className="occ-vendor-arrow">▼</span>
-                            {vendor}
-                            <span style={{ fontSize: 10, fontWeight: 600, color: C.gray500, marginLeft: "auto" }}>{products.length} producto{products.length !== 1 ? "s" : ""}</span>
-                          </div>
-                          <div className="occ-vendor-products">
-                            {products.map((p, idx) => (
-                              <div key={idx} className="occ-product-row">
-                                <span style={{ color: C.gray700, flex: 1 }}>{typeof p === "string" ? p : (p.product || "Producto no informado")}</span>
-                                {p.version && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: C.gray500 }}>{p.version}</span>}
-                                {p.versionRange && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: C.gray500 }}>{String(p.versionRange)}</span>}
-                                {semantic.hasReliablePrimaryEntity && primaryProducts.includes(p) && <SoftBadge label="Principal" small bg={C.criticalBg} color={C.critical} border="#FCA5A5" />}
+
+                    <div className="occ-scroll-list" style={{ maxHeight: 280 }}>
+                      {filteredVendorGroups.map(({ vendor, products }) => {
+                        const isCollapsed = collapsedVendors.has(vendor);
+                        return (
+                          <div key={vendor} className="occ-vendor-group">
+                            <button
+                              type="button"
+                              className={`occ-vendor-header${isCollapsed ? " occ-collapsed" : ""}`}
+                              onClick={() => toggleVendor(vendor)}
+                              aria-expanded={!isCollapsed}
+                              style={{ width: "100%", textAlign: "left" }}
+                            >
+                              <span className="occ-vendor-arrow" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none" }}>▼</span>
+                              <span style={{ flex: 1 }}>{vendor}</span>
+                              <span style={{ fontSize: 10, fontWeight: 600, color: "#64748B" }}>
+                                {products.length} producto{products.length !== 1 ? "s" : ""}
+                              </span>
+                            </button>
+                            {!isCollapsed && (
+                              <div className="occ-vendor-products">
+                                {products.map((p, idx) => (
+                                  <div key={idx} className="occ-product-row">
+                                    <span style={{ color: C.gray700, flex: 1, fontWeight: 600 }}>{typeof p === "string" ? p : (p.product || "Producto no informado")}</span>
+                                    {p.version && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: C.gray600, background: "#EEF2FF", padding: "1px 6px", borderRadius: 4 }}>{p.version}</span>}
+                                    {p.versionRange && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: C.gray600, background: "#F1F5F9", padding: "1px 6px", borderRadius: 4 }}>{String(p.versionRange)}</span>}
+                                    {semantic.hasReliablePrimaryEntity && primaryProducts.includes(p) && <SoftBadge label="Principal" small bg={C.criticalBg} color={C.critical} border="#FCA5A5" />}
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                            )}
                           </div>
-                        </div>
-                      ))}
-                      {filteredVendorGroups.length === 0 && <div style={{ fontSize: 12, color: C.gray500, padding: 8 }}>Sin resultados para "{prodFilter}"</div>}
+                        );
+                      })}
+                      {filteredVendorGroups.length === 0 && <div style={{ fontSize: 12, color: C.gray500, padding: 8 }}>Sin resultados para "{detailProductFilter}"</div>}
                     </div>
+
+                    {/* CPEs Afectados si existen */}
+                    {affectedCpes.length > 0 && (
+                      <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.gray100}` }}>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                          Identificadores Canónicos CPE ({affectedCpes.length})
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 140, overflowY: "auto" }}>
+                          {affectedCpes.map((cpe, idx) => {
+                            const cpeKey = `cpe-${idx}`;
+                            const isCopied = copiedKey === cpeKey;
+                            return (
+                              <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "4px 8px", background: "#F8FAFC", borderRadius: 6, border: `1px solid ${C.gray200}`, fontSize: 11 }}>
+                                <span style={{ fontFamily: "'JetBrains Mono', monospace", color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {cpe}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(cpe, cpeKey)}
+                                  style={{ border: `1px solid ${isCopied ? "#10B981" : C.gray300}`, background: isCopied ? "#ECFDF5" : "#fff", color: isCopied ? "#065F46" : C.gray600, borderRadius: 4, padding: "2px 6px", fontSize: 9, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+                                >
+                                  {isCopied ? "✓ Copiado" : "Copiar"}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </>
                 );
               })()}
             </Card>
 
-            {/* ═══ EXPLOTACIÓN (compacta + scroll exploits) ═══ */}
+            {/* ═══ EXPLOTACIÓN ═══ */}
             <DetailBlock title="Explotación" icon="zap">
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>
                 <KV label="Estado" value={<ExploitStatusBadge status={detail.exploitStatus} small />} />
@@ -2729,8 +2943,7 @@ export default function VulnDashboard() {
                 ) : null;
               })()}
               {exploitLinks.length > 0 && (() => {
-                const [exFilter, setExFilter] = [detailExploitFilter, setDetailExploitFilter];
-                const q = (exFilter || "").toLowerCase();
+                const q = (detailExploitFilter || "").toLowerCase().trim();
                 const filtered = q ? exploitLinks.filter((l) => `${l.label || ""} ${l.url || ""} ${l.source || ""}`.toLowerCase().includes(q)) : exploitLinks;
                 return (
                   <>
@@ -2738,19 +2951,36 @@ export default function VulnDashboard() {
                     <div style={{ position: "relative", marginBottom: 8 }}>
                       <span style={{ position: "absolute", left: 10, top: 9, color: "#94A3B8", fontSize: 13 }}>⌕</span>
                       <input
-                        value={exFilter}
-                        onChange={(e) => setExFilter(e.target.value)}
+                        value={detailExploitFilter}
+                        onChange={(e) => setDetailExploitFilter(e.target.value)}
                         placeholder="Filtrar exploits..."
-                        style={{ width: "100%", padding: "8px 12px 8px 32px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#F8FAFC", outline: "none", boxSizing: "border-box" }}
+                        style={{ width: "100%", padding: "8px 28px 8px 32px", border: `1px solid ${C.gray200}`, borderRadius: 8, fontSize: 12, background: "#F8FAFC", outline: "none", boxSizing: "border-box" }}
                       />
+                      {detailExploitFilter && (
+                        <button
+                          type="button"
+                          onClick={() => setDetailExploitFilter("")}
+                          style={{ position: "absolute", right: 8, top: 8, border: "none", background: "none", cursor: "pointer", color: C.gray400, fontSize: 12 }}
+                          title="Limpiar búsqueda"
+                        >
+                          ✕
+                        </button>
+                      )}
                     </div>
                     <div className="occ-scroll-list">
                       {filtered.map((link, idx) => (
-                        <div key={idx} className="occ-exploit-row" onClick={() => link.url && window.open(link.url, "_blank", "noopener,noreferrer")}>
+                        <a
+                          key={idx}
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="occ-exploit-row"
+                          style={{ textDecoration: "none" }}
+                        >
                           <span style={{ fontWeight: 700, color: "#1E40AF", minWidth: 80, fontSize: 10, textTransform: "uppercase" }}>{link.source || "Ref"}</span>
                           <span style={{ color: C.gray700, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{link.label || link.url}</span>
                           <span style={{ color: "#94A3B8", fontSize: 14 }}>→</span>
-                        </div>
+                        </a>
                       ))}
                       {filtered.length === 0 && <div style={{ fontSize: 12, color: C.gray500, padding: 8 }}>Sin resultados</div>}
                     </div>
@@ -2770,20 +3000,40 @@ export default function VulnDashboard() {
               </div>
               {hasValue(fixedVersions) && (
                 <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>Versiones corregidas</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px" }}>Versiones corregidas</div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(typeof fixedVersions === "object" ? JSON.stringify(fixedVersions) : String(fixedVersions), "fixed-ver")}
+                      style={{ border: `1px solid ${copiedKey === "fixed-ver" ? "#10B981" : C.gray300}`, background: copiedKey === "fixed-ver" ? "#ECFDF5" : "#fff", color: copiedKey === "fixed-ver" ? "#065F46" : C.gray600, borderRadius: 4, padding: "2px 6px", fontSize: 9, fontWeight: 700, cursor: "pointer" }}
+                    >
+                      {copiedKey === "fixed-ver" ? "✓ Copiado" : "Copiar versión"}
+                    </button>
+                  </div>
                   <RichValue value={fixedVersions} />
                 </div>
               )}
               {hasValue(workarounds) && (
                 <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>Mitigaciones</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px" }}>Mitigaciones</div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(typeof workarounds === "object" ? JSON.stringify(workarounds) : String(workarounds), "workaround")}
+                      style={{ border: `1px solid ${copiedKey === "workaround" ? "#10B981" : C.gray300}`, background: copiedKey === "workaround" ? "#ECFDF5" : "#fff", color: copiedKey === "workaround" ? "#065F46" : C.gray600, borderRadius: 4, padding: "2px 6px", fontSize: 9, fontWeight: 700, cursor: "pointer" }}
+                    >
+                      {copiedKey === "workaround" ? "✓ Copiado" : "Copiar mitigación"}
+                    </button>
+                  </div>
                   <RichValue value={workarounds} />
                 </div>
               )}
               {hasValue(detectionOpportunities) && (
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 6 }}>Oportunidades de detección</div>
-                  <RichValue value={detectionOpportunities} />
+                  <div style={{ background: "#F8FAFC", border: `1px solid ${C.gray200}`, borderRadius: 8, padding: 10, fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: C.text }}>
+                    <RichValue value={detectionOpportunities} />
+                  </div>
                 </div>
               )}
             </DetailBlock>
@@ -2849,6 +3099,34 @@ export default function VulnDashboard() {
                 </DetailBlock>
               );
             })()}
+
+            {/* ═══ VISOR RAW JSON (Bajo demanda) ═══ */}
+            <Card style={{ border: `1px dashed ${C.gray300}`, background: "#F8FAFC" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: C.text }}>Inspección técnica (Raw Payload)</div>
+                  <div style={{ fontSize: 11, color: C.gray500 }}>Payload original upstream sin normalizar para análisis forense.</div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {showRawPayload && detail.rawData && (
+                    <Btn onClick={() => handleCopy(typeof detail.rawData === "string" ? detail.rawData : JSON.stringify(detail.rawData, null, 2), "raw-json")}>
+                      {copiedKey === "raw-json" ? "✓ ¡Copiado!" : "Copiar JSON"}
+                    </Btn>
+                  )}
+                  <Btn onClick={() => setShowRawPayload(!showRawPayload)}>
+                    {showRawPayload ? "Ocultar JSON" : "Ver JSON"}
+                  </Btn>
+                </div>
+              </div>
+              {showRawPayload && (
+                <div style={{ marginTop: 12 }}>
+                  <pre style={{ background: "#0F172A", color: "#F8FAFC", padding: 14, borderRadius: 8, fontSize: 11, fontFamily: "'JetBrains Mono', monospace", maxHeight: 300, overflow: "auto", margin: 0 }}>
+                    {detail.rawData ? (typeof detail.rawData === "string" ? detail.rawData : JSON.stringify(detail.rawData, null, 2)) : "No hay payload crudo registrado para este CVE."}
+                  </pre>
+                </div>
+              )}
+            </Card>
+
           </div>
 
           {/* ═══ SIDEBAR ═══ */}
@@ -2872,6 +3150,74 @@ export default function VulnDashboard() {
                 ))}
               </div>
             </Card>
+
+            {/* Evidencias & Fuentes Verificadas */}
+            <Card title="Evidencias y Fuentes" icon="shield">
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {sourceRecords.length > 0 ? (
+                  sourceRecords.map((r, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", background: "#F8FAFC", borderRadius: 6, border: `1px solid ${C.gray200}`, fontSize: 11 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontWeight: 800, color: C.text, textTransform: "uppercase" }}>{r.source || r.sourceName}</span>
+                        {r.isCanonical && <SoftBadge label="Canónica" small bg={C.bluePale} color={C.navy} border={C.gray200} />}
+                      </div>
+                      {r.sourceUrl && (
+                        <a href={r.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ color: C.blue, textDecoration: "none", fontSize: 11, fontWeight: 700 }}>
+                          Ver ↗
+                        </a>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {sourcesPresent.length > 0 ? (
+                      sourcesPresent.map((s, i) => (
+                        <span key={i} style={{ padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: "#F1F5F9", color: "#1E293B", border: `1px solid ${C.gray200}` }}>
+                          {String(s).toUpperCase()}
+                        </span>
+                      ))
+                    ) : (
+                      <span style={{ fontSize: 11, color: C.gray500 }}>NVD NIST</span>
+                    )}
+                  </div>
+                )}
+                {evidenceTypes.length > 0 && (
+                  <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {evidenceTypes.map((et, i) => (
+                      <span key={i} style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "#EFF6FF", color: "#1D4ED8" }}>
+                        ✓ {et}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Enlaces de Inteligencia Rápida */}
+            <Card title="Enlaces de Inteligencia" icon="external">
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {[
+                  { name: "NVD NIST", url: `https://nvd.nist.gov/vuln/detail/${detail.cveId}` },
+                  { name: "CISA KEV", url: `https://www.cisa.gov/known-exploited-vulnerabilities-catalog?search_api_fulltext=${detail.cveId}` },
+                  { name: "MITRE CVE", url: `https://cve.mitre.org/cgi-bin/cvename.cgi?name=${detail.cveId}` },
+                  { name: "Exploit-DB", url: `https://www.exploit-db.com/search?cve=${detail.cveId.replace("CVE-", "")}` },
+                ].map((l) => (
+                  <a
+                    key={l.name}
+                    href={l.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, border: `1px solid ${C.gray200}`, background: "#fff", color: C.text, textDecoration: "none", fontSize: 11, fontWeight: 600, transition: "background 0.1s" }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#F8FAFC")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
+                  >
+                    <span>{l.name}</span>
+                    <span style={{ color: C.blue, fontSize: 11 }}>↗</span>
+                  </a>
+                ))}
+              </div>
+            </Card>
+
           </aside>
         </div>
       </div>
@@ -3153,6 +3499,10 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     setSelectedVuln(v);
     setDetailProductFilter("");
     setDetailExploitFilter("");
+    setCopiedKey(null);
+    setCollapsedVendors(new Set());
+    setShowNotifPopover(false);
+    setShowRawPayload(false);
     setDetailContext({ sourceView, cveId: cveId || String(v?.cveId || "").trim() });
     setView(DETAIL_VIEW);
     window.history.pushState({}, "", getDetailPathForView(sourceView, cveId || v?.cveId));
@@ -3775,7 +4125,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         .occ-tooltip-wrap { position: relative; cursor: help; }
         .occ-tooltip-wrap .occ-tooltip { visibility: hidden; opacity: 0; position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background: #0f172a; color: #E2E8F0; padding: 10px 14px; border-radius: 8px; font-size: 11px; line-height: 1.5; z-index: 100; pointer-events: none; transition: opacity 0.15s, visibility 0.15s; box-shadow: 0 4px 12px rgba(0,0,0,0.25); max-width: 320px; white-space: normal; font-weight: 400; letter-spacing: 0; text-transform: none; }
         .occ-tooltip-wrap .occ-tooltip::after { content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #0f172a; }
-        .occ-tooltip-wrap:hover .occ-tooltip { visibility: visible; opacity: 1; }
+        .occ-tooltip-wrap:hover .occ-tooltip,
+        .occ-tooltip-wrap:focus-within .occ-tooltip { visibility: visible; opacity: 1; }
         .occ-tooltip-right .occ-tooltip { left: auto; right: 0; transform: none; }
         .occ-tooltip-right .occ-tooltip::after { left: auto; right: 16px; transform: none; }
         .occ-tooltip-below .occ-tooltip { bottom: auto; top: calc(100% + 8px); }
@@ -3784,7 +4135,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         .occ-popover-content { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #fff; border: 1px solid ${C.gray200}; border-radius: 10px; padding: 12px 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 200; min-width: 300px; max-width: 380px; }
         .occ-popover-wrap.occ-open .occ-popover-content { display: block; }
         .occ-vendor-group { margin-bottom: 6px; }
-        .occ-vendor-header { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #EEF2FF; border-radius: 8px 8px 0 0; border: 1px solid #C7D2FE; border-left: 3px solid #818CF8; font-size: 13px; font-weight: 800; color: #1e293b; cursor: pointer; user-select: none; letter-spacing: -0.01em; }
+        .occ-vendor-header { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #EEF2FF; border-radius: 8px 8px 0 0; border: 1px solid #C7D2FE; border-left: 3px solid #818CF8; font-family: inherit; font-size: 13px; font-weight: 800; color: #1e293b; cursor: pointer; user-select: none; letter-spacing: -0.01em; width: 100%; text-align: left; }
+        .occ-vendor-header.occ-collapsed { border-radius: 8px; }
         .occ-vendor-header .occ-vendor-arrow { font-size: 10px; color: #64748B; transition: transform 0.15s; }
         .occ-vendor-header.occ-collapsed .occ-vendor-arrow { transform: rotate(-90deg); }
         .occ-vendor-products { border: 1px solid ${C.gray200}; border-top: none; border-radius: 0 0 8px 8px; overflow: hidden; }
@@ -3899,7 +4251,53 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
 
             {/* ═══ OVERVIEW ═══ */}
             {view === "overview" && <>
-              <PageHeader title="Panel de Vulnerabilidades" subtitle={`Última actualización: ${fmtDate(dash?.lastRun?.finishedAt)}`} />
+              <PageHeader
+                title="Panel de Vulnerabilidades"
+                subtitle={`Última actualización: ${fmtDate(dash?.lastRun?.finishedAt)}`}
+                actions={
+                  <Btn onClick={() => loadData("overview")} disabled={overviewLoading}>
+                    <I name="refresh" size={12} /> {overviewLoading ? "Actualizando..." : "Actualizar"}
+                  </Btn>
+                }
+              />
+
+              {overviewLoading && !overviewLoaded && (
+                <div style={{ padding: "40px 20px", textAlign: "center", background: "#fff", borderRadius: 8, border: `1px solid ${C.gray200}`, marginBottom: 20 }}>
+                  <span style={{ animation: "spin 1s linear infinite", display: "inline-block", fontSize: 24, marginBottom: 12 }}>⟳</span>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: C.text }}>Cargando panel de vulnerabilidades...</div>
+                  <div style={{ fontSize: 12, color: C.gray500, marginTop: 4 }}>Consultando métricas, estado de fuentes e inteligencia de amenazas</div>
+                </div>
+              )}
+
+              {overviewError && (
+                <div style={{ padding: "16px 20px", background: C.criticalBg, border: `1px solid #fca5a5`, borderRadius: 8, marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <I name="alert" size={24} color={C.critical} />
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: C.critical }}>Error al cargar el panel de vulnerabilidades</div>
+                      <div style={{ fontSize: 11, color: C.gray600, marginTop: 2 }}>{overviewError}</div>
+                    </div>
+                  </div>
+                  <Btn primary onClick={() => loadData("overview")} style={{ background: C.critical }}>
+                    <I name="refresh" size={12} color="#fff" /> Reintentar
+                  </Btn>
+                </div>
+              )}
+
+              {Boolean(dash?.pendingEnrichmentCount && dash.pendingEnrichmentCount > 0) && (
+                <div style={{ padding: "12px 16px", background: "#fefce8", border: `1px solid #fef08a`, borderRadius: 8, marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 16 }}>⚠️</span>
+                    <div>
+                      <span style={{ fontWeight: 700, fontSize: 12, color: "#854d0e" }}>Enriquecimiento histórico pendiente: </span>
+                      <span style={{ fontSize: 12, color: "#a16207" }}>
+                        {dash.pendingEnrichmentCount.toLocaleString()} CVEs pendientes de catalogación en la base de datos ({Math.round(((dash.totalAll - dash.pendingEnrichmentCount) / (dash.totalAll || 1)) * 100)}% enriquecidas).
+                      </span>
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 11, color: "#854d0e", fontWeight: 600 }}>Proceso reanudable</span>
+                </div>
+              )}
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
                 <Metric icon="bug" label="Total CVEs" value={dash?.totalAll ?? 0} sub="En base de datos" color={C.navy} />
@@ -3931,122 +4329,153 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 </Card>
               </div>
 
-              <Card title="KEV Confirmadas — Acción Inmediata" icon="zap" noPad style={{ marginTop: 16 }} action={<span onClick={() => setView("exploited")} style={{ fontSize: 11, color: C.blue, cursor: "pointer", fontWeight: 600 }}>Ver todas →</span>}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead><tr style={{ background: C.gray50 }}>
-                    {[
-                      { key: "cve", label: "CVE" },
-                      { key: "risk", label: "Riesgo" },
-                      { key: "cvss", label: "CVSS" },
-                      { key: "epss", label: "EPSS" },
-                      { key: "exploitation", label: "Explotación" },
-                      { key: "product", label: "Producto" },
-                      { key: "status", label: "Estado" },
-                      { key: "published", label: "Publicada" },
-                      { key: "updated", label: "Actualizada" },
-                    ].map((column) => (
-                      <th
-                        key={column.key}
-                        onClick={() => toggleKevTableSort(column.key)}
-                        style={{
-                          padding: 0,
-                          textAlign: "left",
-                          fontSize: 10,
-                          borderBottom: `1px solid ${C.gray200}`,
-                          whiteSpace: "nowrap",
-                          cursor: "pointer",
-                          userSelect: "none",
-                        }}
-                      >
-                        <div style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
-                          padding: "9px 12px",
-                          fontWeight: 700,
-                          color: kevTableSort.key === column.key && kevTableSort.direction !== "default" ? C.navy : C.gray500,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.7px",
-                        }}>
-                          <span>{column.label}</span>
-                          <span style={{ fontSize: 10, color: kevTableSort.key === column.key && kevTableSort.direction !== "default" ? C.blue : C.gray400 }}>
-                            {getKevSortDirectionIndicator(column.key, kevTableSort)}
-                          </span>
-                        </div>
-                      </th>
-                    ))}
-                  </tr></thead>
-                  <tbody>{sortedKevRows.map(v => {
-                    const semantic = getSemanticSummary(v);
-                    const displayContextTags = getDisplayContextTags({
-                      contextTags: semantic.contextTags,
-                      riskSignals: v.riskSignals,
-                      tags: v.tags,
-                    });
-                    const modifiedAt = v.lastModifiedAt ? new Date(v.lastModifiedAt) : null;
-                    const publishedAt = v.publishedAt ? new Date(v.publishedAt) : null;
-                    const hasUpdate = !!(modifiedAt && publishedAt && modifiedAt.getTime() > publishedAt.getTime());
-                    const trend = String(v.updateTrend || "").toLowerCase();
-                    const isUp = hasUpdate && trend === "up";
-                    const arrow = hasUpdate ? (isUp ? "▲" : "▼") : "＝";
-                    const arrowColor = hasUpdate ? (isUp ? C.critical : C.low) : C.gray400;
-                    return (
-                      <tr key={v.cveId} className="rh" onClick={() => openVulnerabilityDetail(v, { sourceView: "exploited" })} style={{ cursor: "pointer", ...getRowPriorityStyle(v), transition: "background 0.1s" }}>
-                        <td style={{ padding: "10px 12px" }}>
-                          <div style={{ fontWeight: 700, fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>{v.cveId}</div>
-                          <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
-                            <SevBadge s={v.cvssV31Severity} small />
-                            {v.isKnownExploited && <SoftBadge label="KEV" bg={C.criticalBg} color={C.critical} border="#FCA5A5" small />}
-                            {v.hasPublicExploit && <SoftBadge label="Exploit" bg={C.highBg} color={C.high} border="#FDBA74" small />}
-                          </div>
-                        </td>
-                        <td style={{ padding: "10px 12px" }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                            <RiskTierBadge tier={v.operationalRiskTier} small />
-                            <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: isUrgentRisk(v.operationalRiskTier) ? C.critical : C.text }}>
-                              Score {fmtRiskScore(v.operationalRiskScore)}
+              <Card
+                title="KEV Confirmadas — Acción Inmediata"
+                icon="zap"
+                noPad
+                style={{ marginTop: 16 }}
+                action={
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 10, color: C.gray500 }}>
+                      Sincronización CISA KEV: {dash?.cisaKevSync?.lastSync ? fmtDate(dash.cisaKevSync.lastSync) : "Sin sincronizar"}
+                    </span>
+                    <span onClick={() => setView("exploited")} style={{ fontSize: 11, color: C.blue, cursor: "pointer", fontWeight: 600 }}>Ver todas →</span>
+                  </div>
+                }
+              >
+                {sortedKevRows.length === 0 ? (
+                  <div style={{ padding: "36px 20px", textAlign: "center", background: C.gray50 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 6 }}>
+                      {dash?.cisaKevSync?.status === "never_synced"
+                        ? "No hay datos CISA KEV sincronizados todavía en la base local"
+                        : dash?.cisaKevSync?.status === "error"
+                          ? `Error en la sincronización CISA KEV: ${dash.cisaKevSync.errorMessage || "Fallo de conexión"}`
+                          : "No hay vulnerabilidades KEV en el conjunto actual"}
+                    </div>
+                    <div style={{ fontSize: 11, color: C.gray500, marginBottom: 16, maxWidth: 480, margin: "0 auto 16px" }}>
+                      Última sincronización: {dash?.cisaKevSync?.lastSync ? fmtDate(dash.cisaKevSync.lastSync) : "Nunca"} • Estado: {dash?.cisaKevSync?.status || "pendiente"}
+                    </div>
+                    <Btn primary onClick={() => setView("collector")} style={{ margin: "0 auto" }}>
+                      <I name="server" size={13} color="#fff" /> Ir al Collector para sincronizar fuentes
+                    </Btn>
+                  </div>
+                ) : (
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead><tr style={{ background: C.gray50 }}>
+                      {[
+                        { key: "cve", label: "CVE" },
+                        { key: "risk", label: "Riesgo" },
+                        { key: "cvss", label: "CVSS" },
+                        { key: "epss", label: "EPSS" },
+                        { key: "exploitation", label: "Explotación" },
+                        { key: "product", label: "Producto" },
+                        { key: "status", label: "Estado" },
+                        { key: "published", label: "Publicada" },
+                        { key: "updated", label: "Actualizada" },
+                      ].map((column) => (
+                        <th
+                          key={column.key}
+                          onClick={() => toggleKevTableSort(column.key)}
+                          style={{
+                            padding: 0,
+                            textAlign: "left",
+                            fontSize: 10,
+                            borderBottom: `1px solid ${C.gray200}`,
+                            whiteSpace: "nowrap",
+                            cursor: "pointer",
+                            userSelect: "none",
+                          }}
+                        >
+                          <div style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 8,
+                            padding: "9px 12px",
+                            fontWeight: 700,
+                            color: kevTableSort.key === column.key && kevTableSort.direction !== "default" ? C.navy : C.gray500,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.7px",
+                          }}>
+                            <span>{column.label}</span>
+                            <span style={{ fontSize: 10, color: kevTableSort.key === column.key && kevTableSort.direction !== "default" ? C.blue : C.gray400 }}>
+                              {getKevSortDirectionIndicator(column.key, kevTableSort)}
                             </span>
                           </div>
-                        </td>
-                        <td style={{ padding: "10px 12px" }}>
-                          <div style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700 }}>{fmtScore(v.cvssV31Score)}</div>
-                          <div style={{ fontSize: 10, color: C.gray500 }}>{v.cvssV31Severity || "N/A"}</div>
-                        </td>
-                        <td style={{ padding: "10px 12px", fontFamily: "monospace", fontSize: 11, color: (v.epssScore || 0) > 0.1 ? C.high : C.text }}>{fmtEpss(v.epssScore)}</td>
-                        <td style={{ padding: "10px 12px" }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                            <ExploitStatusBadge status={v.exploitStatus} small />
-                            <span style={{ fontSize: 10, color: C.gray500 }}>
-                              {v.exploitConfidence != null ? `${Math.round(v.exploitConfidence * 100)}% confianza` : "Sin confianza"}
-                            </span>
-                          </div>
-                        </td>
-                        <td style={{ padding: "10px 12px" }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: semantic.hasReliablePrimaryEntity ? C.text : C.gray600 }}>{semantic.displayTitle}</div>
-                          <div style={{ fontSize: 10, color: C.gray500 }}>{semantic.displaySubtitle}</div>
-                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
-                            <ComponentTypeBadge type={semantic.componentType} small />
-                            {displayContextTags.slice(0, 2).map((tag) => <ContextTagPill key={tag} tag={tag} small />)}
-                          </div>
-                        </td>
-                        <td style={{ padding: "10px 12px" }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                            <RecordStatusBadge status={v.recordStatus} small />
-                            <span style={{ fontSize: 10, color: hasUnknownPatch(v) ? C.high : C.gray500, fontWeight: hasUnknownPatch(v) ? 700 : 500 }}>
-                              {v.patchAvailable === true ? "Parche disponible" : "Parche no confirmado"}
-                            </span>
-                          </div>
-                        </td>
-                        <td style={{ padding: "10px 12px", fontSize: 10, color: C.gray500, fontFamily: "monospace" }}>{fmtDate(v.publishedAt).split(",")[0]}</td>
-                        <td style={{ padding: "10px 12px", fontSize: 10, color: C.gray500, fontFamily: "monospace", whiteSpace: "nowrap" }}>
-                          <span style={{ color: arrowColor, fontWeight: 900, marginRight: 6 }}>{arrow}</span>
-                          {hasUpdate ? fmtDate(v.lastModifiedAt).split(",")[0] : ""}
-                        </td>
-                      </tr>
-                    );
-                  })}</tbody>
-                </table>
+                        </th>
+                      ))}
+                    </tr></thead>
+                    <tbody>{sortedKevRows.map(v => {
+                      const semantic = getSemanticSummary(v);
+                      const displayContextTags = getDisplayContextTags({
+                        contextTags: semantic.contextTags,
+                        riskSignals: v.riskSignals,
+                        tags: v.tags,
+                      });
+                      const modifiedAt = v.lastModifiedAt ? new Date(v.lastModifiedAt) : null;
+                      const publishedAt = v.publishedAt ? new Date(v.publishedAt) : null;
+                      const hasUpdate = !!(modifiedAt && publishedAt && modifiedAt.getTime() > publishedAt.getTime());
+                      const trend = String(v.updateTrend || "").toLowerCase();
+                      const isUp = hasUpdate && trend === "up";
+                      const arrow = hasUpdate ? (isUp ? "▲" : "▼") : "＝";
+                      const arrowColor = hasUpdate ? (isUp ? C.critical : C.low) : C.gray400;
+                      return (
+                        <tr key={v.cveId} className="rh" onClick={() => openVulnerabilityDetail(v, { sourceView: "exploited" })} style={{ cursor: "pointer", ...getRowPriorityStyle(v), transition: "background 0.1s" }}>
+                          <td style={{ padding: "10px 12px" }}>
+                            <div style={{ fontWeight: 700, fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>{v.cveId}</div>
+                            <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                              <SevBadge s={v.cvssV31Severity} small />
+                              {v.isKnownExploited && <SoftBadge label="KEV" bg={C.criticalBg} color={C.critical} border="#FCA5A5" small />}
+                              {v.hasPublicExploit && <SoftBadge label="Exploit" bg={C.highBg} color={C.high} border="#FDBA74" small />}
+                            </div>
+                          </td>
+                          <td style={{ padding: "10px 12px" }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                              <RiskTierBadge tier={v.operationalRiskTier} small />
+                              <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: isUrgentRisk(v.operationalRiskTier) ? C.critical : C.text }}>
+                                Score {fmtRiskScore(v.operationalRiskScore)}
+                              </span>
+                            </div>
+                          </td>
+                          <td style={{ padding: "10px 12px" }}>
+                            <div style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700 }}>{fmtScore(v.cvssV31Score)}</div>
+                            <div style={{ fontSize: 10, color: C.gray500 }}>{v.cvssV31Severity || "N/A"}</div>
+                          </td>
+                          <td style={{ padding: "10px 12px", fontFamily: "monospace", fontSize: 11, color: (v.epssScore || 0) > 0.1 ? C.high : C.text }}>{fmtEpss(v.epssScore)}</td>
+                          <td style={{ padding: "10px 12px" }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                              <ExploitStatusBadge status={v.exploitStatus} small />
+                              <span style={{ fontSize: 10, color: C.gray500 }}>
+                                {v.exploitConfidence != null ? `${Math.round(v.exploitConfidence * 100)}% confianza` : "Sin confianza"}
+                              </span>
+                            </div>
+                          </td>
+                          <td style={{ padding: "10px 12px" }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: semantic.hasReliablePrimaryEntity ? C.text : C.gray600 }}>{semantic.displayTitle}</div>
+                            <div style={{ fontSize: 10, color: C.gray500 }}>{semantic.displaySubtitle}</div>
+                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+                              <ComponentTypeBadge type={semantic.componentType} small />
+                              {displayContextTags.slice(0, 2).map((tag) => <ContextTagPill key={tag} tag={tag} small />)}
+                            </div>
+                          </td>
+                          <td style={{ padding: "10px 12px" }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                              <RecordStatusBadge status={v.recordStatus} small />
+                              <span style={{ fontSize: 10, color: hasUnknownPatch(v) ? C.high : C.gray500, fontWeight: hasUnknownPatch(v) ? 700 : 500 }}>
+                                {v.patchAvailable === true ? "Parche disponible" : "Parche no confirmado"}
+                              </span>
+                            </div>
+                          </td>
+                          <td style={{ padding: "10px 12px", fontSize: 10, color: C.gray500, fontFamily: "monospace" }}>{fmtDate(v.publishedAt).split(",")[0]}</td>
+                          <td style={{ padding: "10px 12px", fontSize: 10, color: C.gray500, fontFamily: "monospace", whiteSpace: "nowrap" }}>
+                            <span style={{ color: arrowColor, fontWeight: 900, marginRight: 6 }}>{arrow}</span>
+                            {hasUpdate ? fmtDate(v.lastModifiedAt).split(",")[0] : ""}
+                          </td>
+                        </tr>
+                      );
+                    })}</tbody>
+                  </table>
+                )}
               </Card>
             </>}
 
@@ -4679,35 +5108,132 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
             }
 
             {/* ═══ VULNERABILITY DETAIL PAGE ═══ */}
-            {view === DETAIL_VIEW && <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 18, flexWrap: "wrap" }}>
-                <div>
-                  <div style={{ fontSize: 10, color: C.gray500, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 6 }}>
-                    {detailSourceView === "exploited" ? "KEV / Explotación confirmada" : "Catálogo de vulnerabilidades"}
-                  </div>
-                  <h1 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: 0, letterSpacing: "-0.01em" }}>
-                    {detailCveId || "Detalle de vulnerabilidad"}
-                  </h1>
-                  <p style={{ color: C.gray500, fontSize: 12, margin: "4px 0 0" }}>
-                    Página dedicada de detalle, con referencias normalizadas y navegación contextual.
-                  </p>
-                </div>
-                <Btn onClick={closeVulnerabilityDetail}>Volver al listado</Btn>
-              </div>
-              {renderVulnerabilityDetailPage()}
-            </>}
+            {view === DETAIL_VIEW && renderVulnerabilityDetailPage()}
 
             {/* ═══ EXPLOITED ═══ */}
             {view === "exploited" && <>
-              <PageHeader title="KEV / Explotación Confirmada" />
-              <div style={{ background: C.critical, color: "#fff", borderRadius: 8, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
-                <I name="alert" size={20} color="#fff" />
-                <div><div style={{ fontWeight: 700, fontSize: 13 }}>{kevListRows.length} vulnerabilidades con explotación confirmada</div><div style={{ fontSize: 11, opacity: 0.85 }}>Casos priorizados por KEV, riesgo operacional y evidencia de exploit</div></div>
+              <PageHeader
+                title="KEV / Explotación Confirmada"
+                subtitle="Semántica explícita: CISA KEV (explotación activa documentada por CISA), Exploit Público (código/PoC en ExploitDB o referencias técnicas) y Explotación Confirmada (unión integral de ambas fuentes)."
+                actions={
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                    {[
+                      { key: "confirmed", label: `Unión Integral (${dash?.confirmedExploitedTotal ?? "..."})` },
+                      { key: "kev", label: `Solo CISA KEV (${dash?.kevConfirmedTotal ?? "..."})` },
+                      { key: "public", label: `Solo Exploit Público (${dash?.publicExploitTotal ?? "..."})` },
+                    ].map(tab => (
+                      <button
+                        key={tab.key}
+                        onClick={() => {
+                          setExploitFilterTab(tab.key);
+                          const params = new URLSearchParams();
+                          params.set("limit", "100");
+                          params.set("exploited", "true");
+                          if (tab.key !== "confirmed") {
+                            params.set("exploitType", tab.key === "kev" ? "kev" : "public_exploit");
+                          }
+                          setExploitedLoading(true);
+                          setExploitedError(null);
+                          apiFetch(`/vulnerabilities?${params.toString()}`)
+                            .then(r => {
+                              if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                              return r.json();
+                            })
+                            .then(d => {
+                              setVulns(d.data || []);
+                              setVulnsTotal(d.total || 0);
+                            })
+                            .catch(err => setExploitedError(err.message || "Error al filtrar"))
+                            .finally(() => setExploitedLoading(false));
+                        }}
+                        style={{
+                          padding: "6px 12px",
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          border: exploitFilterTab === tab.key ? "none" : `1px solid ${C.gray300}`,
+                          background: exploitFilterTab === tab.key ? C.navy : "#fff",
+                          color: exploitFilterTab === tab.key ? "#fff" : C.gray600,
+                          transition: "all 0.12s",
+                        }}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                    <Btn onClick={() => loadData("exploited")} disabled={exploitedLoading} small>
+                      <I name="refresh" size={12} />
+                    </Btn>
+                  </div>
+                }
+              />
+
+              {exploitedLoading && (
+                <div style={{ padding: "30px 20px", textAlign: "center", background: "#fff", borderRadius: 8, border: `1px solid ${C.gray200}`, marginBottom: 16 }}>
+                  <span style={{ animation: "spin 1s linear infinite", display: "inline-block", fontSize: 20, marginBottom: 8 }}>⟳</span>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>Cargando catálogo de explotación...</div>
+                </div>
+              )}
+
+              {exploitedError && (
+                <div style={{ padding: "14px 18px", background: C.criticalBg, border: `1px solid #fca5a5`, borderRadius: 8, marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <I name="alert" size={20} color={C.critical} />
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: C.critical }}>Error al cargar vulnerabilidades</div>
+                      <div style={{ fontSize: 11, color: C.gray600 }}>{exploitedError}</div>
+                    </div>
+                  </div>
+                  <Btn primary small onClick={() => loadData("exploited")} style={{ background: C.critical }}>
+                    Reintentar
+                  </Btn>
+                </div>
+              )}
+
+              <div style={{
+                background: exploitFilterTab === "kev" ? "#991B1B" : exploitFilterTab === "public" ? "#C2410C" : C.critical,
+                color: "#fff",
+                borderRadius: 8,
+                padding: "14px 18px",
+                marginBottom: 16,
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                transition: "background 0.2s ease"
+              }}>
+                <I name="alert" size={22} color="#fff" />
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>
+                    {kevListRows.length} vulnerabilidades encontradas ({exploitFilterTab === "kev" ? "Solo CISA KEV" : exploitFilterTab === "public" ? "Solo Exploit Público" : "Unión Integral KEV + Exploit"})
+                  </div>
+                  <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>
+                    {exploitFilterTab === "kev"
+                      ? "Filtrando exclusivamente por inclusión oficial en el catálogo de vulnerabilidades explotadas de CISA (isKnownExploited=true)."
+                      : exploitFilterTab === "public"
+                        ? "Filtrando exclusivamente por existencia de código exploit público o PoC verificado en ExploitDB/referencias (hasPublicExploit=true)."
+                        : "Unión integral: vulnerabilidades con explotación confirmada en CISA KEV, código exploit público o estado de explotación activo/PoC."}
+                  </div>
+                </div>
               </div>
+
+              {kevListRows.length === 0 && !exploitedLoading && !exploitedError && (
+                <div style={{ padding: "40px 20px", textAlign: "center", background: "#fff", borderRadius: 8, border: `1px solid ${C.gray200}` }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 6 }}>
+                    No se encontraron vulnerabilidades en esta vista
+                  </div>
+                  <div style={{ fontSize: 12, color: C.gray500, marginBottom: 14 }}>
+                    No hay registros que coincidan con el filtro activo ({exploitFilterTab}). Puedes cambiar el filtro o sincronizar las fuentes en el Collector.
+                  </div>
+                  <Btn primary onClick={() => setView("collector")}>
+                    Ir al Collector
+                  </Btn>
+                </div>
+              )}
+
               {kevListRows.map(v => {
                 const aff = getAffectedContacts(v);
                 return (
-                  <Card key={v.cveId} style={{ marginBottom: 10, borderLeft: `4px solid ${C.critical}` }}>
+                  <Card key={v.cveId} style={{ marginBottom: 10, borderLeft: `4px solid ${v.isKnownExploited ? C.critical : C.high}` }}>
                     <div
                       onClick={() => openVulnerabilityDetail(v, { sourceView: "exploited" })}
                       style={{ cursor: "pointer" }}
@@ -4715,10 +5241,31 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <span style={{ fontSize: 16, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace" }}>{v.cveId}</span>
-                          <SevBadge s={v.cvssV31Severity} /><span style={{ fontFamily: "monospace", fontWeight: 800, fontSize: 14 }}>{fmtScore(v.cvssV31Score)}</span>
+                          <SevBadge s={v.cvssV31Severity} />
+                          <span style={{ fontFamily: "monospace", fontWeight: 800, fontSize: 14 }}>{fmtScore(v.cvssV31Score)}</span>
                         </div>
-                        <span style={{ fontSize: 10, color: C.gray500 }}>EPSS {fmtEpss(v.epssScore)}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 10, color: C.gray500 }}>EPSS {fmtEpss(v.epssScore)}</span>
+                          <RiskTierBadge tier={v.operationalRiskTier} small />
+                        </div>
                       </div>
+
+                      {/* Evidence Badges */}
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+                        {v.isKnownExploited && (
+                          <SoftBadge label="CISA KEV Confirmado" bg={C.criticalBg} color={C.critical} border="#FCA5A5" small />
+                        )}
+                        {v.hasPublicExploit && (
+                          <SoftBadge label="Exploit Público (ExploitDB/PoC)" bg={C.highBg} color={C.high} border="#FDBA74" small />
+                        )}
+                        <ExploitStatusBadge status={v.exploitStatus} small />
+                        {Array.isArray(v.evidenceTypes) && v.evidenceTypes.map((ev) => (
+                          <span key={ev} style={{ fontSize: 9, padding: "2px 6px", background: C.gray100, borderRadius: 4, color: C.gray600, fontWeight: 600 }}>
+                            {ev === "cisa_kev" ? "Fuente: CISA KEV" : ev === "public_exploit" ? "Fuente: ExploitDB" : `Evidencia: ${ev}`}
+                          </span>
+                        ))}
+                      </div>
+
                       <p style={{ color: C.gray600, fontSize: 11, lineHeight: 1.5, marginBottom: 10 }}>{v.description}</p>
                       <div style={{ marginBottom: 8 }}>
                         <SemanticCompactAffected vuln={v} contextLimit={2} />

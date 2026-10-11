@@ -8,5 +8,7 @@ storage/cache/*
 .git
 .env
 .env.prod
+.env.*
+migration-dry-run-report.json
 *.tar.gz
 *.log
