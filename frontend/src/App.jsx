@@ -1232,6 +1232,9 @@ export default function VulnDashboard() {
   const [backfillBusy, setBackfillBusy] = useState(false);
   const [backfillStatus, setBackfillStatus] = useState(null);
   const [backfillMsg, setBackfillMsg] = useState(null);
+  const [enrichmentBusy, setEnrichmentBusy] = useState(false);
+  const [enrichmentStatus, setEnrichmentStatus] = useState(null);
+  const [enrichmentMsg, setEnrichmentMsg] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [reportResult, setReportResult] = useState(null);
   const [reportHours, setReportHours] = useState("24");
@@ -1345,6 +1348,18 @@ export default function VulnDashboard() {
     }, 6000);
     return () => clearInterval(t);
   }, [view, backfillJobId, backfillStatus?.job?.status]);
+
+  useEffect(() => {
+    if (!enrichmentStatus?.isRunning) return undefined;
+    const t = setInterval(() => {
+      refreshEnrichmentStatus().then((data) => {
+        if (data && !data.isRunning) {
+          loadData("overview");
+        }
+      });
+    }, 3500);
+    return () => clearInterval(t);
+  }, [enrichmentStatus?.isRunning, refreshEnrichmentStatus, loadData]);
 
   // Login handler
   const handleLogin = async (e) => {
@@ -1841,6 +1856,10 @@ export default function VulnDashboard() {
             setBackfillStatus(null);
           }
         }
+        try {
+          const enrichR = await apiFetch("/vulnerability-collector/enrichment/status");
+          if (enrichR.ok) setEnrichmentStatus(await enrichR.json());
+        } catch {}
       } else if (v === "manufacturers") {
         setManufacturersLoading(true);
         const [operationalR, allR, metaR] = await Promise.all([
@@ -3374,6 +3393,84 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     setBackfillBusy(false);
   };
 
+  const refreshEnrichmentStatus = useCallback(async () => {
+    try {
+      const res = await apiFetch("/vulnerability-collector/enrichment/status");
+      if (res.ok) {
+        const data = await res.json();
+        setEnrichmentStatus(data);
+        return data;
+      }
+    } catch (e) {
+      console.warn("No se pudo obtener estado de enriquecimiento:", e.message);
+    }
+    return null;
+  }, []);
+
+  const resumeEnrichment = async (fromId) => {
+    setEnrichmentBusy(true);
+    setEnrichmentMsg(null);
+    try {
+      const body = { batchSize: 250 };
+      if (fromId != null && Number(fromId) > 0) body.fromId = Number(fromId);
+      const res = await apiFetch("/vulnerability-collector/enrichment/resume", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Error al reanudar enriquecimiento");
+      setEnrichmentStatus(data.status);
+      setEnrichmentMsg({ type: "success", text: data.message || "Enriquecimiento reanudado en segundo plano" });
+      await refreshEnrichmentStatus();
+      await loadData("overview");
+    } catch (e) {
+      setEnrichmentMsg({ type: "error", text: e.message || "Error al reanudar enriquecimiento" });
+    } finally {
+      setEnrichmentBusy(false);
+    }
+  };
+
+  const forceEnrichment = async (resetAll = false) => {
+    const confirmText = resetAll
+      ? "¿Estás seguro de forzar el enriquecimiento para TODO el catálogo? Esto reiniciará el estado de las 404.000 vulnerabilidades a pendientes."
+      : "¿Forzar re-evaluación del catálogo? Se reactivarán los CVEs no resueltos o con errores y se procesará desde el ID 0.";
+    if (!window.confirm(confirmText)) return;
+
+    setEnrichmentBusy(true);
+    setEnrichmentMsg(null);
+    try {
+      const res = await apiFetch("/vulnerability-collector/enrichment/force", {
+        method: "POST",
+        body: JSON.stringify({ resetAll, batchSize: 250, fromId: 0 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Error al forzar enriquecimiento");
+      setEnrichmentStatus(data.status);
+      setEnrichmentMsg({ type: "success", text: data.message || "Enriquecimiento forzado iniciado en segundo plano" });
+      await refreshEnrichmentStatus();
+      await loadData("overview");
+    } catch (e) {
+      setEnrichmentMsg({ type: "error", text: e.message || "Error al forzar enriquecimiento" });
+    } finally {
+      setEnrichmentBusy(false);
+    }
+  };
+
+  const stopEnrichment = async () => {
+    setEnrichmentBusy(true);
+    try {
+      const res = await apiFetch("/vulnerability-collector/enrichment/stop", { method: "POST" });
+      const data = await res.json();
+      setEnrichmentStatus(data.status);
+      setEnrichmentMsg({ type: "success", text: data.message || "Detención solicitada" });
+      await refreshEnrichmentStatus();
+    } catch (e) {
+      setEnrichmentMsg({ type: "error", text: e.message || "Error al detener enriquecimiento" });
+    } finally {
+      setEnrichmentBusy(false);
+    }
+  };
+
   const handleReport = async () => {
     setGenerating(true); setReportResult(null);
     try {
@@ -4284,18 +4381,47 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 </div>
               )}
 
-              {Boolean(dash?.pendingEnrichmentCount && dash.pendingEnrichmentCount > 0) && (
-                <div style={{ padding: "12px 16px", background: "#fefce8", border: `1px solid #fef08a`, borderRadius: 8, marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              {Boolean((dash?.pendingEnrichmentCount && dash.pendingEnrichmentCount > 0) || enrichmentStatus?.isRunning) && (
+                <div style={{ padding: "12px 16px", background: "#fefce8", border: `1px solid #fef08a`, borderRadius: 8, marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span style={{ fontSize: 16 }}>⚠️</span>
                     <div>
                       <span style={{ fontWeight: 700, fontSize: 12, color: "#854d0e" }}>Enriquecimiento histórico pendiente: </span>
                       <span style={{ fontSize: 12, color: "#a16207" }}>
-                        {dash.pendingEnrichmentCount.toLocaleString()} CVEs pendientes de catalogación en la base de datos ({Math.round(((dash.totalAll - dash.pendingEnrichmentCount) / (dash.totalAll || 1)) * 100)}% enriquecidas).
+                        {Number(enrichmentStatus?.pendingCount ?? dash.pendingEnrichmentCount ?? 0).toLocaleString()} CVEs pendientes de catalogación en la base de datos ({Math.round(((dash.totalAll - (enrichmentStatus?.pendingCount ?? dash.pendingEnrichmentCount ?? 0)) / (dash.totalAll || 1)) * 100)}% enriquecidas).
                       </span>
+                      {enrichmentStatus?.isRunning && (
+                        <div style={{ fontSize: 11, color: C.blue, fontWeight: 700, marginTop: 2 }}>
+                          ● Ejecutándose en segundo plano ({enrichmentStatus.ratePerSecond} CVE/s · Lote actual: {enrichmentStatus.currentId})
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <span style={{ fontSize: 11, color: "#854d0e", fontWeight: 600 }}>Proceso reanudable</span>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <Btn
+                      small
+                      primary
+                      onClick={() => resumeEnrichment()}
+                      disabled={enrichmentBusy || enrichmentStatus?.isRunning}
+                      style={{ background: "#2563EB" }}
+                    >
+                      {enrichmentStatus?.isRunning ? (
+                        <><span style={{ animation: "spin 1s linear infinite", display: "inline-block", marginRight: 4 }}>⟳</span> Enriqueciendo...</>
+                      ) : (
+                        "Reanudar Enriquecimiento"
+                      )}
+                    </Btn>
+                    <Btn
+                      small
+                      onClick={() => forceEnrichment(false)}
+                      disabled={enrichmentBusy || enrichmentStatus?.isRunning}
+                    >
+                      Forzar Enriquecimiento
+                    </Btn>
+                    <Btn small onClick={() => setView("collector")} style={{ border: `1px solid ${C.gray300}` }}>
+                      Panel Collector →
+                    </Btn>
+                  </div>
                 </div>
               )}
 
@@ -7142,6 +7268,115 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                       {i < a.length - 1 && <span style={{ color: C.gray300, padding: "0 3px", fontSize: 14 }}>→</span>}
                     </div>
                   ))}
+                </div>
+              </Card>
+
+              <Card
+                title="Enriquecimiento Histórico de Catálogo (Fabricantes, Productos y CPE)"
+                icon="server"
+                style={{ marginBottom: 16 }}
+                action={(
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <Btn small onClick={() => refreshEnrichmentStatus()} disabled={enrichmentBusy}>
+                      <I name="refresh" size={12} /> Actualizar Estado
+                    </Btn>
+                    {enrichmentStatus?.isRunning && (
+                      <Btn small onClick={stopEnrichment} disabled={enrichmentBusy} style={{ background: C.critical, color: "#fff" }}>
+                        <I name="x" size={12} color="#fff" /> Detener Proceso
+                      </Btn>
+                    )}
+                  </div>
+                )}
+              >
+                <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
+                  <Btn
+                    primary
+                    onClick={() => resumeEnrichment()}
+                    disabled={enrichmentBusy || enrichmentStatus?.isRunning}
+                    style={{ background: "#2563EB", padding: "10px 18px", fontSize: 13, fontWeight: 700 }}
+                  >
+                    {enrichmentStatus?.isRunning ? (
+                      <><span style={{ animation: "spin 1s linear infinite", display: "inline-block", marginRight: 6 }}>⟳</span> Enriqueciendo en segundo plano...</>
+                    ) : (
+                      <><I name="refresh" size={14} color="#fff" /> Reanudar Enriquecimiento</>
+                    )}
+                  </Btn>
+                  <Btn
+                    onClick={() => forceEnrichment(false)}
+                    disabled={enrichmentBusy || enrichmentStatus?.isRunning}
+                    style={{ padding: "10px 16px", fontSize: 13, fontWeight: 600, border: `1px solid ${C.gray300}` }}
+                  >
+                    ⚡ Forzar Enriquecimiento (desde ID 0)
+                  </Btn>
+                  <Btn
+                    onClick={() => forceEnrichment(true)}
+                    disabled={enrichmentBusy || enrichmentStatus?.isRunning}
+                    style={{ padding: "10px 16px", fontSize: 13, fontWeight: 600, border: `1px solid #FCA5A5`, color: C.critical }}
+                  >
+                    ⚠️ Forzar Todo el Catálogo (Reset 404k)
+                  </Btn>
+                </div>
+
+                {enrichmentMsg && (
+                  <div style={{
+                    marginBottom: 12,
+                    padding: "8px 12px",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    background: enrichmentMsg.type === "error" ? C.criticalBg : C.lowBg,
+                    color: enrichmentMsg.type === "error" ? C.critical : C.low,
+                    border: `1px solid ${enrichmentMsg.type === "error" ? "#fecaca" : "#bbf7d0"}`,
+                  }}>
+                    {enrichmentMsg.text}
+                  </div>
+                )}
+
+                <div style={{ border: `1px solid ${C.gray200}`, borderRadius: 8, overflow: "hidden", background: "#fff" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 0 }}>
+                    <div style={{ padding: "10px 12px", borderRight: `1px solid ${C.gray100}` }}>
+                      <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Estado</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: enrichmentStatus?.isRunning ? C.blue : (enrichmentStatus?.status === "completed" ? C.low : C.text) }}>
+                        {enrichmentStatus?.isRunning ? "● EN EJECUCIÓN" : (enrichmentStatus?.status?.toUpperCase() || "INACTIVO")}
+                      </div>
+                      <div style={{ fontSize: 10, color: C.gray400 }}>{enrichmentStatus?.mode ? `Modo: ${enrichmentStatus.mode}` : "Listo"}</div>
+                    </div>
+                    <div style={{ padding: "10px 12px", borderRight: `1px solid ${C.gray100}` }}>
+                      <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Pendientes DB</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.high, fontFamily: "monospace" }}>
+                        {Number(enrichmentStatus?.pendingCount ?? dash?.pendingEnrichmentCount ?? 0).toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: 10, color: C.gray400 }}>needs_enrichment=1</div>
+                    </div>
+                    <div style={{ padding: "10px 12px", borderRight: `1px solid ${C.gray100}` }}>
+                      <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Enriquecidos Lote</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.low, fontFamily: "monospace" }}>
+                        {Number(enrichmentStatus?.enrichedCount ?? 0).toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: 10, color: C.gray400 }}>{enrichmentStatus?.rejectedCount ? `${enrichmentStatus.rejectedCount} rech. MITRE` : "Catálogo actualizado"}</div>
+                    </div>
+                    <div style={{ padding: "10px 12px", borderRight: `1px solid ${C.gray100}` }}>
+                      <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Velocidad</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, fontFamily: "monospace" }}>
+                        {enrichmentStatus?.ratePerSecond ? `${enrichmentStatus.ratePerSecond} CVE/s` : "-"}
+                      </div>
+                      <div style={{ fontSize: 10, color: C.gray400 }}>Rendimiento real</div>
+                    </div>
+                    <div style={{ padding: "10px 12px", borderRight: `1px solid ${C.gray100}` }}>
+                      <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Último ID</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, fontFamily: "monospace" }}>
+                        {enrichmentStatus?.currentId || "-"}
+                      </div>
+                      <div style={{ fontSize: 10, color: C.gray400 }}>Checkpoint confirmado</div>
+                    </div>
+                    <div style={{ padding: "10px 12px" }}>
+                      <div style={{ fontSize: 10, color: C.gray500, textTransform: "uppercase", fontWeight: 700 }}>Progreso Estimado</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.blue, fontFamily: "monospace" }}>
+                        {Math.round(((Number(dash?.totalAll || 404000) - Number(enrichmentStatus?.pendingCount ?? dash?.pendingEnrichmentCount ?? 0)) / (Number(dash?.totalAll) || 1)) * 100)}%
+                      </div>
+                      <div style={{ fontSize: 10, color: C.gray400 }}>del catálogo total</div>
+                    </div>
+                  </div>
                 </div>
               </Card>
 
