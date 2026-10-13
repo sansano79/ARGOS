@@ -1258,6 +1258,8 @@ export default function VulnDashboard() {
   const [aiModels, setAiModels] = useState([]);
   const [aiConfigLoading, setAiConfigLoading] = useState(false);
   const [aiConfigSaving, setAiConfigSaving] = useState(false);
+  const [aiTest, setAiTest] = useState(null);
+  const [aiTesting, setAiTesting] = useState(false);
   const [smtpMsg, setSmtpMsg] = useState(null);
 
   // Tags CRUD (consolidated)
@@ -2122,15 +2124,28 @@ export default function VulnDashboard() {
     }
   };
 
-  const refreshAiModels = async () => {
+  const testAiConnection = async () => {
+    setAiTesting(true);
+    setAiTest(null);
     try {
-      const modelsRes = await apiFetch("/ai/models");
-      const modelsData = await modelsRes.json();
-      setAiModels(Array.isArray(modelsData?.models) ? modelsData.models : []);
-    } catch {
-      setAiModels([]);
+      const res = await apiFetch("/ai/test", {
+        method: "POST",
+        body: JSON.stringify({ baseUrl: aiConfig.baseUrl || "", model: aiConfig.model || "" }),
+      });
+      if (!res.ok) throw new Error("No se pudo probar la conexión");
+      const data = await res.json();
+      setAiModels(Array.isArray(data?.models) ? data.models : []);
+      setAiTest(data.ok
+        ? { type: "success", text: `Conexión correcta con ${data.baseUrl} (${(data.models || []).length} modelos)` }
+        : { type: "error", text: data.error || "Conexión fallida" });
+    } catch (e) {
+      setAiTest({ type: "error", text: e.message || "Error probando conexión" });
+    } finally {
+      setAiTesting(false);
     }
   };
+
+  const refreshAiModels = testAiConnection;
 
   const handleSaveSmtp = async () => {
     setSmtpSaving(true);
@@ -7000,15 +7015,20 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                           placeholder={`Ej: ${DEFAULT_AI_MODEL} o sylink/sylink:8b`}
                         />
                       </div>
-                      {(aiModels || []).length === 0 && (
+                      {(aiModels || []).length === 0 && !aiTest && (
                         <div style={{ fontSize: 11, color: C.gray500, marginTop: 6 }}>
-                          No se pudieron listar modelos automáticamente. Puedes escribir el modelo manualmente en `.env` o revisar conectividad con Ollama.
+                          No se pudieron listar modelos automáticamente. Pulsa "Probar conexión" para ver el motivo.
+                        </div>
+                      )}
+                      {aiTest && (
+                        <div style={{ fontSize: 12, marginTop: 8, color: aiTest.type === "success" ? C.low : C.critical }}>
+                          {aiTest.text}
                         </div>
                       )}
                     </div>
 
                     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                      <Btn onClick={refreshAiModels}>Recargar modelos</Btn>
+                      <Btn onClick={testAiConnection} disabled={aiTesting}>{aiTesting ? "Probando..." : "Probar conexión / recargar modelos"}</Btn>
                       <Btn onClick={() => loadData("settings")}>Recargar</Btn>
                       <Btn primary onClick={saveAiConfig} disabled={aiConfigSaving}>
                         {aiConfigSaving ? "Guardando..." : "Guardar Configuración IA"}

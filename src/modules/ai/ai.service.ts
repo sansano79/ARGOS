@@ -36,6 +36,20 @@ export class AiService {
         private httpService: HttpService,
     ) { }
 
+    private normalizeBaseUrl(raw?: string | null): string {
+        let url = String(raw || '').trim();
+        if (!url) return '';
+        if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
+        return url.replace(/\/+$/, '').replace(/\/api$/i, '');
+    }
+
+    private resolveOllamaBaseUrl(configured?: string | null): string {
+        return (
+            this.normalizeBaseUrl(configured) ||
+            this.normalizeBaseUrl(this.configService.get<string>('OLLAMA_BASE_URL'))
+        );
+    }
+
     async onModuleInit() {
         await this.loadConfig();
     }
@@ -50,7 +64,7 @@ export class AiService {
             const provider = (settings.provider || 'ollama') as 'openai' | 'ollama';
             this.config = {
                 provider,
-                baseUrl: settings.baseUrl || this.configService.get<string>('OLLAMA_BASE_URL') || undefined,
+                baseUrl: this.resolveOllamaBaseUrl(settings.baseUrl) || undefined,
                 model: settings.model || this.configService.get<string>('OLLAMA_MODEL') || AiService.DEFAULT_OLLAMA_MODEL,
                 apiKey: dbConfig.apiKeyEncrypted || undefined,
             };
@@ -61,7 +75,7 @@ export class AiService {
         if (ollamaUrlFromEnv || this.configService.get<string>('OLLAMA_MODEL')) {
             this.config = {
                 provider: 'ollama',
-                baseUrl: ollamaUrlFromEnv,
+                baseUrl: this.normalizeBaseUrl(ollamaUrlFromEnv) || undefined,
                 model: this.configService.get<string>('OLLAMA_MODEL') || AiService.DEFAULT_OLLAMA_MODEL,
             };
             return;
@@ -78,15 +92,15 @@ export class AiService {
             const settings = JSON.parse(dbConfig.settings || '{}');
             return {
                 provider: (settings.provider || 'ollama') as 'openai' | 'ollama',
-                baseUrl: settings.baseUrl || '',
-                model: settings.model || AiService.DEFAULT_OLLAMA_MODEL,
+                baseUrl: this.resolveOllamaBaseUrl(settings.baseUrl),
+                model: settings.model || this.configService.get<string>('OLLAMA_MODEL') || AiService.DEFAULT_OLLAMA_MODEL,
                 source: 'db',
             };
         }
 
         return {
             provider: 'ollama',
-            baseUrl: this.configService.get<string>('OLLAMA_BASE_URL') || '',
+            baseUrl: this.normalizeBaseUrl(this.configService.get<string>('OLLAMA_BASE_URL')),
             model: this.configService.get<string>('OLLAMA_MODEL') || AiService.DEFAULT_OLLAMA_MODEL,
             source: 'env',
         };
@@ -94,7 +108,7 @@ export class AiService {
 
     async saveConfig(input: { provider?: 'openai' | 'ollama'; baseUrl?: string; model?: string }) {
         const provider = (input.provider || 'ollama') as 'openai' | 'ollama';
-        const baseUrl = String(input.baseUrl || '').trim();
+        const baseUrl = this.normalizeBaseUrl(input.baseUrl);
         const model = String(input.model || '').trim();
 
         if (provider === 'ollama') {
@@ -134,22 +148,48 @@ export class AiService {
         return this.getConfig();
     }
 
-    async listOllamaModels(): Promise<string[]> {
+    async listOllamaModels(baseUrlOverride?: string): Promise<{ models: string[]; error?: string }> {
         const cfg = await this.getConfig();
-        const baseUrl = cfg.baseUrl || this.configService.get<string>('OLLAMA_BASE_URL') || '';
-        if (!baseUrl) return [];
+        const baseUrl = this.resolveOllamaBaseUrl(baseUrlOverride || cfg.baseUrl);
+        if (!baseUrl) {
+            return { models: [], error: 'Base URL de Ollama no configurada' };
+        }
 
-        const tagsUrl = `${baseUrl}/api/tags`;
         try {
-            const response = await lastValueFrom(this.httpService.get(tagsUrl));
+            const response = await lastValueFrom(
+                this.httpService.get(`${baseUrl}/api/tags`, { timeout: 5000 }).pipe(timeout(6000)),
+            );
             const models = Array.isArray(response?.data?.models) ? response.data.models : [];
-            return models
+            const names = models
+                .filter((m: any) => {
+                    const caps = Array.isArray(m?.capabilities) ? m.capabilities : null;
+                    // Excluye modelos solo de embeddings (no sirven para chat)
+                    return !caps || caps.length === 0 || caps.some((c: string) => c !== 'embedding');
+                })
                 .map((m: any) => m?.name || m?.model)
                 .filter((m: any) => !!m)
                 .map((m: any) => String(m));
-        } catch {
-            return [];
+            return { models: names };
+        } catch (error: any) {
+            const detail = this.describeAiError(error, 5000);
+            this.logger.warn(`No se pudieron listar modelos de Ollama en ${baseUrl}: ${detail}`);
+            return { models: [], error: `No se pudo conectar con Ollama en ${baseUrl}: ${detail}` };
         }
+    }
+
+    async testConnection(input: { baseUrl?: string; model?: string }) {
+        const cfg = await this.getConfig();
+        const baseUrl = this.resolveOllamaBaseUrl(input.baseUrl || cfg.baseUrl);
+        const model = String(input.model || cfg.model || '').trim();
+        const { models, error } = await this.listOllamaModels(baseUrl);
+        if (error) return { ok: false, baseUrl, error, models };
+        const modelFound = !model || models.includes(model);
+        return {
+            ok: modelFound,
+            baseUrl,
+            models,
+            error: modelFound ? undefined : `El modelo "${model}" no está instalado en ${baseUrl}`,
+        };
     }
 
     async getVulnerabilityContextAudit(prompt = '') {
@@ -240,7 +280,12 @@ export class AiService {
     }
 
     private async chatOllama(messages: any[], config: AiConfig, timeoutMs: number) {
-        const baseUrl = config.baseUrl || 'http://localhost:11434';
+        const baseUrl = this.resolveOllamaBaseUrl(config.baseUrl);
+        if (!baseUrl) {
+            throw new InternalServerErrorException(
+                'Base URL de Ollama no configurada. Defínela en Ajustes → IA o con OLLAMA_BASE_URL.',
+            );
+        }
         const url = `${baseUrl}/api/chat`;
         let model = (config.model || '').trim();
 
@@ -251,7 +296,7 @@ export class AiService {
             );
         } catch {
             throw new InternalServerErrorException(
-                `Ollama no disponible en ${baseUrl}. Verifique que el servicio está corriendo.`,
+                `Ollama no disponible en ${baseUrl}. Verifique la URL y que el servicio es accesible desde el contenedor de la API.`,
             );
         }
 

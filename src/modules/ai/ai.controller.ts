@@ -32,7 +32,14 @@ export class AiController {
     @UseGuards(JwtAuthGuard, RolesGuard)
     @Roles('ADMIN')
     async listModels() {
-        return { models: await this.aiService.listOllamaModels() };
+        return this.aiService.listOllamaModels();
+    }
+
+    @Post('test')
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles('ADMIN')
+    async testConnection(@Body() body: any) {
+        return this.aiService.testConnection(body || {});
     }
 
     @Get('context')
