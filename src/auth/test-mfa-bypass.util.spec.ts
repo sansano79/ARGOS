@@ -25,6 +25,15 @@ describe('test-mfa-bypass util', () => {
     })).toThrow(TestMfaBypassConfigError);
   });
 
+  it('does not require allowlist when development bypass is enabled', () => {
+    expect(getTestMfaBypassStartupStatus({
+      occEnv: 'development',
+      enabled: 'true',
+      emails: '',
+      developmentEnabled: 'true',
+    })).toMatchObject({ enabled: true, allowlistCount: 0, developmentEnabled: true });
+  });
+
   it('rejects unknown or empty OCC_ENV when bypass is enabled', () => {
     expect(() => getTestMfaBypassStartupStatus({
       occEnv: '',

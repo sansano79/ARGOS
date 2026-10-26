@@ -58,7 +58,7 @@ export const getTestMfaBypassStartupStatus = (config: TestMfaBypassConfig) => {
   }
 
   const emails = parseTestMfaBypassEmails(config.emails);
-  if (emails.length === 0) {
+  if (emails.length === 0 && !developmentEnabled) {
     throw new TestMfaBypassConfigError('MFA test bypass enabled without an explicit allowlist');
   }
 
