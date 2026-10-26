@@ -45,6 +45,7 @@ TEST_DATA_SEED_ENABLED=true
 TEST_USERS_PASSWORD=ChangeMeNow123!
 MFA_TEST_BYPASS_ENABLED=false
 MFA_TEST_BYPASS_EMAILS=
+MFA_DEV_BYPASS_ENABLED=false
 ```
 
 Reglas:
@@ -106,16 +107,20 @@ El script:
 
 ## Activación del bypass MFA
 
+Para desarrollo local, se puede activar `MFA_DEV_BYPASS_ENABLED=true`. Con `OCC_ENV=development` o `OCC_ENV=test`, el login local omitirá el desafío MFA para cualquier cuenta activa con permiso de acceso. El guard de entorno hace que el arranque falle si esta opción se habilita en preproducción o producción. El bypass no cambia el estado MFA guardado en la cuenta.
+
 Ejemplo de activación temporal:
 
 ```env
 MFA_TEST_BYPASS_ENABLED=true
 MFA_TEST_BYPASS_EMAILS=test.admin@occ.local,test.manager.it@occ.local
+MFA_DEV_BYPASS_ENABLED=false
 ```
 
 Condiciones acumulativas para que el bypass aplique:
 
 - `OCC_ENV=development` o `OCC_ENV=test`
+- `MFA_DEV_BYPASS_ENABLED=false` para usar solo el bypass restringido a cuentas de test
 - `MFA_TEST_BYPASS_ENABLED=true`
 - email incluido exactamente en la allowlist
 - email prefijado por `test.`
@@ -130,6 +135,8 @@ Si se cumplen, el login local entrega token sin desafío MFA. El sistema:
 - no marca MFA como configurado;
 - no devuelve secretos TOTP;
 - registra `TEST_MFA_BYPASS_USED`.
+
+Para desactivar el bypass general de desarrollo, configurar `MFA_DEV_BYPASS_ENABLED=false` y reiniciar la aplicación.
 
 ## Desactivación inmediata
 

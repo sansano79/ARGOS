@@ -4,6 +4,7 @@ type TestMfaBypassConfig = {
   occEnv?: string;
   enabled?: string;
   emails?: string;
+  developmentEnabled?: string;
 };
 
 const normalizeEmail = (value: string | undefined | null) => String(value || '').trim().toLowerCase();
@@ -36,10 +37,19 @@ export const parseTestMfaBypassEmails = (raw: string | undefined | null): string
 };
 
 export const getTestMfaBypassStartupStatus = (config: TestMfaBypassConfig) => {
+  const developmentEnabled = String(config.developmentEnabled || '').trim().toLowerCase() === 'true';
+  if (developmentEnabled) {
+    try {
+      assertOccEnvAllowsTestCapabilities(config.occEnv);
+    } catch (error) {
+      throw new TestMfaBypassConfigError(error instanceof Error ? error.message : 'Invalid OCC_ENV for development MFA bypass');
+    }
+  }
   const enabled = String(config.enabled || '').trim().toLowerCase() === 'true';
 
   if (!enabled) {
-    return { enabled: false, allowlistCount: 0 };
+    if (!developmentEnabled) return { enabled: false, allowlistCount: 0 };
+    return { enabled: true, allowlistCount: 0, developmentEnabled: true };
   }
   try {
     assertOccEnvAllowsTestCapabilities(config.occEnv);
@@ -56,6 +66,7 @@ export const getTestMfaBypassStartupStatus = (config: TestMfaBypassConfig) => {
     enabled: true,
     allowlistCount: emails.length,
     emails,
+    developmentEnabled,
   };
 };
 
@@ -67,6 +78,7 @@ export const shouldBypassMfaForUser = (
   if (!status.enabled) return false;
 
   const email = normalizeEmail(user?.email);
+  if (status.developmentEnabled && user?.isActive && user?.canLogin) return true;
   if (!email.startsWith('test.')) return false;
   if (!user?.isActive || !user?.canLogin) return false;
 

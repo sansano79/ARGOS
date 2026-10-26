@@ -151,6 +151,7 @@ export class AuthService {
       occEnv: process.env.OCC_ENV,
       enabled: process.env.MFA_TEST_BYPASS_ENABLED,
       emails: process.env.MFA_TEST_BYPASS_EMAILS,
+      developmentEnabled: process.env.MFA_DEV_BYPASS_ENABLED,
     })) {
       const ipAddress = String(user?.loginContext?.ipAddress || '0.0.0.0');
       this.logger.warn(`TEST_MFA_BYPASS_USED email=${String(user.email || '').toLowerCase()} ip=${ipAddress} timestamp=${new Date().toISOString()}`);
@@ -267,6 +268,7 @@ export class AuthService {
       occEnv: process.env.OCC_ENV,
       enabled: process.env.MFA_TEST_BYPASS_ENABLED,
       emails: process.env.MFA_TEST_BYPASS_EMAILS,
+      developmentEnabled: process.env.MFA_DEV_BYPASS_ENABLED,
     });
   }
 }

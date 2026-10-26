@@ -13,6 +13,7 @@ async function bootstrap() {
     occEnv: process.env.OCC_ENV,
     enabled: process.env.MFA_TEST_BYPASS_ENABLED,
     emails: process.env.MFA_TEST_BYPASS_EMAILS,
+    developmentEnabled: process.env.MFA_DEV_BYPASS_ENABLED,
   });
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log', 'debug', 'verbose'],
@@ -93,7 +94,9 @@ async function bootstrap() {
   await app.listen(port, '0.0.0.0');
   logger.log(`🚀 ARGOS API running on http://0.0.0.0:${port}`);
   if (testMfaBypassStatus.enabled) {
-    logger.warn(`WARNING: Test MFA bypass enabled for ${testMfaBypassStatus.allowlistCount} explicitly allowlisted accounts`);
+    logger.warn(testMfaBypassStatus.developmentEnabled
+      ? 'WARNING: Development MFA bypass enabled for active local accounts'
+      : `WARNING: Test MFA bypass enabled for ${testMfaBypassStatus.allowlistCount} explicitly allowlisted accounts`);
   }
   if (enableSwagger) {
     logger.log(`📚 Swagger docs: http://0.0.0.0:${port}/api/docs`);
