@@ -1,4 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { normalizeLegacyProducts, normalizeAdvisory, nvdAffectedProducts } from './advisories/advisory-normalizer';
+import { AdvisoriesService } from './advisories/advisories.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaginatedResponse } from './dto/paginated-response.dto';
 import {
@@ -11,7 +13,7 @@ import {
 
 @Injectable()
 export class ExternalApiService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Optional() private readonly advisories?: AdvisoriesService) {}
 
   private paginate(query: PaginationQueryDto) {
     const page = query.page ?? 1;
@@ -289,6 +291,8 @@ export class ExternalApiService {
             sourcePublishedAt: true,
             sourceModifiedAt: true,
             normalizedData: true,
+            rawPayload: true,
+            sourceRecordId: true,
           },
         },
         notifications: {
@@ -306,7 +310,24 @@ export class ExternalApiService {
     if (!vuln) throw new NotFoundException(`CVE ${cveId} not found`);
 
     const includeRaw = (include || '').toLowerCase().split(',').includes('raw');
-    return this.serializeVulnDetail(vuln, includeRaw);
+    const result = this.serializeVulnDetail(vuln, includeRaw);
+    if (this.advisories?.capabilities().package_query_enabled) {
+      const advisory = await this.advisories.getById(vuln.cveId);
+      if (advisory.patch.fixed_versions.length) result.fixedVersions = advisory.patch.fixed_versions;
+      const osvProducts = advisory.affected.filter(a => a.source === 'osv').map(a => ({
+        vendor: a.ecosystem, product: a.name, ecosystem: a.ecosystem,
+        version: null, versionRange: a.version_range, source: 'osv', fixedVersions: a.fixed ? [a.fixed] : [],
+      }));
+      result.affectedProductsDetailed.push(...osvProducts);
+      result.affectedVersions = [...new Set(result.affectedProductsDetailed.map(p => p.versionRange).filter(Boolean))];
+      result.patch.fixedVersions = result.fixedVersions || [];
+      if (advisory.patch.patch_available === true) {
+        result.patchAvailable = true;
+        result.patch.status = 'available';
+        result.patch.isAvailable = true;
+      }
+    }
+    return result;
   }
 
   async getVulnerabilityEvidence(cveId: string, query: PaginationQueryDto) {
@@ -1204,11 +1225,16 @@ export class ExternalApiService {
   private serializeVuln(vuln: any) {
     const { notifications: rawNotifs, _count, ...rest } = vuln;
     const sentNotifs = Array.isArray(rawNotifs) ? rawNotifs : [];
-    const fixedVersions = this.parseJson(rest.fixedVersions);
+    const advisory = normalizeAdvisory({ local: vuln });
+    const storedFixedVersions = this.parseJson(rest.fixedVersions);
+    const fixedVersions = advisory.patch.fixed_versions.length ? advisory.patch.fixed_versions : storedFixedVersions;
     const workarounds = this.parseJson(rest.workarounds);
     const riskSignals = this.parseJson(rest.riskSignals);
     const affectedCpes = this.parseJson(rest.affectedCpes) ?? [];
-    const affectedProductsDetailed = this.parseJson(rest.affectedProductsDetailed) ?? [];
+    const parsedProducts = this.parseJson(rest.affectedProductsDetailed);
+    const affectedProductsDetailed = normalizeLegacyProducts([
+      ...(Array.isArray(parsedProducts) ? parsedProducts : []), ...nvdAffectedProducts(vuln.rawData),
+    ]);
     const isConfirmedExploited = this.computeIsConfirmedExploited(vuln);
     const evidenceTypes = this.computeEvidenceTypes(vuln);
 
@@ -1228,6 +1254,7 @@ export class ExternalApiService {
       affectedProducts: this.parseJson(rest.affectedProducts),
       affectedProductsDetailed,
       affectedCpes,
+      affectedVersions: [...new Set(affectedProductsDetailed.map(p => p.versionRange).filter(Boolean))],
       fixedVersions,
       workarounds,
       detectionOpportunities: this.parseJson(rest.detectionOpportunities),

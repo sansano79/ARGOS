@@ -562,3 +562,14 @@ describe('ExternalApiService', () => {
     });
   });
 });
+
+describe('Advisory range compatibility', () => {
+  it('exposes readable affectedVersions and derives fixedVersions from preserved OSV metadata', async () => {
+    const service = new ExternalApiService({ vulnerability: { findUnique: async () => ({ cveId: 'CVE-2024-1000', source: 'osv', fixedVersions: null,
+      affectedProductsDetailed: JSON.stringify([{ vendor: 'pypi', product: 'requests', ecosystem: 'PyPI', versionRange: '>=1.0 <2.31.0', fixedVersions: ['2.31.0'] }]), sourceRecords: [] }) } } as any);
+    const result = await service.getVulnerabilityByCveId('CVE-2024-1000');
+    expect(result.fixedVersions).toEqual(['2.31.0']);
+    expect((result as any).affectedVersions).toEqual(['>=1.0,<2.31.0']);
+    expect((result as any).rawData).toBeUndefined();
+  });
+});

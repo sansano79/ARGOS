@@ -204,3 +204,8 @@ Variables clave en `.env` (dev) o `.env.prod` (prod):
 - Módulo agnóstico (**OpenAI** o **Ollama**).
 - Endpoint `POST /api/ai/chat` para consultas.
 - Configurable desde la base de datos.
+
+### API de avisos por paquete y versión
+
+El contrato para ASTREA, los endpoints `/api/v1/advisories`, la procedencia y los
+estados de ausencia están documentados en [docs/advisories-api.md](docs/advisories-api.md).
