@@ -25,10 +25,12 @@ import {
 } from "./utils/vulnerabilityReferences.js";
 import {
   DIGEST_INTERVAL_OPTIONS,
+  fetchApiKeys,
   NOTIFICATION_JOB_LABELS,
   NOTIFICATION_SETTINGS_TABS,
   createDefaultNotificationCenterState,
   normalizeNotificationCenterSettings,
+  sendSmtpTest,
 } from "./utils/notificationCenter.js";
 import {
   USER_MANAGEMENT_NOTE,
@@ -1262,6 +1264,7 @@ export default function VulnDashboard() {
   // API Keys Management
   const [apiKeys, setApiKeys] = useState([]);
   const [apiKeysLoading, setApiKeysLoading] = useState(false);
+  const [apiKeysError, setApiKeysError] = useState("");
   const [showApiKeyForm, setShowApiKeyForm] = useState(false);
   const [newApiKeyName, setNewApiKeyName] = useState("");
   const [newApiKeyScopes, setNewApiKeyScopes] = useState(["vulnerabilities:read", "products:read", "catalog:read", "collector:read", "reports:read"]);
@@ -1883,7 +1886,14 @@ export default function VulnDashboard() {
 
         // Load API keys
         setApiKeysLoading(true);
-        apiFetch("/api-keys").then(r => r.json()).then(d => setApiKeys(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setApiKeysLoading(false));
+        setApiKeysError("");
+        fetchApiKeys(apiFetch)
+          .then(setApiKeys)
+          .catch((error) => {
+            setApiKeys([]);
+            setApiKeysError(error?.message || "No se pudieron cargar las API keys");
+          })
+          .finally(() => setApiKeysLoading(false));
 
         setAiConfigLoading(true);
         const [aiConfigRes, aiModelsRes] = await Promise.allSettled([
@@ -2076,11 +2086,10 @@ export default function VulnDashboard() {
     if (!testEmail) return;
     setTestSending(true);
     try {
-      const res = await apiFetch("/notifications/test", { method: "POST", body: JSON.stringify({ email: testEmail }) });
-      if (res.ok) setSmtpMsg({ type: "success", text: "Email de prueba enviado correctamente" });
-      else throw new Error("Error enviando email");
+      await sendSmtpTest(apiFetch, { email: testEmail, smtpConfig });
+      setSmtpMsg({ type: "success", text: "Email de prueba enviado correctamente" });
     } catch (e) {
-      setSmtpMsg({ type: "error", text: "Error enviando email de prueba" });
+      setSmtpMsg({ type: "error", text: e?.message || "Error enviando email de prueba" });
     }
     setTestSending(false);
     setTimeout(() => setSmtpMsg(null), 3000);
@@ -7067,6 +7076,12 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                   <div style={{ fontSize: 12, color: C.gray500, marginBottom: 16 }}>
                     Las API Keys permiten que aplicaciones externas (SIEMs, dashboards, scripts) accedan a los datos de la plataforma vía <code style={{ background: C.gray100, padding: "1px 6px", borderRadius: 4 }}>/api/v1/*</code> con el header <code style={{ background: C.gray100, padding: "1px 6px", borderRadius: 4 }}>X-API-Key</code>.
                   </div>
+
+                  {apiKeysError && (
+                    <div role="alert" style={{ marginBottom: 16, padding: "10px 12px", borderRadius: 8, background: C.criticalBg, color: C.critical, border: `1px solid ${C.critical}` }}>
+                      No se pudieron cargar las API keys: {apiKeysError}
+                    </div>
+                  )}
 
                   {apiKeysLoading ? (
                     <div style={{ textAlign: "center", padding: 24, color: C.gray400 }}>Cargando...</div>

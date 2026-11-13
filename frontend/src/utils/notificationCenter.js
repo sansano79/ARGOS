@@ -10,6 +10,39 @@ export const NOTIFICATION_SETTINGS_TABS = [
 
 export const DIGEST_INTERVAL_OPTIONS = [2, 4, 6, 8, 12, 24];
 
+const readApiPayload = async (response) => {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+};
+
+const getApiErrorMessage = (payload, fallback) => {
+  if (typeof payload?.message === "string" && payload.message.trim()) return payload.message;
+  if (Array.isArray(payload?.message)) return payload.message.join(", ");
+  if (typeof payload?.error === "string" && payload.error.trim()) return payload.error;
+  return fallback;
+};
+
+export const fetchApiKeys = async (apiFetch) => {
+  const response = await apiFetch("/api-keys");
+  const payload = await readApiPayload(response);
+  if (!response.ok) throw new Error(getApiErrorMessage(payload, "No se pudieron cargar las API keys"));
+  if (!Array.isArray(payload)) throw new Error("La respuesta de API keys no tiene el formato esperado");
+  return payload;
+};
+
+export const sendSmtpTest = async (apiFetch, { email, smtpConfig }) => {
+  const response = await apiFetch("/notifications/test", {
+    method: "POST",
+    body: JSON.stringify({ email, config: smtpConfig }),
+  });
+  const payload = await readApiPayload(response);
+  if (!response.ok) throw new Error(getApiErrorMessage(payload, "Error enviando email de prueba"));
+  return payload;
+};
+
 export const NOTIFICATION_JOB_LABELS = {
   immediate: "Inmediata",
   digest: "Digest",

@@ -23,8 +23,8 @@ export class NotificationController {
 
     @Post('test')
     @Roles('ADMIN')
-    async sendTestEmail(@Body('email') email: string) {
-        return await this.notificationService.sendTestEmail(email);
+    async sendTestEmail(@Body() body: { email?: string; config?: Record<string, unknown> }) {
+        return await this.notificationService.sendTestEmail(body?.email || '', body?.config);
     }
 
     @Get('history')

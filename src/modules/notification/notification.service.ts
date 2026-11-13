@@ -403,18 +403,42 @@ export class NotificationService {
     private createTransporter() {
         if (!this.smtpConfig) return;
 
-        this.transporter = nodemailer.createTransport({
-            host: this.smtpConfig.host,
-            port: this.smtpConfig.port,
-            secure: this.smtpConfig.secure,
+        this.transporter = this.createTransporterFor(this.smtpConfig);
+    }
+
+    private createTransporterFor(config: SmtpConfig) {
+        return nodemailer.createTransport({
+            host: config.host,
+            port: config.port,
+            secure: config.secure,
             auth: {
-                user: this.smtpConfig.user,
-                pass: this.smtpConfig.pass,
+                user: config.user,
+                pass: config.pass,
             },
             tls: {
                 rejectUnauthorized: false
             }
         });
+    }
+
+    private getTestSmtpConfig(draft?: Partial<SmtpConfig>): SmtpConfig | null {
+        if (!draft) return this.smtpConfig;
+
+        const existing = this.smtpConfig;
+        const config: SmtpConfig = {
+            host: String(draft.host || '').trim(),
+            port: Number(draft.port),
+            user: String(draft.user || '').trim(),
+            pass: String(draft.pass || '').trim() || existing?.pass || '',
+            secure: draft.secure === true || String(draft.secure).trim().toLowerCase() === 'true',
+            from: String(draft.from || '').trim(),
+        };
+
+        if (!config.host || !Number.isInteger(config.port) || config.port < 1 || config.port > 65535 || !config.user || !config.pass || !config.from) {
+            throw new InternalServerErrorException('Invalid SMTP configuration');
+        }
+
+        return config;
     }
 
     async saveConfig(config: SmtpConfig) {
@@ -634,10 +658,15 @@ export class NotificationService {
         return { html: previewHtml, cveId: normalizedVuln.cveId, manufacturer };
     }
 
-    async sendTestEmail(to: string) {
-        if (!this.transporter) {
+    async sendTestEmail(to: string, draft?: Partial<SmtpConfig>) {
+        let smtpConfig = this.getTestSmtpConfig(draft);
+        let transporter = draft ? (smtpConfig ? this.createTransporterFor(smtpConfig) : null) : this.transporter;
+
+        if (!transporter) {
             await this.loadConfig();
-            if (!this.transporter) {
+            smtpConfig = this.getTestSmtpConfig(draft);
+            transporter = draft ? (smtpConfig ? this.createTransporterFor(smtpConfig) : null) : this.transporter;
+            if (!transporter || !smtpConfig) {
                 throw new NotFoundException('SMTP Configuration not found or invalid');
             }
         }
@@ -658,8 +687,8 @@ export class NotificationService {
                 '</div>' +
                 '</div>';
 
-            const info = await this.transporter.sendMail({
-                from: this.smtpConfig?.from || 'noreply@occ.local',
+            const info = await transporter.sendMail({
+                from: smtpConfig?.from || 'noreply@occ.local',
                 to,
                 subject: '✅ Test Email — ARGOS',
                 html,
