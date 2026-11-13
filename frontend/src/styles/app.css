@@ -65,3 +65,107 @@ body {
     background-position: center 22%;
   }
 }
+
+.occ-skip-link {
+  position: fixed;
+  z-index: 1000;
+  top: .75rem;
+  left: .75rem;
+  transform: translateY(-180%);
+  padding: .65rem .85rem;
+  border-radius: var(--ds-radius);
+  background: var(--ds-bg);
+  color: var(--ds-primary-ink);
+  box-shadow: var(--ds-sh-2);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.occ-skip-link:focus { transform: translateY(0); outline: var(--ds-focus); }
+
+.occ-app-shell,
+.occ-app-main { background: var(--ds-page); }
+
+.occ-content { max-width: 112rem; margin: 0 auto; width: 100%; }
+
+.occ-visual-rule {
+  height: 2px;
+  margin: var(--ds-space-5) 0 var(--ds-space-6);
+  background: var(--ds-grad);
+  border-radius: 999px;
+}
+
+.occ-page-header h1 {
+  color: var(--ds-ink) !important;
+  font-family: var(--ds-font-head);
+  font-size: clamp(1.75rem, 3.2vw, 2.25rem) !important;
+  font-weight: 600 !important;
+  letter-spacing: -.025em !important;
+  line-height: 1.08;
+}
+
+.occ-page-header p { max-width: 72ch; color: var(--ds-muted) !important; }
+
+button,
+input,
+select,
+textarea { font: inherit; }
+
+button,
+[role="button"] { transition: background var(--ds-ease), color var(--ds-ease), border-color var(--ds-ease), transform var(--ds-ease); }
+
+button:not(:disabled):active { transform: translateY(1px); }
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: var(--ds-focus) !important;
+  outline-offset: 2px;
+  box-shadow: var(--ds-focus-ring) !important;
+}
+
+@media (max-width: 900px) {
+  .occ-app-shell { display: block !important; }
+
+  .occ-sidebar {
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .occ-rail-context,
+  .occ-rail-footer { display: none !important; }
+
+  .occ-brand { padding: .75rem 1rem !important; }
+
+  .occ-rail-nav {
+    display: flex;
+    gap: .25rem;
+    padding: 0 .5rem .6rem !important;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .occ-rail-section-label,
+  .occ-rail-nav > div:has(> div[style*="height: 1px"]) { display: none !important; }
+
+  .occ-sidebar-nav-item {
+    flex: 0 0 auto;
+    margin: 0 !important;
+    padding: .65rem .75rem !important;
+    white-space: nowrap;
+  }
+
+  .occ-app-main { margin-left: 0 !important; }
+
+  .occ-content { padding: 0 1rem 1.5rem !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0ms !important; animation-duration: 0ms !important; }
+}

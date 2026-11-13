@@ -104,14 +104,14 @@ const callBackfillApi = async (suffix, opts = {}) => {
 
 // ─── SEIDOR Brand Colors ─────────────────────────────────────────────────────
 const C = {
-  navy: "#1e293b", navyDark: "#0f172a", navyDeep: "#020617", navyLight: "#334155",
-  blue: "#2563eb", blueLight: "#60a5fa", bluePale: "#eff6ff", accent: "#06b6d4",
-  white: "#FFFFFF", gray50: "#f8fafc", gray100: "#f1f5f9", gray200: "#e2e8f0",
-  gray300: "#cbd5e1", gray400: "#94a3b8", gray500: "#64748b", gray600: "#475569",
-  gray700: "#334155", text: "#0f172a",
-  critical: "#dc2626", criticalBg: "#fef2f2", high: "#ea580c", highBg: "#fff7ed",
-  medium: "#ca8a04", mediumBg: "#fefce8", low: "#16a34a", lowBg: "#f0fdf4",
-  info: "#2563eb", infoBg: "#eff6ff",
+  navy: "var(--ds-ink)", navyDark: "var(--ds-rail)", navyDeep: "var(--ds-rail)", navyLight: "var(--ds-ink-2)",
+  blue: "var(--ds-primary)", blueLight: "var(--ds-sky)", bluePale: "var(--ds-primary-soft)", accent: "var(--ds-sky)",
+  white: "var(--ds-bg)", gray50: "var(--ds-page)", gray100: "var(--ds-bg-soft)", gray200: "var(--ds-line)",
+  gray300: "var(--ds-line-2)", gray400: "var(--ds-muted)", gray500: "var(--ds-muted)", gray600: "var(--ds-ink-2)",
+  gray700: "var(--ds-ink-2)", text: "var(--ds-ink)",
+  critical: "var(--ds-crit)", criticalBg: "var(--ds-danger-soft)", high: "var(--ds-high)", highBg: "var(--ds-warn-soft)",
+  medium: "var(--ds-warn)", mediumBg: "var(--ds-warn-soft)", low: "var(--ds-ok)", lowBg: "var(--ds-ok-soft)",
+  info: "var(--ds-primary)", infoBg: "var(--ds-primary-soft)",
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -980,17 +980,10 @@ const ProductDetailList = ({ items, primaryKey = "" }) => {
   );
 };
 
-const VisualBanner = () => (
-  <div style={{
-    height: 4,
-    background: "linear-gradient(90deg, #1e3a5f 0%, #2563eb 35%, #06b6d4 70%, #1e3a5f 100%)",
-    borderRadius: 2,
-    margin: "20px 0 24px",
-  }} aria-hidden="true" />
-);
+const VisualBanner = () => <div className="occ-visual-rule" aria-hidden="true" />;
 
 const PageHeader = ({ title, subtitle, actions }) => (
-  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, gap: 16 }}>
+  <div className="occ-page-header" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, gap: 16 }}>
     <div>
       <h1 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: 0, letterSpacing: "-0.01em" }}>{title}</h1>
       {subtitle && <p style={{ color: C.gray500, fontSize: 12, margin: "4px 0 0", lineHeight: 1.4 }}>{subtitle}</p>}
@@ -4004,7 +3997,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     }
   };
 
-  const sw = collapsed ? 56 : 232;
+  const sw = collapsed ? 56 : 248;
   const currentUser = getUser();
   const allNav = [
     { id: "overview", label: "Visión General", icon: "shield" },
@@ -4222,6 +4215,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
       </ArgosAuthLayout>
     ) : (
       <div className="occ-app-shell" style={{ display: "flex", minHeight: "100vh", background: "var(--occ-bg-page)", fontFamily: "var(--occ-font-sans)" }}>
+        <a className="occ-skip-link" href="#main-content">Saltar al contenido</a>
         <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
         @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
@@ -4287,15 +4281,21 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
       `}</style>
 
         {/* ── SIDEBAR ── */}
-        <nav className="occ-sidebar" style={{ width: sw, position: "fixed", top: 0, left: 0, height: "100vh", zIndex: 100, transition: "width 0.2s ease", overflow: "hidden" }}>
+        <nav className="occ-sidebar" aria-label="Navegación principal de ARGOS" style={{ width: sw, position: "fixed", top: 0, left: 0, height: "100vh", zIndex: 100, transition: "width 0.2s ease", overflow: "hidden" }}>
           <div className="occ-brand" style={{ padding: collapsed ? "14px 10px" : "16px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)", justifyContent: collapsed ? "center" : "flex-start" }}>
             <div className="occ-brand-logo" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, padding: 7 }}>
               <img src={argosLogo} alt="ARGOS" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
             </div>
             {!collapsed && <div><div style={{ fontSize: 14, fontWeight: 700, color: "#fff", letterSpacing: "-0.01em" }}>ARGOS</div><div className="occ-brand-subtitle" style={{ fontSize: 10, color: "rgba(148,163,184,0.7)" }}>Threat &amp; Vulnerability Management</div></div>}
           </div>
-          <div style={{ flex: 1, padding: "10px 0", overflowY: "auto" }}>
-            {!collapsed && <div style={{ padding: "4px 20px 6px", fontSize: 9, fontWeight: 600, color: "rgba(148,163,184,0.5)", letterSpacing: "1.5px", textTransform: "uppercase" }}>Módulos</div>}
+          {!collapsed && (
+            <div className="occ-rail-context">
+              <span className="occ-rail-context__label">Área actual</span>
+              <span className="occ-rail-context__value">{currentSection}</span>
+            </div>
+          )}
+          <div className="occ-rail-nav" style={{ flex: 1, padding: "10px 0", overflowY: "auto" }}>
+            {!collapsed && <div className="occ-rail-section-label" style={{ padding: "4px 20px 6px" }}>Módulos</div>}
             {nav.map((n, idx) => {
               const isActive = navActiveView === n.id;
               const isChild = !!n.parent;
@@ -4310,15 +4310,15 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                     </>
                   )}
                   {isFirstAdmin && collapsed && <div style={{ height: 1, background: "rgba(255,255,255,0.06)", margin: "6px 12px" }} />}
-                  <div className="occ-sidebar-nav-item" onClick={() => { setVulnDetail(null); setSelectedVuln(null); if (n.id === "subscriber-teams") setSubscriberTeamsRoute({ teamId: null }); setView(n.id); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: collapsed ? "9px 16px" : isChild ? "8px 14px 8px 30px" : "9px 14px", cursor: "pointer", color: isActive ? "#fff" : "rgba(255,255,255,0.5)", background: isActive ? "rgba(37,99,235,0.12)" : "transparent", borderLeft: "none", transition: "all 0.12s", margin: collapsed ? "1px 6px" : "1px 10px", borderRadius: 8 }} onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
+                  <button type="button" className="occ-sidebar-nav-item" aria-current={isActive ? "page" : undefined} title={collapsed ? n.label : undefined} onClick={() => { setVulnDetail(null); setSelectedVuln(null); if (n.id === "subscriber-teams") setSubscriberTeamsRoute({ teamId: null }); setView(n.id); }} style={{ display: "flex", width: "calc(100% - 20px)", alignItems: "center", gap: 10, padding: collapsed ? "9px 16px" : isChild ? "8px 14px 8px 30px" : "9px 14px", cursor: "pointer", color: isActive ? "#fff" : "rgba(255,255,255,0.5)", background: isActive ? "rgba(37,99,235,0.12)" : "transparent", border: "none", transition: "all 0.12s", margin: collapsed ? "1px 6px" : "1px 10px", borderRadius: 8 }} onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
                     <I name={n.icon} size={16} color={isActive ? C.blueLight : "rgba(255,255,255,0.4)"} />
                     {!collapsed && <span style={{ fontSize: 12.5, fontWeight: isActive ? 600 : 400, letterSpacing: "-0.005em" }}>{n.label}</span>}
-                  </div>
+                  </button>
                 </div>
               );
             })}
           </div>
-          <div style={{ padding: "8px 12px", borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 10 }}>
+          <div className="occ-rail-footer" style={{ padding: "8px 12px", borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 10 }}>
             {currentUser && (
               <div
                 onClick={handleLogout}
@@ -4349,16 +4349,16 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                 )}
               </div>
             )}
-            <div onClick={() => setCollapsed(!collapsed)} style={{ cursor: "pointer", color: "rgba(148,163,184,0.5)", display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, transition: "color 0.12s" }} onMouseEnter={e => e.currentTarget.style.color = "rgba(148,163,184,0.8)"} onMouseLeave={e => e.currentTarget.style.color = "rgba(148,163,184,0.5)"}>
+            <button type="button" aria-label={collapsed ? "Expandir navegación" : "Colapsar navegación"} aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)} style={{ width: "100%", cursor: "pointer", color: "rgba(148,163,184,0.5)", display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, transition: "color 0.12s", border: "none", background: "transparent", textAlign: "left" }} onMouseEnter={e => e.currentTarget.style.color = "rgba(148,163,184,0.8)"} onMouseLeave={e => e.currentTarget.style.color = "rgba(148,163,184,0.5)"}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: collapsed ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}><polyline points="15 18 9 12 15 6" /></svg>
               {!collapsed && <span style={{ fontSize: 11 }}>Colapsar</span>}
-            </div>
+            </button>
           </div>
         </nav>
 
         {/* ── MAIN ── */}
-        <main className="occ-app-main" style={{ flex: 1, marginLeft: sw, transition: "margin-left 0.2s ease", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "0 24px 24px", flex: 1 }} className="fade" key={view}>
+        <main id="main-content" className="occ-app-main" style={{ flex: 1, marginLeft: sw, transition: "margin-left 0.2s ease", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "0 24px 24px", flex: 1 }} className="occ-content fade" key={view}>
             <VisualBanner />
 
             {/* ═══ OVERVIEW ═══ */}

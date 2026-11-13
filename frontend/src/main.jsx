@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
+import './styles/ds-tokens.css'
 import './occ-visual-kit/css/occ-theme.css'
 import './occ-visual-kit/css/occ-components.css'
 import './styles/app.css'

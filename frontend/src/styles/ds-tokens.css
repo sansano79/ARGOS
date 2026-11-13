@@ -1,0 +1,79 @@
+/* ARGOS · contrato visual compartido con ASTREA.
+ * Los tokens describen presentación; no codifican estados ni lógica de datos. */
+@font-face {
+  font-family: "Hanken Grotesk Variable";
+  src: url("/fonts/hanken-grotesk-latin-wght-normal.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Source Serif 4 Variable";
+  src: url("/fonts/source-serif-4-latin-wght-normal.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Martian Mono Variable";
+  src: url("/fonts/martian-mono-latin-wght-normal.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+}
+
+:root {
+  --ds-ink: oklch(.22 .035 265);
+  --ds-ink-2: oklch(.37 .035 265);
+  --ds-muted: oklch(.46 .03 265);
+  --ds-line: oklch(.9 .012 255);
+  --ds-line-2: oklch(.82 .02 255);
+  --ds-page: oklch(.968 .01 255);
+  --ds-bg: oklch(.999 .003 255);
+  --ds-bg-soft: oklch(.955 .012 255);
+  --ds-on-primary: oklch(.99 .004 250);
+  --ds-primary: oklch(.462 .201 270);
+  --ds-primary-ink: oklch(.33 .15 268);
+  --ds-primary-soft: oklch(.962 .026 250);
+  --ds-primary-line: oklch(.83 .07 255);
+  --ds-sky: oklch(.794 .119 237);
+  --ds-sky-soft: oklch(.93 .045 237);
+  --ds-grad: linear-gradient(135deg, var(--ds-sky), oklch(.6 .17 258) 55%, var(--ds-primary));
+  --ds-partial: oklch(.46 .2 295);
+  --ds-ok: oklch(.45 .11 155);
+  --ds-warn: oklch(.44 .1 70);
+  --ds-danger: oklch(.47 .17 25);
+  --ds-ok-soft: oklch(.955 .04 155);
+  --ds-warn-soft: oklch(.955 .06 85);
+  --ds-danger-soft: oklch(.955 .03 25);
+  --ds-crit: #8e0f24;
+  --ds-high: #c62b38;
+  --ds-med: #e8604f;
+  --ds-low: #f08c76;
+  --ds-font-head: "Source Serif 4 Variable", Georgia, serif;
+  --ds-font-sans: "Hanken Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --ds-font-mono: "Martian Mono Variable", ui-monospace, "SF Mono", monospace;
+  --ds-space-1: .25rem;
+  --ds-space-2: .5rem;
+  --ds-space-3: .75rem;
+  --ds-space-4: 1rem;
+  --ds-space-5: 1.5rem;
+  --ds-space-6: 2.5rem;
+  --ds-radius: 8px;
+  --ds-radius-lg: 12px;
+  --ds-sh-1: 0 1px 2px oklch(.3 .06 265 / .07), 0 1px 1px oklch(.3 .06 265 / .05);
+  --ds-sh-2: 0 8px 20px -8px oklch(.35 .13 265 / .28), 0 2px 5px oklch(.3 .06 265 / .08);
+  --ds-focus: 2px solid var(--ds-primary);
+  --ds-focus-ring: 0 0 0 5px var(--ds-primary-soft);
+  --ds-ease: 120ms ease-out;
+  --ds-rail: oklch(.25 .04 262);
+  --ds-rail-ink: oklch(.96 .01 255);
+  --ds-rail-muted: oklch(.8 .03 255);
+  --ds-rail-faint: oklch(.64 .02 255);
+  --ds-rail-line: oklch(1 0 0 / .14);
+  --ds-rail-card: oklch(1 0 0 / .05);
+  --ds-rail-hover: oklch(1 0 0 / .06);
+  --ds-rail-current: oklch(1 0 0 / .09);
+}

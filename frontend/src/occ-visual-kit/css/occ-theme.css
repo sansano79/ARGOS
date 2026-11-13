@@ -112,3 +112,46 @@ body {
   inset: 0;
   background: var(--occ-hero-overlay);
 }
+
+/* Shared ASTREA/ARGOS design contract: map legacy OCC names to ds tokens. */
+:root {
+  --occ-primary: var(--ds-primary);
+  --occ-primary-hover: var(--ds-primary-ink);
+  --occ-primary-soft: var(--ds-primary-soft);
+  --occ-bg-page: var(--ds-page);
+  --occ-bg-panel: var(--ds-bg);
+  --occ-bg-sidebar: var(--ds-rail);
+  --occ-bg-elevated: var(--ds-bg-soft);
+  --occ-text-primary: var(--ds-ink);
+  --occ-text-secondary: var(--ds-ink-2);
+  --occ-text-muted: var(--ds-muted);
+  --occ-border: var(--ds-line);
+  --occ-border-subtle: var(--ds-bg-soft);
+  --occ-success: var(--ds-ok);
+  --occ-warning: var(--ds-warn);
+  --occ-danger: var(--ds-danger);
+  --occ-radius-sm: var(--ds-radius);
+  --occ-radius-md: var(--ds-radius);
+  --occ-radius-lg: var(--ds-radius-lg);
+  --occ-radius-hero: var(--ds-radius-lg);
+  --occ-shadow-sm: var(--ds-sh-1);
+  --occ-shadow-panel: var(--ds-sh-1);
+  --occ-shadow-elevated: var(--ds-sh-2);
+  --occ-shadow-hero: var(--ds-sh-2);
+  --occ-font-sans: var(--ds-font-sans);
+  --occ-font-mono: var(--ds-font-mono);
+}
+
+html,
+body {
+  font-family: var(--ds-font-sans);
+  background: var(--ds-page);
+  color: var(--ds-ink);
+}
+
+.occ-panel {
+  background: var(--ds-bg);
+  border-color: var(--ds-line);
+  border-radius: var(--ds-radius-lg);
+  box-shadow: var(--ds-sh-1);
+}
