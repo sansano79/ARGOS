@@ -26,7 +26,7 @@ const getApiErrorMessage = (payload, fallback) => {
 };
 
 export const fetchApiKeys = async (apiFetch) => {
-  const response = await apiFetch("/api-keys");
+  const response = await apiFetch("/api-keys", { cache: "no-store" });
   const payload = await readApiPayload(response);
   if (!response.ok) throw new Error(getApiErrorMessage(payload, "No se pudieron cargar las API keys"));
   if (!Array.isArray(payload)) throw new Error("La respuesta de API keys no tiene el formato esperado");

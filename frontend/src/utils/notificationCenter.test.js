@@ -40,13 +40,18 @@ test("normalizeNotificationCenterSettings coerces arrays, CSV strings and preser
 });
 
 test("fetchApiKeys preserves an API error instead of presenting an empty list", async () => {
+  let request = null;
   await assert.rejects(
-    () => fetchApiKeys(async () => ({
-      ok: false,
-      json: async () => ({ message: "No autorizado para listar API keys" }),
-    })),
+    () => fetchApiKeys(async (path, options) => {
+      request = { path, options };
+      return {
+        ok: false,
+        json: async () => ({ message: "No autorizado para listar API keys" }),
+      };
+    }),
     /No autorizado para listar API keys/,
   );
+  assert.deepEqual(request, { path: "/api-keys", options: { cache: "no-store" } });
 });
 
 test("sendSmtpTest sends the unsaved SMTP draft with the test recipient", async () => {
