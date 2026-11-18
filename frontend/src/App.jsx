@@ -41,6 +41,7 @@ import {
   shouldValidateTeamAssignments,
   validateTeamAssignments,
 } from "./utils/userManagement.js";
+import { describePatchState, getPatchState, getRemediationEvidence } from "./utils/remediation.js";
 import SubscriberTeamsPage from "./features/subscriber-teams/pages/SubscriberTeamsPage.jsx";
 import SubscriberTeamDetailPage from "./features/subscriber-teams/pages/SubscriberTeamDetailPage.jsx";
 import UserFormModal from "./features/users/components/UserFormModal.jsx";
@@ -158,7 +159,12 @@ const csvStringToList = (value) => String(value || "")
 const listToCsvString = (value) => (Array.isArray(value) ? value.filter(Boolean).join(", ") : "");
 const yesNoUnknown = (value) => value === true ? "Sí" : value === false ? "No" : "No informado";
 const fmtConfidence = (value) => value != null ? `${Math.round(parseFloat(value) * 100)}%` : "No informado";
-const describePatchStatus = (value) => value === true ? "Parche disponible" : value === false ? "Sin parche confirmado" : "Estado de parche no informado";
+const patchStateMeta = (v) => ({
+  available: { icon: "✓", bg: C.lowBg, color: C.low, border: "#BBF7D0" },
+  workaround_only: { icon: "!", bg: C.mediumBg, color: C.medium, border: "#FDE68A" },
+  unavailable: { icon: "✗", bg: C.criticalBg, color: C.critical, border: "#FCA5A5" },
+  unknown: { icon: "?", bg: C.gray100, color: C.gray600, border: C.gray300 },
+}[getPatchState(v)]);
 const toSentence = (value) => String(value || "").replaceAll("_", " ").trim();
 const summarizeTextValue = (value) => {
   if (value == null) return "-";
@@ -196,7 +202,7 @@ const componentTypeMeta = (type) => ({
   unknown: { label: "Tipo no inferido", bg: C.gray100, color: C.gray500, border: C.gray300 },
 }[String(type || "").toLowerCase()] || { label: toSentence(type || "unknown"), bg: C.gray100, color: C.gray600, border: C.gray300 });
 const isUrgentRisk = (tier) => ["urgent", "emergency"].includes(String(tier || "").toLowerCase());
-const hasUnknownPatch = (v) => v?.patchAvailable === false || (!v?.patchAvailable && !(ensureArray(v?.fixedVersions).length));
+const hasUnknownPatch = (v) => getPatchState(v) !== "available" && !(ensureArray(v?.fixedVersions).length);
 const getRowPriorityStyle = (v) => {
   if (String(v?.exploitStatus || "").toLowerCase() === "active_exploitation" || v?.isKnownExploited) {
     return { background: C.criticalBg, borderLeft: `3px solid ${C.critical}` };
@@ -215,6 +221,8 @@ const getChangeTypeLabel = (type) => ({
   epss_enrichment: "Enriquecimiento EPSS",
   exploit_enrichment: "Enriquecimiento Exploit",
   cveorg_ingestion: "Ingesta CVE.org",
+  cveorg_enrichment: "Enriquecimiento CVE.org",
+  osv_enrichment: "Enriquecimiento OSV",
   manual_update: "Actualización manual",
 }[type] || toSentence(type));
 const translateFieldName = (name) => ({
@@ -729,6 +737,50 @@ const KV = ({ label, value, tone }) => (
     <div style={{ fontSize: 12, color: C.gray700, fontWeight: 600, lineHeight: 1.4 }}>{value}</div>
   </div>
 );
+
+const EVIDENCE_SIGNAL_TONE = {
+  patch: { bg: C.lowBg, color: C.low, border: "#BBF7D0" },
+  no_patch: { bg: C.criticalBg, color: C.critical, border: "#FCA5A5" },
+  workaround: { bg: C.mediumBg, color: C.medium, border: "#FDE68A" },
+  advisory: { bg: C.gray100, color: C.gray600, border: C.gray300 },
+};
+
+// Why the patch verdict is what it is: one row per piece of evidence, with its source.
+const RemediationEvidenceList = ({ remediationInfo }) => {
+  const [expanded, setExpanded] = useState(false);
+  const rows = getRemediationEvidence(remediationInfo);
+  const visible = expanded ? rows : rows.slice(0, 6);
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Evidencias de remediación</div>
+      {rows.length === 0 && (
+        <div style={{ fontSize: 12, color: C.gray500, lineHeight: 1.5 }}>
+          Ninguna fuente (NVD, CVE.org, CISA KEV, OSV) confirma todavía un parche ni una mitigación. Revisa el advisory del fabricante.
+        </div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {visible.map((row, idx) => {
+          const tone = EVIDENCE_SIGNAL_TONE[row.signal] || EVIDENCE_SIGNAL_TONE.advisory;
+          return (
+            <div key={idx} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.gray200}`, background: "#fff" }}>
+              <span style={{ flex: "0 0 auto", padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: tone.bg, color: tone.color, border: `1px solid ${tone.border}`, whiteSpace: "nowrap" }}>{row.signalLabel}</span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: C.gray700 }}>{row.kindLabel} <span style={{ fontWeight: 500, color: C.gray500 }}>· {row.sourceLabel}</span></div>
+                {row.url && <a href={row.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: C.blue, wordBreak: "break-all" }}>{row.url}</a>}
+                {row.text && <div style={{ fontSize: 11, color: C.gray600, lineHeight: 1.5, wordBreak: "break-word" }}>{row.text}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {rows.length > 6 && (
+        <button type="button" onClick={() => setExpanded(!expanded)} style={{ marginTop: 8, border: `1px solid ${C.gray300}`, background: "#fff", color: C.gray600, borderRadius: 4, padding: "3px 8px", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>
+          {expanded ? "Ver menos" : `Ver las ${rows.length} evidencias`}
+        </button>
+      )}
+    </div>
+  );
+};
 
 const RichValue = ({ value, empty = "Sin datos disponibles" }) => {
   const { references, metadata, residual } = extractReferenceAwareValue(value);
@@ -2278,7 +2330,7 @@ export default function VulnDashboard() {
         semantic.displaySubtitle,
         componentTypeMeta(semantic.componentType).label,
         recordStatusMeta(v.recordStatus).label,
-        v.patchAvailable === true ? "parche disponible" : "parche no confirmado",
+        describePatchState(v).toLowerCase(),
         v.isKnownExploited ? "kev" : "",
         v.hasPublicExploit ? "exploit público" : "",
         v.notificable ? "notificable si" : "no notificable",
@@ -2656,8 +2708,8 @@ export default function VulnDashboard() {
                 {detail.exploitStatus === "active_exploitation" && <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: C.criticalBg, color: C.critical, border: "1px solid #FCA5A5" }}>● Explotación activa</span>}
                 {detail.isKnownExploited && <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: C.highBg, color: C.high, border: "1px solid #FDBA74" }}>KEV{detail.epssScore != null ? ` · EPSS ${fmtEpss(detail.epssScore)}` : ""}</span>}
                 {detail.hasPublicExploit && <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: "#FFFBEB", color: "#B45309", border: "1px solid #FDE68A" }}>Exploit público</span>}
-                <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: detail.patchAvailable ? C.lowBg : C.criticalBg, color: detail.patchAvailable ? C.low : C.critical, border: `1px solid ${detail.patchAvailable ? "#BBF7D0" : "#FCA5A5"}` }}>
-                  {detail.patchAvailable ? "✓ Parche disponible" : "✗ Sin parche"}
+                <span style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: patchStateMeta(detail).bg, color: patchStateMeta(detail).color, border: `1px solid ${patchStateMeta(detail).border}` }}>
+                  {patchStateMeta(detail).icon} {describePatchState(detail)}
                 </span>
                 {riskSignals.slice(0, 3).map((sig, i) => (
                   <span key={i} style={{ padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, background: "#F1F5F9", color: "#334155", border: "1px solid #CBD5E1" }}>
@@ -3010,9 +3062,10 @@ export default function VulnDashboard() {
             {/* ═══ REMEDIACIÓN ═══ */}
             <DetailBlock title="Remediación" icon="check">
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>
-                <KV label="Estado de parche" value={describePatchStatus(detail.patchAvailable)} tone={detail.patchAvailable === true ? C.lowBg : detail.patchAvailable === false ? C.highBg : C.gray50} />
+                <KV label="Estado de parche" value={describePatchState(detail)} tone={patchStateMeta(detail).bg} />
                 <KV label="Prioridad" value={detail.patchPriority || "No informada"} />
               </div>
+              <RemediationEvidenceList remediationInfo={remediationInfo} />
               {hasValue(fixedVersions) && (
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -4602,8 +4655,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                           <td style={{ padding: "10px 12px" }}>
                             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                               <RecordStatusBadge status={v.recordStatus} small />
-                              <span style={{ fontSize: 10, color: hasUnknownPatch(v) ? C.high : C.gray500, fontWeight: hasUnknownPatch(v) ? 700 : 500 }}>
-                                {v.patchAvailable === true ? "Parche disponible" : "Parche no confirmado"}
+                              <span style={{ fontSize: 10, color: getPatchState(v) === "available" ? C.low : hasUnknownPatch(v) ? C.high : C.gray500, fontWeight: 700 }}>
+                                {describePatchState(v)}
                               </span>
                             </div>
                           </td>
@@ -4806,8 +4859,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                         <td style={{ padding: "10px 12px" }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                             <RecordStatusBadge status={v.recordStatus} small />
-                            <span style={{ fontSize: 10, color: hasUnknownPatch(v) ? C.high : C.gray500, fontWeight: hasUnknownPatch(v) ? 700 : 500 }}>
-                              {v.patchAvailable === true ? "Parche disponible" : "Parche no confirmado"}
+                            <span style={{ fontSize: 10, color: getPatchState(v) === "available" ? C.low : hasUnknownPatch(v) ? C.high : C.gray500, fontWeight: 700 }}>
+                              {describePatchState(v)}
                             </span>
                           </div>
                         </td>
@@ -5099,7 +5152,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                           {showRemediationBlock && (
                             <DetailBlock title="Remediación" icon="check" style={{ marginBottom: 16 }}>
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginBottom: 14 }}>
-                                <KV label="Parche" value={describePatchStatus(vulnDetail.patchAvailable)} tone={vulnDetail.patchAvailable === true ? C.lowBg : vulnDetail.patchAvailable === false ? C.highBg : C.gray50} />
+                                <KV label="Parche" value={describePatchState(vulnDetail)} tone={patchStateMeta(vulnDetail).bg} />
                                 <KV label="Prioridad de parche" value={vulnDetail.patchPriority || "No informada"} />
                               </div>
                               {hasValue(fixedVersions) && <div style={{ marginBottom: 14 }}>
@@ -5114,10 +5167,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                                 <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Oportunidades de detección</div>
                                 <RichValue value={detectionOpportunities} />
                               </div>}
-                              {hasValue(remediationInfo) && <div>
-                                <div style={{ fontSize: 11, fontWeight: 700, color: C.gray500, textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: 8 }}>Información adicional</div>
-                                <RichValue value={remediationInfo} />
-                              </div>}
+                              <RemediationEvidenceList remediationInfo={remediationInfo} />
                             </DetailBlock>
                           )}
 
@@ -5422,8 +5472,8 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                           ))}
                         </div>
                       )}
-                      <div style={{ padding: "8px 10px", borderRadius: 4, background: v.patchAvailable ? C.lowBg : C.highBg, fontSize: 11, borderLeft: `3px solid ${v.patchAvailable ? C.low : C.high}` }}>
-                        <strong>{v.patchAvailable ? "✅ Parche disponible" : "❌ Sin parche confirmado"}</strong>
+                      <div style={{ padding: "8px 10px", borderRadius: 4, background: patchStateMeta(v).bg, fontSize: 11, borderLeft: `3px solid ${patchStateMeta(v).color}` }}>
+                        <strong>{patchStateMeta(v).icon} {describePatchState(v)}</strong>
                       </div>
                     </div>
                   </Card>

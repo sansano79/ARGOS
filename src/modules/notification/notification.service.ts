@@ -2484,7 +2484,13 @@ export class NotificationService {
             if ('kevOnly' in level && level.kevOnly) where.isKnownExploited = true;
             if ('publicExploitOnly' in level && level.publicExploitOnly) where.hasPublicExploit = true;
             if ('activeExploitationOnly' in level && level.activeExploitationOnly) where.exploitStatus = 'active';
-            if ('patchUnconfirmedOnly' in level && level.patchUnconfirmedOnly) where.patchAvailable = { not: true };
+            if ('patchUnconfirmedOnly' in level && level.patchUnconfirmedOnly) {
+                // `{ not: true }` drops NULL rows in SQL, and NULL (unknown) is the usual unconfirmed state.
+                where.AND = [
+                    ...(Array.isArray(where.AND) ? where.AND : []),
+                    { OR: [{ patchAvailable: null }, { patchAvailable: false }] },
+                ];
+            }
 
             if (level.vendorFilters.length > 0) {
                 where.OR = [

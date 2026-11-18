@@ -34,6 +34,8 @@
     "enrich:resume": "[ -f dist/scripts/enrich-historical-vulnerabilities.js ] && node dist/scripts/enrich-historical-vulnerabilities.js --apply || ts-node scripts/enrich-historical-vulnerabilities.ts --apply",
     "enrich:force": "[ -f dist/scripts/enrich-historical-vulnerabilities.js ] && node dist/scripts/enrich-historical-vulnerabilities.js --apply --from-id=0 || ts-node scripts/enrich-historical-vulnerabilities.ts --apply --from-id=0",
     "enrich:dry-run": "[ -f dist/scripts/enrich-historical-vulnerabilities.js ] && node dist/scripts/enrich-historical-vulnerabilities.js --limit=25 || ts-node scripts/enrich-historical-vulnerabilities.ts --limit=25",
+    "backfill:remediation": "ts-node scripts/backfill-remediation-intelligence.ts",
+    "backfill:remediation:apply": "ts-node scripts/backfill-remediation-intelligence.ts --apply",
     "frontend:install": "cd frontend && npm install",
     "frontend:dev": "cd frontend && npm run dev",
     "frontend:build": "cd frontend && npm run build",
