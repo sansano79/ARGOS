@@ -388,6 +388,11 @@ export class SmartNotificationsService {
         };
     }
 
+    /**
+     * @deprecated Stub previo a la integración real. La sincronización con Microsoft
+     * Defender vive en DefenderModule (`POST /api/defender/sync`), que guarda los
+     * servidores en TeamSystem. Se conserva solo por compatibilidad.
+     */
     async syncSubscriberSystemsFromDefender(
         subscriberId: number,
         payload?: {
@@ -425,7 +430,7 @@ export class SmartNotificationsService {
             subscriberId,
             synced: saveResult.saved,
             source: 'defender',
-            note: 'Sync endpoint prepared for Microsoft Defender connector integration',
+            note: 'Deprecated: use POST /api/defender/sync (DefenderModule) for the real Microsoft Defender integration',
         };
     }
 

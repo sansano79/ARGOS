@@ -19,6 +19,7 @@ import { DependencyEvidenceImportsModule } from './modules/dependency-evidence-i
 import { VulnerabilityProductImpactsModule } from './modules/vulnerability-product-impacts/vulnerability-product-impacts.module';
 import { ExternalApiModule } from './modules/external-api/external-api.module';
 import { SubscriberTeamsModule } from './modules/subscriber-teams/subscriber-teams.module';
+import { DefenderModule } from './modules/defender/defender.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { SubscriberTeamsModule } from './modules/subscriber-teams/subscriber-tea
     VulnerabilityProductImpactsModule,
     ExternalApiModule,
     SubscriberTeamsModule,
+    DefenderModule,
   ],
 })
 export class AppModule { }

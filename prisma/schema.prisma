@@ -196,8 +196,8 @@ model Vulnerability {
   firstSeenAt      DateTime  @default(now()) @map("first_seen_at")
   enrichedAt       DateTime? @map("enriched_at")
 
-  needsEnrichment  Boolean   @default(false) @map("needs_enrichment")
-  enrichmentReason String?   @map("enrichment_reason") @db.VarChar(64)
+  needsEnrichment  Boolean @default(false) @map("needs_enrichment")
+  enrichmentReason String? @map("enrichment_reason") @db.VarChar(64)
 
   isNotificable Boolean @default(false) @map("is_notificable")
 
@@ -210,6 +210,7 @@ model Vulnerability {
   changeEvents                VulnerabilityChangeEvent[]
   sourceRecords               VulnerabilitySourceRecord[]
   vulnerabilityProductImpacts VulnerabilityProductImpact[]
+  deviceFindings              DeviceVulnerabilityFinding[]
 
   @@index([cveId])
   @@index([cvssV31Severity])
@@ -1066,9 +1067,73 @@ model TeamSystem {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  team SubscriberTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  team                  SubscriberTeam               @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  vulnerabilityFindings DeviceVulnerabilityFinding[]
 
   @@unique([teamId, externalId])
   @@index([teamId])
   @@map("team_systems")
+}
+
+// ══════════════════════════════════════════════════════════════
+// MICROSOFT DEFENDER — INGESTA DE VULNERABILIDADES POR EQUIPO
+// ══════════════════════════════════════════════════════════════
+
+model DeviceVulnerabilityFinding {
+  id                  Int       @id @default(autoincrement())
+  teamSystemId        Int       @map("team_system_id")
+  deviceExternalId    String    @map("device_external_id") @db.VarChar(64)
+  cveId               String    @map("cve_id") @db.VarChar(32)
+  vulnerabilityId     Int?      @map("vulnerability_id")
+  productVendor       String    @default("") @map("product_vendor") @db.VarChar(191)
+  productName         String    @map("product_name") @db.VarChar(191)
+  productVersion      String    @default("") @map("product_version") @db.VarChar(191)
+  defenderSeverity    String?   @map("defender_severity") @db.VarChar(20)
+  defenderCvss        Float?    @map("defender_cvss")
+  exploitabilityLevel String?   @map("exploitability_level") @db.VarChar(40)
+  fixingKbId          String?   @map("fixing_kb_id") @db.VarChar(64)
+  recommendedUpdate   String?   @map("recommended_update") @db.Text
+  diskPaths           String?   @map("disk_paths") @db.LongText
+  registryPaths       String?   @map("registry_paths") @db.LongText
+  status              String    @default("open") @db.VarChar(16)
+  firstSeenAt         DateTime  @map("first_seen_at")
+  lastSeenAt          DateTime  @map("last_seen_at")
+  fixedAt             DateTime? @map("fixed_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  teamSystem    TeamSystem     @relation(fields: [teamSystemId], references: [id], onDelete: Cascade)
+  vulnerability Vulnerability? @relation(fields: [vulnerabilityId], references: [id], onDelete: SetNull)
+
+  @@unique([teamSystemId, cveId, productVendor, productName, productVersion], map: "dvf_device_cve_product_key")
+  @@index([teamSystemId, status])
+  @@index([cveId])
+  @@index([vulnerabilityId])
+  @@index([fixingKbId])
+  @@map("device_vulnerability_findings")
+}
+
+model DefenderSyncRun {
+  id                 Int       @id @default(autoincrement())
+  mode               String    @db.VarChar(16)
+  status             String    @default("queued") @db.VarChar(16)
+  triggeredBy        Int?      @map("triggered_by")
+  sinceTime          DateTime? @map("since_time")
+  startedAt          DateTime? @map("started_at")
+  finishedAt         DateTime? @map("finished_at")
+  durationMs         Int?      @map("duration_ms")
+  devicesSeen        Int       @default(0) @map("devices_seen")
+  devicesUpserted    Int       @default(0) @map("devices_upserted")
+  devicesDeactivated Int       @default(0) @map("devices_deactivated")
+  devicesFailed      Int       @default(0) @map("devices_failed")
+  findingsUpserted   Int       @default(0) @map("findings_upserted")
+  findingsFixed      Int       @default(0) @map("findings_fixed")
+  unknownCves        Int       @default(0) @map("unknown_cves")
+  failures           String?   @db.LongText
+  errorMessage       String?   @map("error_message") @db.Text
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@map("defender_sync_runs")
 }

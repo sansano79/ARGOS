@@ -3,6 +3,8 @@ export const KEV_LIST_PATH = "/kev";
 export const ACCOUNT_PATH = "/account";
 export const PORTAL_PATH = "/portal";
 export const SUBSCRIBER_TEAMS_PATH = "/admin/subscriber-teams";
+export const DEFENDER_SERVERS_PATH = "/admin/defender-servers";
+export const DEFENDER_SERVERS_VIEW = "defender-servers";
 export const DETAIL_VIEW = "vuln-detail";
 
 export const normalizeDetailSourceView = (value) => value === "exploited" ? "exploited" : "vulns";
@@ -53,6 +55,7 @@ export const parseAppRoute = (pathname) => {
   if (currentPath === ACCOUNT_PATH) return { view: "account" };
   if (currentPath === PORTAL_PATH) return { view: "portal" };
   if (currentPath === SUBSCRIBER_TEAMS_PATH) return { view: "subscriber-teams", teamId: null };
+  if (currentPath === DEFENDER_SERVERS_PATH) return { view: DEFENDER_SERVERS_VIEW };
 
   const subscriberTeamsDetail = currentPath.match(/^\/admin\/subscriber-teams\/([^/]+)$/);
   if (subscriberTeamsDetail?.[1]) {
@@ -70,6 +73,8 @@ export const isViewAllowedForRole = (role, view) => {
   const normalizedView = String(view || "");
 
   if (normalizedRole === "ADMIN") return true;
+  // Integración con Defender: solo administración de plataforma.
+  if (normalizedView === DEFENDER_SERVERS_VIEW) return false;
   if (normalizedRole === "TEAM_MANAGER") {
     return ["vulns", "exploited", "account", "subscriber-teams", DETAIL_VIEW].includes(normalizedView);
   }

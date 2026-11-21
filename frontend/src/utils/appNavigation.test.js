@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   ACCOUNT_PATH,
+  DEFENDER_SERVERS_PATH,
   DETAIL_VIEW,
   KEV_LIST_PATH,
   PORTAL_PATH,
@@ -67,4 +68,12 @@ test("parseAppRoute resolves subscriber team detail route", () => {
     view: "subscriber-teams",
     teamId: 7,
   });
+});
+
+test("defender servers view is admin only and has its own route", () => {
+  assert.deepEqual(parseAppRoute(DEFENDER_SERVERS_PATH), { view: "defender-servers" });
+  assert.equal(isViewAllowedForRole("ADMIN", "defender-servers"), true);
+  for (const role of ["TEAM_MANAGER", "SUBSCRIBER", "VIEWER", "USER"]) {
+    assert.equal(isViewAllowedForRole(role, "defender-servers"), false);
+  }
 });

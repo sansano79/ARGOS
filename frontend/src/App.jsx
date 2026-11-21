@@ -3,6 +3,8 @@ import argosLogo from "./occ-visual-kit/assets/argos-mark.svg";
 import ArgosAuthLayout, { ARGOS_AUTH_COPY } from "./features/auth/ArgosAuthLayout.jsx";
 import {
   ACCOUNT_PATH,
+  DEFENDER_SERVERS_PATH,
+  DEFENDER_SERVERS_VIEW,
   DETAIL_VIEW,
   PORTAL_PATH,
   SUBSCRIBER_TEAMS_PATH,
@@ -44,6 +46,7 @@ import {
 import { describePatchState, getPatchState, getRemediationEvidence } from "./utils/remediation.js";
 import SubscriberTeamsPage from "./features/subscriber-teams/pages/SubscriberTeamsPage.jsx";
 import SubscriberTeamDetailPage from "./features/subscriber-teams/pages/SubscriberTeamDetailPage.jsx";
+import DefenderServersPage from "./features/defender/pages/DefenderServersPage.jsx";
 import UserFormModal from "./features/users/components/UserFormModal.jsx";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -2171,12 +2174,15 @@ export default function VulnDashboard() {
               ? PORTAL_PATH
               : view === "subscriber-teams"
                 ? (subscriberTeamsRoute.teamId ? getSubscriberTeamDetailPath(subscriberTeamsRoute.teamId) : SUBSCRIBER_TEAMS_PATH)
+              : view === DEFENDER_SERVERS_VIEW
+                ? DEFENDER_SERVERS_PATH
           : (
             window.location.pathname.startsWith(VULN_LIST_PATH)
             || window.location.pathname.startsWith(KEV_LIST_PATH)
             || window.location.pathname === ACCOUNT_PATH
             || window.location.pathname === PORTAL_PATH
             || window.location.pathname.startsWith(SUBSCRIBER_TEAMS_PATH)
+            || window.location.pathname === DEFENDER_SERVERS_PATH
           )
             ? "/"
             : "";
@@ -4148,6 +4154,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
     { id: "ai", label: "Asistente IA", icon: "brain" },
     { id: "collector", label: "Collector", icon: "server" },
     { id: "subscriber-teams", label: "Equipos suscriptores", icon: "users" },
+    { id: DEFENDER_SERVERS_VIEW, label: "Servidores (Defender)", icon: "server" },
     { id: "user-mgmt", label: "Gestión usuarios", icon: "users" },
     { id: "settings", label: "Configuración", icon: "settings" },
   ];
@@ -4177,7 +4184,7 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
         : (
       isSubscriber
         ? allNav.filter((n) => subscriberAllowedViews.includes(n.id))
-        : (isViewer ? allNav.filter((n) => viewerAllowedViews.includes(n.id)) : allNav.filter((n) => !["user-mgmt", "subscriber-teams"].includes(n.id)))
+        : (isViewer ? allNav.filter((n) => viewerAllowedViews.includes(n.id)) : allNav.filter((n) => !["user-mgmt", "subscriber-teams", DEFENDER_SERVERS_VIEW].includes(n.id)))
         )
     );
   const userTeamAssignmentErrors = editUser && shouldValidateTeamAssignments(editUser)
@@ -6536,6 +6543,13 @@ Indica prioridad, acciones inmediatas y plan de mitigación.`;
                     onOpenTeam={(teamId) => setSubscriberTeamsRoute({ teamId })}
                   />
                 )
+            )}
+
+            {view === DEFENDER_SERVERS_VIEW && isAdmin && (
+              <DefenderServersPage
+                apiFetch={apiFetch}
+                onOpenCve={(cveId) => openVulnerabilityDetail({ cveId }, { sourceView: "vulns" })}
+              />
             )}
 
             {/* ═══ SETTINGS ═══ */}
