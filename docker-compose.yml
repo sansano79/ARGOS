@@ -82,7 +82,9 @@ services:
     container_name: argos-frontend
     restart: unless-stopped
     ports:
-      - "${OCC_HTTP_PORT:-80}:80"
+      # Publicar solo en la interfaz por la que entra el proxy/ingress TLS.
+      # Por defecto loopback; si el ingress está en otro host, usar su IP interna de escucha.
+      - "${OCC_HTTP_BIND:-127.0.0.1}:${OCC_HTTP_PORT:-80}:80"
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:80/ || exit 1"]
       interval: 30s

@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
@@ -6,10 +6,22 @@ import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
 import crypto from 'crypto';
 import { getTestMfaBypassStartupStatus, shouldBypassMfaForUser } from './test-mfa-bypass.util';
+import { MfaAttemptLimiter } from './mfa-attempt-limiter';
+import {
+  ACCESS_TOKEN_AUDIENCE,
+  ACCESS_TOKEN_TYPE,
+  JWT_ALGORITHM,
+  JWT_ISSUER,
+  MFA_TOKEN_AUDIENCE,
+  MFA_TOKEN_TYPE,
+} from './token-claims';
+
+const TOTP_STEP_SECONDS = 30;
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly mfaLimiter = new MfaAttemptLimiter();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -50,16 +62,59 @@ export class AuthService {
   }
 
   private signMfaToken(user: { id: number; email: string }) {
-    const payload = { sub: user.id, email: user.email, purpose: 'mfa' };
-    return this.jwtService.sign(payload, { expiresIn: process.env.MFA_TOKEN_EXPIRATION || '10m' });
+    const payload = { sub: user.id, email: user.email, purpose: 'mfa', typ: MFA_TOKEN_TYPE };
+    return this.jwtService.sign(payload, {
+      expiresIn: process.env.MFA_TOKEN_EXPIRATION || '10m',
+      audience: MFA_TOKEN_AUDIENCE,
+      issuer: JWT_ISSUER,
+      algorithm: JWT_ALGORITHM,
+      jwtid: crypto.randomUUID(),
+    });
   }
 
   private verifyMfaToken(token: string) {
-    const payload: any = this.jwtService.verify(token);
-    if (!payload || payload.purpose !== 'mfa' || !payload.sub) {
+    let payload: any;
+    try {
+      payload = this.jwtService.verify(token, {
+        audience: MFA_TOKEN_AUDIENCE,
+        issuer: JWT_ISSUER,
+        algorithms: [JWT_ALGORITHM],
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid MFA token');
+    }
+    if (!payload || payload.purpose !== 'mfa' || payload.typ !== MFA_TOKEN_TYPE || !payload.sub || !payload.jti) {
+      throw new UnauthorizedException('Invalid MFA token');
+    }
+    if (this.mfaLimiter.isTokenRevoked(String(payload.jti))) {
       throw new UnauthorizedException('Invalid MFA token');
     }
     return payload;
+  }
+
+  /**
+   * Valida un código TOTP con límite de intentos, protección anti-replay y
+   * consumo del mfaToken (un solo uso tras éxito).
+   */
+  private checkMfaCode(userId: number, payload: any, secret: string, code: string) {
+    const jti = String(payload.jti);
+    const tokenExpiresAtMs = Number(payload.exp || 0) * 1000 || Date.now() + 15 * 60 * 1000;
+
+    if (this.mfaLimiter.isUserLocked(userId)) {
+      this.logger.warn(`MFA_LOCKED userId=${userId}`);
+      throw new UnauthorizedException('Too many MFA attempts. Try again later.');
+    }
+
+    const delta = /^\d{6}$/.test(code) ? authenticator.checkDelta(code, secret) : null;
+    const step = Math.floor(Date.now() / 1000 / TOTP_STEP_SECONDS) + (delta ?? 0);
+
+    if (delta === null || delta === undefined || this.mfaLimiter.isReplayedStep(userId, step)) {
+      const revoked = this.mfaLimiter.recordFailure(userId, jti, tokenExpiresAtMs);
+      this.logger.warn(`MFA_FAILED userId=${userId}${revoked ? ' token_revoked=true' : ''}`);
+      throw new UnauthorizedException('Invalid MFA code');
+    }
+
+    this.mfaLimiter.recordSuccess(userId, step, jti, tokenExpiresAtMs);
   }
 
   async validateUser(email: string, password: string): Promise<any> {
@@ -100,9 +155,13 @@ export class AuthService {
   }
 
   async issueAccessToken(user: any) {
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    const payload = { sub: user.id, email: user.email, role: user.role, typ: ACCESS_TOKEN_TYPE };
     return {
-      access_token: this.jwtService.sign(payload),
+      access_token: this.jwtService.sign(payload, {
+        audience: ACCESS_TOKEN_AUDIENCE,
+        issuer: JWT_ISSUER,
+        algorithm: JWT_ALGORITHM,
+      }),
       user: {
         id: user.id,
         email: user.email,
@@ -180,10 +239,16 @@ export class AuthService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, authProvider: true, isActive: true, canLogin: true },
+      select: { id: true, email: true, authProvider: true, isActive: true, canLogin: true, mfaEnabled: true },
     });
     if (!user || !user.isActive || !user.canLogin || user.authProvider !== 'LOCAL') {
       throw new UnauthorizedException('User not allowed');
+    }
+    // Un usuario con MFA activo no puede re-enrolarse con solo la contraseña:
+    // el reseteo de MFA lo hace un administrador.
+    if (user.mfaEnabled) {
+      this.logger.warn(`MFA_SETUP_REJECTED_ALREADY_ENABLED userId=${user.id}`);
+      throw new ForbiddenException('MFA already configured');
     }
 
     const secret = authenticator.generateSecret();
@@ -213,14 +278,14 @@ export class AuthService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, role: true, isSubscriber: true, isActive: true, canLogin: true, authProvider: true, mfaSecretEnc: true, mfaSecretIv: true, mfaSecretTag: true },
+      select: { id: true, email: true, name: true, role: true, isSubscriber: true, isActive: true, canLogin: true, authProvider: true, mfaEnabled: true, mfaSecretEnc: true, mfaSecretIv: true, mfaSecretTag: true },
     });
     if (!user || !user.isActive || !user.canLogin || user.authProvider !== 'LOCAL') throw new UnauthorizedException('User not allowed');
+    if (user.mfaEnabled) throw new ForbiddenException('MFA already configured');
     if (!user.mfaSecretEnc || !user.mfaSecretIv || !user.mfaSecretTag) throw new UnauthorizedException('MFA not initialized');
 
     const secret = this.decryptMfaSecret(user.mfaSecretEnc, user.mfaSecretIv, user.mfaSecretTag);
-    const ok = authenticator.check(code, secret);
-    if (!ok) throw new UnauthorizedException('Invalid MFA code');
+    this.checkMfaCode(userId, payload, secret, code);
 
     await this.prisma.user.update({
       where: { id: userId },
@@ -246,8 +311,7 @@ export class AuthService {
     if (!user.mfaSecretEnc || !user.mfaSecretIv || !user.mfaSecretTag) throw new UnauthorizedException('MFA secret missing');
 
     const secret = this.decryptMfaSecret(user.mfaSecretEnc, user.mfaSecretIv, user.mfaSecretTag);
-    const ok = authenticator.check(code, secret);
-    if (!ok) throw new UnauthorizedException('Invalid MFA code');
+    this.checkMfaCode(userId, payload, secret, code);
 
     await this.prisma.user.update({
       where: { id: userId },

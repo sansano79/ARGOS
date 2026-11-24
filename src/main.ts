@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { getTestMfaBypassStartupStatus } from './auth/test-mfa-bypass.util';
+import { checkStartupSecurity } from './common/startup-security-check';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -18,6 +19,16 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log', 'debug', 'verbose'],
   });
+
+  // Se evalúa tras crear la app para que ConfigModule haya cargado los .env.
+  const securityCheck = checkStartupSecurity(process.env);
+  securityCheck.warnings.forEach((w) => logger.warn(`SECURITY_CONFIG: ${w}`));
+  if (securityCheck.errors.length > 0) {
+    securityCheck.errors.forEach((e) => logger.error(`SECURITY_CONFIG: ${e}`));
+    logger.error('Configuración insegura para producción: arranque abortado');
+    await app.close();
+    process.exit(1);
+  }
 
   const expressApp = app.getHttpAdapter().getInstance();
   const trustProxy = process.env.TRUST_PROXY;
@@ -70,7 +81,7 @@ async function bootstrap() {
 
   // Swagger: debe configurarse ANTES de setGlobalPrefix para evitar conflictos de rutas
   // La ruta 'api/docs' es absoluta y no se ve afectada por el prefijo global
-  const enableSwagger = process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV !== 'production';
+  const enableSwagger = securityCheck.swaggerEnabled;
 
   if (enableSwagger) {
     const config = new DocumentBuilder()

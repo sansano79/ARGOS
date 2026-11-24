@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ACCESS_TOKEN_AUDIENCE, JWT_ALGORITHM, JWT_ISSUER, isAccessTokenPayload } from '../token-claims';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -14,10 +15,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: configService.get<string>('JWT_SECRET'),
+      algorithms: [JWT_ALGORITHM],
+      audience: ACCESS_TOKEN_AUDIENCE,
+      issuer: JWT_ISSUER,
     });
   }
 
   async validate(payload: any) {
+    // Los tokens intermedios de MFA (u otros propósitos) nunca dan acceso a la API.
+    if (!isAccessTokenPayload(payload)) throw new UnauthorizedException('Invalid token');
     const userId = Number(payload?.sub);
     if (!Number.isInteger(userId) || userId <= 0) throw new UnauthorizedException('Invalid token');
     const user = await this.prisma.user.findUnique({
